@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../data_provider.dart';
+import '../providers/data_provider.dart';
 
 class CardsScreen extends StatelessWidget {
+  // Функция для получения цвета категории
   Color _getCategoryColor(String category) {
     switch (category) {
       case 'Кино':
@@ -29,7 +30,7 @@ class CardsScreen extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Максимальная ширина плитки (например, 200 пикселей)
+        // Максимальная ширина плитки (например, 250 пикселей)
         const maxTileWidth = 250.0;
         // Вычисляем количество столбцов
         final crossAxisCount = (constraints.maxWidth / maxTileWidth).floor();
@@ -44,8 +45,8 @@ class CardsScreen extends StatelessWidget {
           childAspectRatio: 1.0, // Убираем жесткое соотношение сторон
           children: cards.map((card) {
             // Сортировка категорий по убыванию процента кешбека
-            final sortedCategories = List.from(card['categories'])
-              ..sort((a, b) => b['percent'].compareTo(a['percent']));
+            final sortedCategories = List.from(card.categories)
+              ..sort((a, b) => b.percent.compareTo(a.percent));
 
             return IntrinsicHeight(
               child: Card(
@@ -60,7 +61,7 @@ class CardsScreen extends StatelessWidget {
                     children: [
                       // Название карты и номер
                       Text(
-                        '${card['name']} (**** ${card['number']})',
+                        '${card.name} (**** ${card.number})',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -69,16 +70,20 @@ class CardsScreen extends StatelessWidget {
                       SizedBox(height: 8),
                       // Список категорий
                       ...sortedCategories.map<Widget>((category) {
-                        final categoryColor = _getCategoryColor(category['name']);
+                        final categoryColor = _getCategoryColor(category.name);
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2.0),
                           child: Row(
                             children: [
-                              Icon(category['icon'], size: 16, color: categoryColor),
+                              Icon(
+                                _getCategoryIcon(category.icon), // Получаем иконку
+                                size: 16,
+                                color: categoryColor,
+                              ),
                               SizedBox(width: 4),
                               Expanded(
                                 child: Text(
-                                  category['name'],
+                                  category.name,
                                   style: TextStyle(fontSize: 12),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -90,7 +95,7 @@ class CardsScreen extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  '${category['percent']}%',
+                                  '${category.percent}%',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
@@ -111,5 +116,25 @@ class CardsScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  // Функция для получения иконки категории
+  IconData _getCategoryIcon(String icon) {
+    switch (icon) {
+      case 'movie':
+        return Icons.movie;
+      case 'local_cafe':
+        return Icons.local_cafe;
+      case 'fastfood':
+        return Icons.fastfood;
+      case 'shopping_cart':
+        return Icons.shopping_cart;
+      case 'directions_bus':
+        return Icons.directions_bus;
+      case 'shopping_bag':
+        return Icons.shopping_bag;
+      default:
+        return Icons.category;
+    }
   }
 }

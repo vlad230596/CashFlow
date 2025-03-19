@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../data_provider.dart';
+import '../providers/data_provider.dart';
 import 'widgets/cashback_item.dart';
 
 class CashbackScreen extends StatefulWidget {
@@ -32,42 +32,37 @@ class _CashbackScreenState extends State<CashbackScreen> {
   }
 
   void _updateFilteredData() {
-    final dataProvider = Provider.of<DataProvider>(context, listen: false);
-    _filteredData = dataProvider.cards.expand<Map<String, dynamic>>((card) {
-      return card['categories'].map<Map<String, dynamic>>((category) {
+    final dataProvider = Provider.of<DataProvider>(context, listen: true); // Слушаем изменения
+    _filteredData = _getData(dataProvider);
+    _sortData();
+  }
+
+  List<Map<String, dynamic>> _getData(DataProvider dataProvider) {
+    return dataProvider.cards.expand<Map<String, dynamic>>((card) {
+      return card.categories.map<Map<String, dynamic>>((category) {
         return {
-          'category': category['name'],
-          'percent': category['percent'],
-          'cardNumber': card['number'],
-          'icon': category['icon'],
+          'category': category.name,
+          'percent': category.percent,
+          'cardNumber': card.number,
+          'icon': _getCategoryIcon(category.icon),
         };
       });
     }).toList();
+  }
 
-    // Сортировка по убыванию процента кешбека
+  void _sortData() {
     _filteredData.sort((a, b) => b['percent'].compareTo(a['percent']));
   }
 
   void _onSearchChanged() {
     final query = _searchController.text.toLowerCase();
     setState(() {
-      final dataProvider = Provider.of<DataProvider>(context, listen: false);
-      final allData = dataProvider.cards.expand<Map<String, dynamic>>((card) {
-        return card['categories'].map<Map<String, dynamic>>((category) {
-          return {
-            'category': category['name'],
-            'percent': category['percent'],
-            'cardNumber': card['number'],
-            'icon': category['icon'],
-          };
-        });
-      }).toList();
+      final dataProvider = Provider.of<DataProvider>(context, listen: true); // Слушаем изменения
+      final allData = _getData(dataProvider);
 
       if (query.isEmpty) {
-        // Если запрос пуст, показываем все данные
         _filteredData = allData;
       } else {
-        // Фильтруем данные по запросу
         _filteredData = allData.where((item) {
           final category = item['category'].toLowerCase();
           final cardNumber = item['cardNumber'].toLowerCase();
@@ -75,8 +70,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
         }).toList();
       }
 
-      // Сортировка по убыванию процента кешбека
-      _filteredData.sort((a, b) => b['percent'].compareTo(a['percent']));
+      _sortData();
     });
   }
 
@@ -98,20 +92,44 @@ class _CashbackScreenState extends State<CashbackScreen> {
           ),
         ),
         Expanded(
-          child: ListView.builder(
-            itemCount: _filteredData.length,
-            itemBuilder: (context, index) {
-              final item = _filteredData[index];
-              return CashbackItem(
-                category: item['category'],
-                percent: item['percent'],
-                cardNumber: item['cardNumber'],
-                icon: item['icon'],
+          child: Consumer<DataProvider>(
+            builder: (context, dataProvider, child) {
+              _updateFilteredData(); // Обновляем данные при изменении DataProvider
+              return ListView.builder(
+                itemCount: _filteredData.length,
+                itemBuilder: (context, index) {
+                  final item = _filteredData[index];
+                  return CashbackItem(
+                    category: item['category'],
+                    percent: item['percent'],
+                    cardNumber: item['cardNumber'],
+                    icon: item['icon'],
+                  );
+                },
               );
             },
           ),
         ),
       ],
     );
+  }
+
+  IconData _getCategoryIcon(String icon) {
+    switch (icon) {
+      case 'movie':
+        return Icons.movie;
+      case 'local_cafe':
+        return Icons.local_cafe;
+      case 'fastfood':
+        return Icons.fastfood;
+      case 'shopping_cart':
+        return Icons.shopping_cart;
+      case 'directions_bus':
+        return Icons.directions_bus;
+      case 'shopping_bag':
+        return Icons.shopping_bag;
+      default:
+        return Icons.category;
+    }
   }
 }
