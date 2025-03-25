@@ -11,7 +11,7 @@ class DataProvider with ChangeNotifier {
 
   Future<void> fetchCards() async {
     try {
-      final response = await http.get(Uri.parse('http://192.168.31.142:5000/api/cards'));
+      final response = await http.get(Uri.parse('http://192.168.31.142:5000/api/active_cashback'));
       print('response status: ${response.statusCode}');
       print('response body: ${response.body}');
       if (response.statusCode == 200) {

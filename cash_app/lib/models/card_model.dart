@@ -22,20 +22,17 @@ class CardModel {
 
 class CategoryModel {
   final String name;
-  final int percent;
-  final String icon;
+  final double percent;
 
   CategoryModel({
     required this.name,
-    required this.percent,
-    required this.icon,
+    required this.percent
   });
 
   factory CategoryModel.fromJson(Map<String, dynamic> json) {
     return CategoryModel(
       name: json['name'],
-      percent: json['percent'],
-      icon: json['icon'],
+      percent: json['percent']
     );
   }
 }

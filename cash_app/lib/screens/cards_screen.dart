@@ -1,27 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/data_provider.dart';
+import '../utils/category_colors.dart'; 
+import '../utils/category_icons.dart';
 
 class CardsScreen extends StatelessWidget {
-  // Функция для получения цвета категории
-  Color _getCategoryColor(String category) {
-    switch (category) {
-      case 'Кино':
-        return Colors.orange;
-      case 'Кафе':
-        return Colors.green;
-      case 'Фастфуд':
-        return Colors.red;
-      case 'Супермаркеты':
-        return Colors.blue;
-      case 'Транспорт':
-        return Colors.purple;
-      case 'Одежда':
-        return Colors.pink;
-      default:
-        return Colors.grey;
-    }
-  }
+  const CardsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -70,13 +54,13 @@ class CardsScreen extends StatelessWidget {
                       SizedBox(height: 8),
                       // Список категорий
                       ...sortedCategories.map<Widget>((category) {
-                        final categoryColor = _getCategoryColor(category.name);
+                        final categoryColor = CategoryColors.getCategoryColor(category.name);
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2.0),
                           child: Row(
                             children: [
                               Icon(
-                                _getCategoryIcon(category.icon), // Получаем иконку
+                                CategoryIcons.getCategoryIcon(category.name),
                                 size: 16,
                                 color: categoryColor,
                               ),
@@ -106,7 +90,7 @@ class CardsScreen extends StatelessWidget {
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),
@@ -116,25 +100,5 @@ class CardsScreen extends StatelessWidget {
         );
       },
     );
-  }
-
-  // Функция для получения иконки категории
-  IconData _getCategoryIcon(String icon) {
-    switch (icon) {
-      case 'movie':
-        return Icons.movie;
-      case 'local_cafe':
-        return Icons.local_cafe;
-      case 'fastfood':
-        return Icons.fastfood;
-      case 'shopping_cart':
-        return Icons.shopping_cart;
-      case 'directions_bus':
-        return Icons.directions_bus;
-      case 'shopping_bag':
-        return Icons.shopping_bag;
-      default:
-        return Icons.category;
-    }
   }
 }

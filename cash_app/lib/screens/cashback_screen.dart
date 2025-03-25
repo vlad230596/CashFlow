@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/data_provider.dart';
 import 'widgets/cashback_item.dart';
+import '../utils/category_icons.dart'; 
 
 class CashbackScreen extends StatefulWidget {
+  const CashbackScreen({super.key});
+
   @override
   _CashbackScreenState createState() => _CashbackScreenState();
 }
@@ -44,7 +47,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
           'category': category.name,
           'percent': category.percent,
           'cardNumber': card.number,
-          'icon': _getCategoryIcon(category.icon),
+          'icon': CategoryIcons.getCategoryIcon(category.name),
         };
       });
     }).toList();
@@ -103,7 +106,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
                     category: item['category'],
                     percent: item['percent'],
                     cardNumber: item['cardNumber'],
-                    icon: item['icon'],
+                    icon: CategoryIcons.getCategoryIcon(item['category']),
                   );
                 },
               );
@@ -112,24 +115,5 @@ class _CashbackScreenState extends State<CashbackScreen> {
         ),
       ],
     );
-  }
-
-  IconData _getCategoryIcon(String icon) {
-    switch (icon) {
-      case 'movie':
-        return Icons.movie;
-      case 'local_cafe':
-        return Icons.local_cafe;
-      case 'fastfood':
-        return Icons.fastfood;
-      case 'shopping_cart':
-        return Icons.shopping_cart;
-      case 'directions_bus':
-        return Icons.directions_bus;
-      case 'shopping_bag':
-        return Icons.shopping_bag;
-      default:
-        return Icons.category;
-    }
   }
 }
