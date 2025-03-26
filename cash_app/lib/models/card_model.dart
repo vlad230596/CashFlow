@@ -1,16 +1,16 @@
-class CardModel {
+class CashbackModel {
   final String name;
   final String number;
   final List<CategoryModel> categories;
 
-  CardModel({
+  CashbackModel({
     required this.name,
     required this.number,
     required this.categories,
   });
 
-  factory CardModel.fromJson(Map<String, dynamic> json) {
-    return CardModel(
+  factory CashbackModel.fromJson(Map<String, dynamic> json) {
+    return CashbackModel(
       name: json['name'],
       number: json['number'],
       categories: (json['categories'] as List)

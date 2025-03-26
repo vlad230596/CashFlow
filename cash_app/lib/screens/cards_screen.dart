@@ -10,7 +10,7 @@ class CardsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
-    final cards = dataProvider.cards;
+    final cards = dataProvider.cashbacks;
 
     return LayoutBuilder(
       builder: (context, constraints) {

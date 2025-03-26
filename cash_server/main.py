@@ -3,6 +3,8 @@ from flask_cors import CORS  # Импортируем CORS
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
+from sqlalchemy import select
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///cards.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -27,7 +29,7 @@ class Bank(db.Model):
 
 
 # Модель для владельца карты (только имя)
-class CardOwner(db.Model):
+class CardUser(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
 
@@ -46,10 +48,8 @@ class BankCard(db.Model):
     last_four_digits = db.Column(db.String(4), nullable=False)
 
     bank_id = db.Column(db.Integer, db.ForeignKey('bank.id'), nullable=False)
-    bank = db.relationship('Bank', backref=db.backref('cards', lazy=True))
 
-    owner_id = db.Column(db.Integer, db.ForeignKey('card_owner.id'), nullable=False)
-    owner = db.relationship('CardOwner', backref=db.backref('cards', lazy=True))
+    user_id = db.Column(db.Integer, db.ForeignKey('card_user.id'), nullable=False)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
@@ -60,8 +60,8 @@ class BankCard(db.Model):
             'payment_system': self.payment_system,
             'card_type': self.card_type,
             'last_four_digits': self.last_four_digits,
-            'bank': self.bank.to_dict() if self.bank else None,
-            'owner': self.owner.to_dict() if self.owner else None,
+            'bank_id': self.bank_id,
+            'user_id': self.user_id,
             'created_at': self.created_at.isoformat(),
             'is_active': self.is_active
         }
@@ -93,6 +93,7 @@ class CashbackCategory(db.Model):
 
 # Создаём таблицы при запуске приложения
 with app.app_context():
+    # db.drop_all()
     db.create_all()
 
 
@@ -118,21 +119,21 @@ def banks():
 
 # Роуты для владельцев карт
 @app.route('/api/users', methods=['GET', 'POST'])
-def owners():
+def users():
     if request.method == 'POST':
         data = request.json
         if 'name' not in data:
             return jsonify({'error': 'Name is required'}), 400
 
-        owner = CardOwner(
+        user = CardUser(
             name=data['name']
         )
-        db.session.add(owner)
+        db.session.add(user)
         db.session.commit()
-        return jsonify(owner.to_dict()), 201
+        return jsonify(user.to_dict()), 201
 
-    owners = CardOwner.query.all()
-    return jsonify([owner.to_dict() for owner in owners])
+    users = CardUser.query.all()
+    return jsonify([user.to_dict() for user in users])
 
 
 # Роуты для банковских карт
@@ -141,24 +142,28 @@ def cards():
     if request.method == 'POST':
         data = request.json
 
-        required_fields = ['payment_system', 'card_type', 'last_four_digits', 'bank_id', 'owner_id']
+        # Валидация обязательных полей
+        required_fields = ['payment_system', 'card_type', 'last_four_digits', 'bank_id', 'user_id']
         if not all(field in data for field in required_fields):
             return jsonify({'error': 'Missing required fields'}), 400
 
+        # Проверка формата последних 4 цифр
         if len(data['last_four_digits']) != 4 or not data['last_four_digits'].isdigit():
             return jsonify({'error': 'Last four digits must be exactly 4 digits'}), 400
 
+        # Проверка существования банка и пользователя
         if not db.session.get(Bank, data['bank_id']):
             return jsonify({'error': 'Bank not found'}), 404
-        if not db.session.get(CardOwner, data['owner_id']):
-            return jsonify({'error': 'Owner not found'}), 404
+        if not db.session.get(CardUser, data['user_id']):
+            return jsonify({'error': 'User not found'}), 404
 
+        # Создание новой карты
         new_card = BankCard(
             payment_system=data['payment_system'],
             card_type=data['card_type'],
             last_four_digits=data['last_four_digits'],
             bank_id=data['bank_id'],
-            owner_id=data['owner_id'],
+            user_id=data['user_id'],
             is_active=data.get('is_active', True)
         )
 
@@ -166,8 +171,55 @@ def cards():
         db.session.commit()
         return jsonify(new_card.to_dict()), 201
 
-    cards = BankCard.query.all()
+    # GET запрос - список всех карт
+    cards = db.session.execute(select(BankCard)).scalars().all()
     return jsonify([card.to_dict() for card in cards])
+
+
+@app.route('/api/cards/<int:card_id>', methods=['GET', 'PUT', 'DELETE'])
+def card_detail(card_id):
+    card = db.session.get(BankCard, card_id)
+    if not card:
+        return jsonify({'error': 'Card not found'}), 404
+
+    if request.method == 'GET':
+        return jsonify(card.to_dict())
+
+    elif request.method == 'PUT':
+        data = request.json
+
+        # Валидация обновляемых полей
+        if 'last_four_digits' in data:
+            if len(data['last_four_digits']) != 4 or not data['last_four_digits'].isdigit():
+                return jsonify({'error': 'Last four digits must be exactly 4 digits'}), 400
+            card.last_four_digits = data['last_four_digits']
+
+        if 'bank_id' in data:
+            if not db.session.get(Bank, data['bank_id']):
+                return jsonify({'error': 'Bank not found'}), 404
+            card.bank_id = data['bank_id']
+
+        if 'user_id' in data:
+            if not db.session.get(CardUser, data['user_id']):
+                return jsonify({'error': 'User not found'}), 404
+            card.user_id = data['user_id']
+
+        if 'payment_system' in data:
+            card.payment_system = data['payment_system']
+
+        if 'card_type' in data:
+            card.card_type = data['card_type']
+
+        if 'is_active' in data:
+            card.is_active = data['is_active']
+
+        db.session.commit()
+        return jsonify(card.to_dict())
+
+    elif request.method == 'DELETE':
+        db.session.delete(card)
+        db.session.commit()
+        return jsonify({'message': 'Card deleted successfully'})
 
 
 # Роуты для категорий кешбека
@@ -274,7 +326,7 @@ def get_active_cashback():
 
         if active_categories:
             card_data = {
-                "name": f"{card.bank.name} {card.owner.name}",
+                "name": f"{card.bank.name} {card.user.name}",
                 "number": card.last_four_digits,
                 "categories": [
                     {

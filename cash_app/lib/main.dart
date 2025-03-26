@@ -6,7 +6,7 @@ import 'screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final dataProvider = DataProvider();
-  await dataProvider.loadLocalCards(); // Загружаем локальные данные при запуске
+  await dataProvider.loadLocalCashbacks(); // Загружаем локальные данные при запуске
 
   runApp(
     ChangeNotifierProvider(

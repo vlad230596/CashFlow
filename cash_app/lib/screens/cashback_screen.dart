@@ -41,7 +41,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
   }
 
   List<Map<String, dynamic>> _getData(DataProvider dataProvider) {
-    return dataProvider.cards.expand<Map<String, dynamic>>((card) {
+    return dataProvider.cashbacks.expand<Map<String, dynamic>>((card) {
       return card.categories.map<Map<String, dynamic>>((category) {
         return {
           'category': category.name,
