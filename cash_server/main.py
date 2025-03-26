@@ -310,34 +310,46 @@ def cashback_category_detail(category_id):
 def get_active_cashback():
     today = datetime.now().date()
 
-    # Получаем все активные карты
-    active_cards = BankCard.query.filter_by(is_active=True).all()
-
-    result = []
-
-    for card in active_cards:
-        # Получаем активные категории для карты
-        active_categories = CashbackCategory.query.filter(
-            CashbackCategory.card_id == card.id,
+    # SQLAlchemy 2.0 style query with joins
+    stmt = (
+        select(
+            Bank.name.label('bank_name'),
+            CardUser.name.label('user_name'),
+            BankCard.last_four_digits,
+            CashbackCategory.name.label('category_name'),
+            CashbackCategory.cashback_percent
+        )
+        .select_from(BankCard)
+        .join(Bank, BankCard.bank_id == Bank.id)
+        .join(CardUser, BankCard.user_id == CardUser.id)
+        .join(CashbackCategory, CashbackCategory.card_id == BankCard.id)
+        .where(
+            BankCard.is_active == True,
             CashbackCategory.is_selected == True,
             CashbackCategory.start_date <= today,
             CashbackCategory.end_date >= today
-        ).all()
+        )
+        .order_by(BankCard.id)
+    )
 
-        if active_categories:
-            card_data = {
-                "name": f"{card.bank.name} {card.user.name}",
-                "number": card.last_four_digits,
-                "categories": [
-                    {
-                        "name": category.name,
-                        "percent": category.cashback_percent
-                    } for category in active_categories
-                ]
+    # Execute query and process results
+    result = {}
+    for row in db.session.execute(stmt):
+        card_key = f"{row.bank_name} {row.user_name} ({row.last_four_digits})"
+
+        if card_key not in result:
+            result[card_key] = {
+                "name": f'{row.bank_name} {row.user_name}',
+                "number": row.last_four_digits,
+                "categories": []
             }
-            result.append(card_data)
 
-    return jsonify(result)
+        result[card_key]["categories"].append({
+            "name": row.category_name,
+            "percent": row.cashback_percent
+        })
+
+    return jsonify(list(result.values()))
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

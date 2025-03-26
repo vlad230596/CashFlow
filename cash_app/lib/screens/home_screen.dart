@@ -32,7 +32,7 @@ class HomeScreen extends StatelessWidget {
                 switch (value) {
                   case 'refresh':
                     await dataProvider.fetchAllData();
-                    // await Provider.of<DataProvider>(context, listen: false).fetchCashbacks();
+                    //await Provider.of<DataProvider>(context, listen: false).fetchCashbacks();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Data refreshed successfully')),
                     );

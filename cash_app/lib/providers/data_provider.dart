@@ -75,7 +75,7 @@ class DataProvider with ChangeNotifier {
                 userId: item['user_id'],
               ))
           .toList();
-
+      await fetchCashbacks();
       lastUpdated = DateTime.now().toString();
       notifyListeners();
     } catch (e) {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/data_provider.dart';
 import 'widgets/cashback_item.dart';
-import '../utils/category_icons.dart'; 
+import '../utils/category_icons.dart';
 
 class CashbackScreen extends StatefulWidget {
   const CashbackScreen({super.key});
@@ -13,18 +13,19 @@ class CashbackScreen extends StatefulWidget {
 
 class _CashbackScreenState extends State<CashbackScreen> {
   final TextEditingController _searchController = TextEditingController();
-  List<Map<String, dynamic>> _filteredData = [];
+  late List<Map<String, dynamic>> _filteredData;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _filteredData = [];
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _updateFilteredData(); // Обновляем данные при изменении зависимостей
+    _updateFilteredData();
   }
 
   @override
@@ -32,12 +33,6 @@ class _CashbackScreenState extends State<CashbackScreen> {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _updateFilteredData() {
-    final dataProvider = Provider.of<DataProvider>(context, listen: true); // Слушаем изменения
-    _filteredData = _getData(dataProvider);
-    _sortData();
   }
 
   List<Map<String, dynamic>> _getData(DataProvider dataProvider) {
@@ -53,27 +48,31 @@ class _CashbackScreenState extends State<CashbackScreen> {
     }).toList();
   }
 
+  void _updateFilteredData() {
+    final dataProvider = Provider.of<DataProvider>(context, listen: false);
+    final allData = _getData(dataProvider);
+    
+    final query = _searchController.text.toLowerCase();
+    if (query.isEmpty) {
+      _filteredData = allData;
+    } else {
+      _filteredData = allData.where((item) {
+        final category = item['category'].toLowerCase();
+        final cardNumber = item['cardNumber'].toLowerCase();
+        return category.contains(query) || cardNumber.contains(query);
+      }).toList();
+    }
+    
+    _sortData();
+  }
+
   void _sortData() {
     _filteredData.sort((a, b) => b['percent'].compareTo(a['percent']));
   }
 
   void _onSearchChanged() {
-    final query = _searchController.text.toLowerCase();
     setState(() {
-      final dataProvider = Provider.of<DataProvider>(context, listen: true); // Слушаем изменения
-      final allData = _getData(dataProvider);
-
-      if (query.isEmpty) {
-        _filteredData = allData;
-      } else {
-        _filteredData = allData.where((item) {
-          final category = item['category'].toLowerCase();
-          final cardNumber = item['cardNumber'].toLowerCase();
-          return category.contains(query) || cardNumber.contains(query);
-        }).toList();
-      }
-
-      _sortData();
+      _updateFilteredData();
     });
   }
 
@@ -87,7 +86,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
             controller: _searchController,
             decoration: InputDecoration(
               hintText: 'Поиск...',
-              prefixIcon: Icon(Icons.search),
+              prefixIcon: const Icon(Icons.search),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10.0),
               ),
@@ -97,7 +96,11 @@ class _CashbackScreenState extends State<CashbackScreen> {
         Expanded(
           child: Consumer<DataProvider>(
             builder: (context, dataProvider, child) {
-              _updateFilteredData(); // Обновляем данные при изменении DataProvider
+              // Обновляем данные только если изменился dataProvider
+              if (_filteredData.isEmpty || _searchController.text.isEmpty) {
+                _updateFilteredData();
+              }
+              
               return ListView.builder(
                 itemCount: _filteredData.length,
                 itemBuilder: (context, index) {
@@ -106,7 +109,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
                     category: item['category'],
                     percent: item['percent'],
                     cardNumber: item['cardNumber'],
-                    icon: CategoryIcons.getCategoryIcon(item['category']),
+                    icon: item['icon'],
                   );
                 },
               );
