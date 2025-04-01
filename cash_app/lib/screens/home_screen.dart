@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/data_provider.dart';
 import 'cashback_screen.dart';
 import 'cards_screen.dart';
+import 'monthly_cashback_screen.dart';
 import 'settings/banks_settings.dart';
 import 'settings/users_settings.dart';
 import 'settings/cards_settings.dart';
@@ -23,6 +24,7 @@ class HomeScreen extends StatelessWidget {
             tabs: [
               Tab(text: 'Cashback'),
               Tab(text: 'Cards'),
+              // Tab(text: 'MonthCashback'),
             ],
           ),
           actions: [
@@ -160,6 +162,7 @@ class HomeScreen extends StatelessWidget {
           children: [
             CashbackScreen(),
             CardsScreen(),
+            // MonthlyCashbackScreen()
           ],
         ),
       ),

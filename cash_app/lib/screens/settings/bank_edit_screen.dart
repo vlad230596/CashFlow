@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
+import '../../models/bank_model.dart';
 
 class BankEditScreen extends StatefulWidget {
   final BankModel? existingBank;
@@ -51,7 +52,7 @@ class _BankEditScreenState extends State<BankEditScreen> {
       );
     } else {
       await dataProvider.updateBank(
-        widget.existingBank!.id,
+        widget.existingBank!.id!,
         _nameController.text,
         _descriptionController.text, // Still pass the value, even if empty
       );
@@ -100,7 +101,7 @@ class _BankEditScreenState extends State<BankEditScreen> {
                 if (shouldDelete == true) {
                   try {
                     await Provider.of<DataProvider>(context, listen: false)
-                        .deleteBank(widget.existingBank!.id);
+                        .deleteBank(widget.existingBank!.id!);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Bank deleted successfully')),
                     );

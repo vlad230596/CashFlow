@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
 import 'card_edit_screen.dart';
 
+import '../../models/bank_model.dart';
+import '../../models/user_model.dart';
+
 class CardsSettingsScreen extends StatelessWidget {
   const CardsSettingsScreen({super.key});
 
@@ -16,7 +19,7 @@ class CardsSettingsScreen extends StatelessWidget {
         (b) => b.id == bankId,
         orElse: () => BankModel(id: -1, name: 'Unknown', description: ''),
       );
-      return bank.name;
+      return bank.name!;
     }
 
     // Helper function to get user name by ID
@@ -67,8 +70,8 @@ class CardsSettingsScreen extends StatelessWidget {
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Bank: ${getBankName(card.bankId)}'),
-                    Text('User: ${getUserName(card.userId)}'),
+                    Text('Bank: ${getBankName(card.bankId!)}'),
+                    Text('User: ${getUserName(card.userId!)}'),
                   ],
                 ),
                 trailing: IconButton(

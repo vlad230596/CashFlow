@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
+import '../../models/user_model.dart';
 
 class UserEditScreen extends StatefulWidget {
   final UserModel? existingUser;

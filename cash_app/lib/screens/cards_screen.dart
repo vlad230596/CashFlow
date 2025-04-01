@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/data_provider.dart';
-import '../utils/category_colors.dart'; 
-import '../utils/category_icons.dart';
+import '../utils/category_info.dart'; 
 
 class CardsScreen extends StatelessWidget {
   const CardsScreen({super.key});
@@ -10,7 +9,7 @@ class CardsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
-    final cards = dataProvider.cashbacks;
+    final cashbackCategories = dataProvider.activeCashbackCategories;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -27,10 +26,10 @@ class CardsScreen extends StatelessWidget {
           crossAxisSpacing: 16.0, // Расстояние между колонками
           mainAxisSpacing: 16.0, // Расстояние между строками
           childAspectRatio: 1.0, // Убираем жесткое соотношение сторон
-          children: cards.map((card) {
+          children: dataProvider.cards.map((card) {
             // Сортировка категорий по убыванию процента кешбека
-            final sortedCategories = List.from(card.categories)
-              ..sort((a, b) => b.percent.compareTo(a.percent));
+            final sortedCategories = cashbackCategories.where((x) => x.cardId == card.id).toList();
+              // .sort((a, b) => b.percent.compareTo(a.percent));
 
             return IntrinsicHeight(
               child: Card(
@@ -45,7 +44,7 @@ class CardsScreen extends StatelessWidget {
                     children: [
                       // Название карты и номер
                       Text(
-                        '${card.name} (**** ${card.number})',
+                        '${dataProvider.getCardName(card.id!)} ${card.lastFourDigits}',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -54,13 +53,13 @@ class CardsScreen extends StatelessWidget {
                       SizedBox(height: 8),
                       // Список категорий
                       ...sortedCategories.map<Widget>((category) {
-                        final categoryColor = CategoryColors.getCategoryColor(category.name);
+                        final categoryColor = CategoryInfo.getCategoryColor(category.name);
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2.0),
                           child: Row(
                             children: [
                               Icon(
-                                CategoryIcons.getCategoryIcon(category.name),
+                                CategoryInfo.getCategoryIcon(category.name),
                                 size: 16,
                                 color: categoryColor,
                               ),
@@ -79,7 +78,7 @@ class CardsScreen extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  '${category.percent}%',
+                                  '${category.cashbackPercent}%',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,

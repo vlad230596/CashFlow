@@ -37,7 +37,7 @@ class BanksSettingsScreen extends StatelessWidget {
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
                 leading: const Icon(Icons.account_balance),
-                title: Text(bank.name),
+                title: Text(bank.name!),
                 subtitle: Text(bank.description ?? ""),
                 trailing: IconButton(
                   icon: const Icon(Icons.edit),

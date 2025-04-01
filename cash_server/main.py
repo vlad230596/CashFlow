@@ -13,7 +13,6 @@ db = SQLAlchemy(app)
 
 CORS(app)
 
-
 # Модель для банка
 class Bank(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -53,6 +52,7 @@ class BankCard(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_active = db.Column(db.Boolean, default=True)
+    max_cashback_categories = db.Column(db.Integer, default=4)
 
     def to_dict(self):
         return {
@@ -63,7 +63,8 @@ class BankCard(db.Model):
             'bank_id': self.bank_id,
             'user_id': self.user_id,
             'created_at': self.created_at.isoformat(),
-            'is_active': self.is_active
+            'is_active': self.is_active,
+            'max_cashback_categories': self.max_cashback_categories
         }
 
 
@@ -95,7 +96,6 @@ class CashbackCategory(db.Model):
 with app.app_context():
     # db.drop_all()
     db.create_all()
-
 
 # Роуты для банков
 @app.route('/api/banks', methods=['GET', 'POST'])
@@ -164,7 +164,8 @@ def cards():
             last_four_digits=data['last_four_digits'],
             bank_id=data['bank_id'],
             user_id=data['user_id'],
-            is_active=data.get('is_active', True)
+            is_active=data.get('is_active', True),
+            max_cashback_categories=data.get('max_cashback_categories', 4)
         )
 
         db.session.add(new_card)
@@ -212,6 +213,9 @@ def card_detail(card_id):
 
         if 'is_active' in data:
             card.is_active = data['is_active']
+
+        if 'max_cashback_categories' in data:
+            card.max_cashback_categories = data['max_cashback_categories']
 
         db.session.commit()
         return jsonify(card.to_dict())
@@ -310,6 +314,15 @@ def cashback_category_detail(category_id):
 def get_active_cashback():
     today = datetime.now().date()
 
+    categories = CashbackCategory.query.where(
+        CashbackCategory.is_selected == True,
+        # CashbackCategory.start_date <= today,
+        CashbackCategory.end_date >= today
+
+    )
+    return jsonify([category.to_dict() for category in categories])
+
+
     # SQLAlchemy 2.0 style query with joins
     stmt = (
         select(
@@ -324,10 +337,10 @@ def get_active_cashback():
         .join(CardUser, BankCard.user_id == CardUser.id)
         .join(CashbackCategory, CashbackCategory.card_id == BankCard.id)
         .where(
-            BankCard.is_active == True,
+            # BankCard.is_active == True,
             CashbackCategory.is_selected == True,
-            CashbackCategory.start_date <= today,
-            CashbackCategory.end_date >= today
+            # CashbackCategory.start_date <= today,
+            # CashbackCategory.end_date >= today
         )
         .order_by(BankCard.id)
     )

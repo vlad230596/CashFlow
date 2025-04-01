@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
 import 'widgets/cashback_item.dart';
-import '../utils/category_icons.dart';
+import '../utils/category_info.dart';
 
 class CashbackScreen extends StatefulWidget {
   const CashbackScreen({super.key});
@@ -13,7 +14,7 @@ class CashbackScreen extends StatefulWidget {
 
 class _CashbackScreenState extends State<CashbackScreen> {
   final TextEditingController _searchController = TextEditingController();
-  late List<Map<String, dynamic>> _filteredData;
+  late List<CashbackCategoryModel> _filteredData;
 
   @override
   void initState() {
@@ -35,17 +36,8 @@ class _CashbackScreenState extends State<CashbackScreen> {
     super.dispose();
   }
 
-  List<Map<String, dynamic>> _getData(DataProvider dataProvider) {
-    return dataProvider.cashbacks.expand<Map<String, dynamic>>((card) {
-      return card.categories.map<Map<String, dynamic>>((category) {
-        return {
-          'category': category.name,
-          'percent': category.percent,
-          'cardNumber': card.number,
-          'icon': CategoryIcons.getCategoryIcon(category.name),
-        };
-      });
-    }).toList();
+  List<CashbackCategoryModel> _getData(DataProvider dataProvider) {
+    return dataProvider.activeCashbackCategories;
   }
 
   void _updateFilteredData() {
@@ -57,9 +49,13 @@ class _CashbackScreenState extends State<CashbackScreen> {
       _filteredData = allData;
     } else {
       _filteredData = allData.where((item) {
-        final category = item['category'].toLowerCase();
-        final cardNumber = item['cardNumber'].toLowerCase();
-        return category.contains(query) || cardNumber.contains(query);
+        final category = item.name.toLowerCase();
+        final cardNumber = dataProvider.getCardById(item.cardId).lastFourDigits!.toLowerCase();
+        final cardName = dataProvider.getCardName(item.cardId).toLowerCase();
+        
+        return category.contains(query) || 
+               cardNumber.contains(query) ||
+               cardName.contains(query);
       }).toList();
     }
     
@@ -67,7 +63,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
   }
 
   void _sortData() {
-    _filteredData.sort((a, b) => b['percent'].compareTo(a['percent']));
+    _filteredData.sort((a, b) => b.cashbackPercent.compareTo(a.cashbackPercent));
   }
 
   void _onSearchChanged() {
@@ -85,7 +81,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
           child: TextField(
             controller: _searchController,
             decoration: InputDecoration(
-              hintText: 'Поиск...',
+              hintText: 'Поиск по категории, карте, банку...',
               prefixIcon: const Icon(Icons.search),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10.0),
@@ -96,7 +92,6 @@ class _CashbackScreenState extends State<CashbackScreen> {
         Expanded(
           child: Consumer<DataProvider>(
             builder: (context, dataProvider, child) {
-              // Обновляем данные только если изменился dataProvider
               if (_filteredData.isEmpty || _searchController.text.isEmpty) {
                 _updateFilteredData();
               }
@@ -106,10 +101,10 @@ class _CashbackScreenState extends State<CashbackScreen> {
                 itemBuilder: (context, index) {
                   final item = _filteredData[index];
                   return CashbackItem(
-                    category: item['category'],
-                    percent: item['percent'],
-                    cardNumber: item['cardNumber'],
-                    icon: item['icon'],
+                    category: item.name,
+                    percent: item.cashbackPercent,
+                    cardName: '${dataProvider.getCardName(item.cardId)} ${dataProvider.getCardById(item.cardId).lastFourDigits}',
+                    icon: CategoryInfo.getCategoryIcon(item.name)
                   );
                 },
               );

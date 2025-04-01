@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
+import '../../models/card_model.dart';
 
 class CardEditScreen extends StatefulWidget {
   final CardModel? existingCard;
@@ -69,7 +70,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
         );
       } else {
         await dataProvider.updateCard(
-          widget.existingCard!.id,
+          widget.existingCard!.id!,
           _paymentSystemController.text,
           _cardTypeController.text,
           _lastFourDigitsController.text,
@@ -122,7 +123,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
 
                 if (shouldDelete == true) {
                   try {
-                    await dataProvider.deleteCard(widget.existingCard!.id);
+                    await dataProvider.deleteCard(widget.existingCard!.id!);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Card deleted successfully')),
                     );
@@ -196,7 +197,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
                 items: dataProvider.banks.map((bank) {
                   return DropdownMenuItem(
                     value: bank.id,
-                    child: Text(bank.name),
+                    child: Text(bank.name!),
                   );
                 }).toList(),
                 onChanged: (value) {
