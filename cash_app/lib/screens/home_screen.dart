@@ -11,6 +11,28 @@ import 'settings/cards_settings.dart';
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
+  String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    return '$day.$month.${date.year}';
+  }
+
+  Future<void> _pickCashbackDate(
+    BuildContext context,
+    DataProvider dataProvider,
+  ) async {
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: dataProvider.cashbackEffectiveDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+
+    if (selectedDate != null) {
+      await dataProvider.setCashbackEffectiveDate(selectedDate);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
@@ -64,6 +86,12 @@ class HomeScreen extends StatelessWidget {
                       context,
                       MaterialPageRoute(builder: (context) => UsersSettingsScreen()),
                     );
+                    break;
+                  case 'cashbackDate':
+                    await _pickCashbackDate(context, dataProvider);
+                    break;
+                  case 'cashbackDateToday':
+                    await dataProvider.setCashbackEffectiveDate(null);
                     break;
                 }
               },
@@ -150,6 +178,33 @@ class HomeScreen extends StatelessWidget {
                             style: const TextStyle(fontSize: 12),
                           ),
                         ),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: 'cashbackDate',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.event, size: 20),
+                        const SizedBox(width: 8),
+                        const Text('Cashback date'),
+                        const Spacer(),
+                        Text(
+                          _formatDate(dataProvider.cashbackEffectiveDate),
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'cashbackDateToday',
+                    enabled: !dataProvider.usesCurrentCashbackDate,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.today, size: 20),
+                        const SizedBox(width: 8),
+                        const Text('Use today'),
                       ],
                     ),
                   ),

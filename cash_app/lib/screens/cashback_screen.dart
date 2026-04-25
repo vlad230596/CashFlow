@@ -39,7 +39,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
 
   void _updateFilteredData() {
     final dataProvider = Provider.of<DataProvider>(context, listen: false);
-    final allData = dataProvider.activeCashbackCategories;
+    final allData = dataProvider.effectiveActiveCashbackCategories;
     final query = _searchController.text.toLowerCase();
 
     if (query.isEmpty) {
@@ -87,9 +87,7 @@ class _CashbackScreenState extends State<CashbackScreen> {
         Expanded(
           child: Consumer<DataProvider>(
             builder: (context, dataProvider, child) {
-              if (_filteredData.isEmpty || _searchController.text.isEmpty) {
-                _updateFilteredData();
-              }
+              _updateFilteredData();
 
               return ListView.builder(
                 itemCount: _filteredData.length,

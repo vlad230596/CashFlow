@@ -16,7 +16,16 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
 
   final Map<int, int> _maxCategoriesPerCard = {};
   final Map<int, TextEditingController> _maxCategoriesControllers = {};
-  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _startDate;
+  late DateTime _endDate;
+
+  @override
+  void initState() {
+    super.initState();
+    final defaultStartDate = _getDefaultStartDate(DateTime.now());
+    _startDate = defaultStartDate;
+    _endDate = _getLastDayOfMonth(defaultStartDate);
+  }
 
   @override
   void dispose() {
@@ -26,24 +35,45 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     super.dispose();
   }
 
-  Future<void> _showMonthPicker(BuildContext context) async {
-    final picked = await showDatePicker(
+  DateTime _getDefaultStartDate(DateTime now) {
+    final targetMonth = now.day <= 20 ? now.month : now.month + 1;
+    return DateTime(now.year, targetMonth);
+  }
+
+  DateTime _getLastDayOfMonth(DateTime date) {
+    return DateTime(date.year, date.month + 1, 0);
+  }
+
+  DateTime _getEndOfDay(DateTime date) {
+    return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+  }
+
+  Future<void> _showDateRangePicker(BuildContext context) async {
+    final picked = await showDateRangePicker(
       context: context,
-      initialDate: _selectedMonth,
+      initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
-      initialDatePickerMode: DatePickerMode.year,
     );
 
     if (picked != null) {
       setState(() {
-        _selectedMonth = DateTime(picked.year, picked.month);
+        _startDate = DateUtils.dateOnly(picked.start);
+        _endDate = DateUtils.dateOnly(picked.end);
       });
     }
   }
 
-  DateTime _getEndDate(DateTime date) {
-    return DateTime(date.year, date.month + 1, date.day);
+  String _formatDate(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}.'
+        '${date.month.toString().padLeft(2, '0')}.${date.year}';
+  }
+
+  bool _isCategoryInSelectedPeriod(DateTime startDate, DateTime endDate) {
+    final categoryStart = DateUtils.dateOnly(startDate);
+    final categoryEnd = DateUtils.dateOnly(endDate);
+
+    return !categoryEnd.isBefore(_startDate) && !categoryStart.isAfter(_endDate);
   }
 
   int _getMaxCategories(int cardId, int? serverValue) {
@@ -70,7 +100,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: InkWell(
-              onTap: () => _showMonthPicker(context),
+              onTap: () => _showDateRangePicker(context),
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -81,7 +111,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '${_selectedMonth.month.toString().padLeft(2, '0')}.${_selectedMonth.year}',
+                      '${_formatDate(_startDate)} - ${_formatDate(_endDate)}',
                       style: const TextStyle(fontSize: 16),
                     ),
                     const Icon(Icons.calendar_today, size: 20),
@@ -106,9 +136,10 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 final cardCategories = dataProvider.cashbackCategories
                     .where((category) => category.cardId == cardId)
                     .where(
-                      (category) =>
-                          category.endDate.year * 12 + category.endDate.month ==
-                          _selectedMonth.year * 12 + _selectedMonth.month + 1,
+                      (category) => _isCategoryInSelectedPeriod(
+                        category.startDate,
+                        category.endDate,
+                      ),
                     )
                     .toList();
                 final selectedCount =
@@ -277,7 +308,6 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
 
   void _showAddCategoriesDialog(BuildContext context, int cardId) {
     final inputController = TextEditingController();
-    final endDate = _getEndDate(_selectedMonth);
 
     showDialog(
       context: context,
@@ -355,8 +385,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                       categoryName,
                       percent,
                       cardId,
-                      _selectedMonth,
-                      endDate,
+                      _startDate,
+                      _getEndOfDay(_endDate),
                     );
                     addedCount++;
                   } catch (e) {

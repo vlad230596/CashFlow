@@ -18,6 +18,46 @@ class DataProvider with ChangeNotifier {
   List<CashbackCategoryModel> activeCashbackCategories = [];
   String? lastUpdated;
   String? serverIp = '192.168.31.142:5000'; // Default server IP
+  DateTime? _cashbackDateOverride;
+
+  DateTime get cashbackEffectiveDate =>
+      _dateOnly(_cashbackDateOverride ?? DateTime.now());
+
+  bool get usesCurrentCashbackDate => _cashbackDateOverride == null;
+
+  List<CashbackCategoryModel> get effectiveActiveCashbackCategories {
+    final source =
+        cashbackCategories.isNotEmpty ? cashbackCategories : activeCashbackCategories;
+
+    return source.where((category) {
+      final effectiveDate = cashbackEffectiveDate;
+      final startDate = _dateOnly(category.startDate);
+      final endDate = _dateOnly(category.endDate);
+
+      return category.isSelected &&
+          !effectiveDate.isBefore(startDate) &&
+          effectiveDate.isBefore(endDate);
+    }).toList();
+  }
+
+  static DateTime _dateOnly(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  Future<void> setCashbackEffectiveDate(DateTime? date) async {
+    _cashbackDateOverride = date == null ? null : _dateOnly(date);
+
+    final prefs = await SharedPreferences.getInstance();
+    if (_cashbackDateOverride == null) {
+      await prefs.remove('cashbackEffectiveDate');
+    } else {
+      await prefs.setString(
+        'cashbackEffectiveDate',
+        _cashbackDateOverride!.toIso8601String(),
+      );
+    }
+
+    notifyListeners();
+  }
 
   Future<List<T>> receiveFromServer<T>(
     String endpoint,
@@ -174,8 +214,14 @@ Future<T> updateItemOnServer<T>(String endpoint, int id, T item, T Function(Map<
       final cachedBanks = prefs.getString('banks');
       final cachedUsers = prefs.getString('users');
       final cachedCards = prefs.getString('cards');
+      final cachedCashbackCategories = prefs.getString('cashbackCategories');
       final cachedActiveCashbackCategories =
           prefs.getString('activeCashbackCategories');
+      final cachedCashbackEffectiveDate = prefs.getString('cashbackEffectiveDate');
+
+      if (cachedCashbackEffectiveDate != null) {
+        _cashbackDateOverride = _dateOnly(DateTime.parse(cachedCashbackEffectiveDate));
+      }
 
       if (cachedBanks != null) {
         banks = (json.decode(cachedBanks) as List)
@@ -192,7 +238,12 @@ Future<T> updateItemOnServer<T>(String endpoint, int id, T item, T Function(Map<
             .map((item) => CardModel.fromJson(item as Map<String, dynamic>))
             .toList();
       }
-      // cashbackCategories  = json.decode(prefs.getString('cashbackCategories')!);
+      if (cachedCashbackCategories != null) {
+        cashbackCategories = (json.decode(cachedCashbackCategories) as List)
+            .map((item) =>
+                CashbackCategoryModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
       if (cachedActiveCashbackCategories != null) {
         activeCashbackCategories = (json.decode(cachedActiveCashbackCategories)
                 as List)
@@ -212,7 +263,7 @@ Future<T> updateItemOnServer<T>(String endpoint, int id, T item, T Function(Map<
     prefs.setString('banks', json.encode(banks.map((bank) => BankModel.toJson(bank)).toList()));
     prefs.setString('users', json.encode(users.map((user) => UserModel.toJson(user)).toList()));
     prefs.setString('cards', json.encode(cards.map((card) => CardModel.toJson(card)).toList()));
-    // prefs.setString('cashbackCategories', json.encode(cashbackCategories));
+    prefs.setString('cashbackCategories', json.encode(cashbackCategories.map((cashbackCategory) => CashbackCategoryModel.toJson(cashbackCategory)).toList()));
     prefs.setString('activeCashbackCategories', json.encode(activeCashbackCategories.map((cashbackCategory) => CashbackCategoryModel.toJson(cashbackCategory)).toList()));
   }
 
