@@ -126,13 +126,30 @@ When changing backend contracts or model nullability, update the model, provider
 
 ## Development Commands
 
-Use these from the repository root:
+Use these from the repository root. Agents should run Flutter/Dart/build commands through the VS Code-like environment helper so the same SDK configured in VS Code is available even when the sandbox shell does not have `flutter` in `PATH`.
+
+To update the current PowerShell session:
+
+```powershell
+. .\scripts\setup_vscode_flutter_env.ps1
+```
+
+For one-off commands, prefer:
+
+```powershell
+.\scripts\setup_vscode_flutter_env.ps1 -Run "flutter analyze"
+.\scripts\setup_vscode_flutter_env.ps1 -Run "flutter test"
+.\scripts\setup_vscode_flutter_env.ps1 -Run "dart format lib test"
+```
+
+Equivalent raw commands, after the helper has been dot-sourced:
 
 ```powershell
 flutter pub get
 flutter analyze
 flutter test
 flutter run
+dart format lib test
 ```
 
 For web:

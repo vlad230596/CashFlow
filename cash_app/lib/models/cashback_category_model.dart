@@ -42,17 +42,22 @@ class CashbackCategoryModel {
   }
 
   CashbackCategoryModel copyWith({
+    int? id,
+    String? name,
+    DateTime? startDate,
+    DateTime? endDate,
     bool? isSelected,
     double? cashbackPercent,
+    int? cardId,
   }) {
     return CashbackCategoryModel(
-      id: id,
-      name: name,
-      startDate: startDate,
-      endDate: endDate,
+      id: id ?? this.id,
+      name: name ?? this.name,
+      startDate: startDate ?? this.startDate,
+      endDate: endDate ?? this.endDate,
       isSelected: isSelected ?? this.isSelected,
       cashbackPercent: cashbackPercent ?? this.cashbackPercent,
-      cardId: cardId,
+      cardId: cardId ?? this.cardId,
     );
   }
 }

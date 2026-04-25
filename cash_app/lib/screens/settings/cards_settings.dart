@@ -81,7 +81,8 @@ class CardsSettingsScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => CardEditScreen(existingCard: card),
+                        builder: (context) =>
+                            CardEditScreen(existingCard: card),
                       ),
                     );
                   },

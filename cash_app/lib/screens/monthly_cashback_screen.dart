@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
 import '../utils/category_info.dart';
+import 'cashback_category_edit_screen.dart';
 
 class MonthlyCashbackScreen extends StatefulWidget {
   const MonthlyCashbackScreen({super.key});
@@ -73,7 +75,20 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     final categoryStart = DateUtils.dateOnly(startDate);
     final categoryEnd = DateUtils.dateOnly(endDate);
 
-    return !categoryEnd.isBefore(_startDate) && !categoryStart.isAfter(_endDate);
+    return !categoryEnd.isBefore(_startDate) &&
+        !categoryStart.isAfter(_endDate);
+  }
+
+  Future<void> _openCategoryEditor(
+    BuildContext context,
+    CashbackCategoryModel category,
+  ) {
+    return Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CashbackCategoryEditScreen(category: category),
+      ),
+    );
   }
 
   int _getMaxCategories(int cardId, int? serverValue) {
@@ -142,8 +157,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                       ),
                     )
                     .toList();
-                final selectedCount =
-                    cardCategories.where((category) => category.isSelected).length;
+                final selectedCount = cardCategories
+                    .where((category) => category.isSelected)
+                    .length;
 
                 if (cardId == null) {
                   return const Card(
@@ -217,7 +233,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                                 ),
                               ),
                               backgroundColor: chipColor,
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4),
                               materialTapTargetSize:
                                   MaterialTapTargetSize.shrinkWrap,
                             ),
@@ -235,48 +252,67 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                               return Padding(
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 2),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      CategoryInfo.getCategoryIcon(
-                                          category.name),
-                                      size: 12,
-                                      color: categoryColor,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        category.name,
-                                        style: const TextStyle(fontSize: 10),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      '${category.cashbackPercent}%',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(6),
+                                  onLongPress: () =>
+                                      _openCategoryEditor(context, category),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        CategoryInfo.getCategoryIcon(
+                                            category.name),
+                                        size: 12,
                                         color: categoryColor,
                                       ),
-                                    ),
-                                    Checkbox(
-                                      value: category.isSelected,
-                                      onChanged: (value) {
-                                        Provider.of<DataProvider>(
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          category.name,
+                                          style: const TextStyle(fontSize: 10),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        '${category.cashbackPercent}%',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: categoryColor,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.edit, size: 16),
+                                        tooltip: 'Редактировать',
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(
+                                          minHeight: 28,
+                                          minWidth: 28,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: () => _openCategoryEditor(
                                           context,
-                                          listen: false,
-                                        ).toggleCategorySelection(
-                                          category.id,
-                                          value ?? false,
-                                        );
-                                      },
-                                      materialTapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                  ],
+                                          category,
+                                        ),
+                                      ),
+                                      Checkbox(
+                                        value: category.isSelected,
+                                        onChanged: (value) {
+                                          Provider.of<DataProvider>(
+                                            context,
+                                            listen: false,
+                                          ).toggleCategorySelection(
+                                            category.id,
+                                            value ?? false,
+                                          );
+                                        },
+                                        materialTapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               );
                             },
@@ -291,7 +327,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                               padding: const EdgeInsets.symmetric(vertical: 4),
                               minimumSize: Size.zero,
                             ),
-                            child: const Text('+', style: TextStyle(fontSize: 12)),
+                            child:
+                                const Text('+', style: TextStyle(fontSize: 12)),
                           ),
                         ),
                       ],
@@ -321,8 +358,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 controller: inputController,
                 decoration: const InputDecoration(
                   labelText: 'Введите категории и проценты',
-                  hintText:
-                      '5% Кафе\nРестораны 10%\n7 Такси\nАЗС 5%\n1% Всё',
+                  hintText: '5% Кафе\nРестораны 10%\n7 Такси\nАЗС 5%\n1% Всё',
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 5,
@@ -412,8 +448,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 } else {
                   messenger.showSnackBar(
                     SnackBar(
-                      content:
-                          Text('Успешно добавлено категорий: $addedCount'),
+                      content: Text('Успешно добавлено категорий: $addedCount'),
                     ),
                   );
                 }
