@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../providers/data_provider.dart';
-import '../utils/category_info.dart'; 
+import '../utils/category_info.dart';
 
 class CardsScreen extends StatelessWidget {
   const CardsScreen({super.key});
@@ -13,23 +14,20 @@ class CardsScreen extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Максимальная ширина плитки (например, 250 пикселей)
         const maxTileWidth = 250.0;
-        // Вычисляем количество столбцов
         final crossAxisCount = (constraints.maxWidth / maxTileWidth).floor();
-        // Минимум 1 столбец
         final adjustedCrossAxisCount = crossAxisCount > 0 ? crossAxisCount : 1;
 
         return GridView.count(
-          padding: EdgeInsets.all(16.0),
-          crossAxisCount: adjustedCrossAxisCount, // Адаптивное количество столбцов
-          crossAxisSpacing: 16.0, // Расстояние между колонками
-          mainAxisSpacing: 16.0, // Расстояние между строками
-          childAspectRatio: 1.0, // Убираем жесткое соотношение сторон
+          padding: const EdgeInsets.all(16.0),
+          crossAxisCount: adjustedCrossAxisCount,
+          crossAxisSpacing: 16.0,
+          mainAxisSpacing: 16.0,
+          childAspectRatio: 1.0,
           children: dataProvider.cards.map((card) {
-            // Сортировка категорий по убыванию процента кешбека
-            final sortedCategories = cashbackCategories.where((x) => x.cardId == card.id).toList();
-              // .sort((a, b) => b.percent.compareTo(a.percent));
+            final sortedCategories = cashbackCategories
+                .where((category) => category.cardId == card.id)
+                .toList();
 
             return IntrinsicHeight(
               child: Card(
@@ -42,18 +40,18 @@ class CardsScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Название карты и номер
                       Text(
-                        '${dataProvider.getCardName(card.id!)} ${card.lastFourDigits}',
-                        style: TextStyle(
+                        '${dataProvider.getCardName(card.id ?? -1)} '
+                        '${card.lastFourDigits ?? '????'}',
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      SizedBox(height: 8),
-                      // Список категорий
+                      const SizedBox(height: 8),
                       ...sortedCategories.map<Widget>((category) {
-                        final categoryColor = CategoryInfo.getCategoryColor(category.name);
+                        final categoryColor =
+                            CategoryInfo.getCategoryColor(category.name);
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2.0),
                           child: Row(
@@ -63,16 +61,19 @@ class CardsScreen extends StatelessWidget {
                                 size: 16,
                                 color: categoryColor,
                               ),
-                              SizedBox(width: 4),
+                              const SizedBox(width: 4),
                               Expanded(
                                 child: Text(
                                   category.name,
-                                  style: TextStyle(fontSize: 12),
+                                  style: const TextStyle(fontSize: 12),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               Container(
-                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: categoryColor.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(8),

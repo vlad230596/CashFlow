@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 class CardModel {
   final int? id;
   final String? paymentSystem;
@@ -16,7 +14,7 @@ class CardModel {
     this.lastFourDigits,
     this.bankId,
     this.userId,
-    this.maxCashbackCategories
+    this.maxCashbackCategories,
   });
 
   factory CardModel.fromJson(Map<String, dynamic> json) {
@@ -27,7 +25,7 @@ class CardModel {
       lastFourDigits: json['last_four_digits'] as String,
       bankId: json['bank_id'] as int,
       userId: json['user_id'] as int,
-      maxCashbackCategories: json['max_cashback_categories'] as int
+      maxCashbackCategories: json['max_cashback_categories'] as int?,
     );
   }
 
@@ -39,7 +37,8 @@ class CardModel {
       if (model.lastFourDigits != null) 'last_four_digits': model.lastFourDigits,
       if (model.bankId != null) 'bank_id': model.bankId,
       if (model.userId != null) 'user_id': model.userId,
-      if (model.maxCashbackCategories != null) 'max_cashback_categories': model.maxCashbackCategories,
+      if (model.maxCashbackCategories != null)
+        'max_cashback_categories': model.maxCashbackCategories,
     };
     return jsonMap;
   }

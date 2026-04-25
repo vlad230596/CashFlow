@@ -6,7 +6,7 @@ import 'screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final dataProvider = DataProvider();
-  await dataProvider.loadLocalData();
+  await dataProvider.initialize();
 
   runApp(
     ChangeNotifierProvider(

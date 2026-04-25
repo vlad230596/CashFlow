@@ -33,13 +33,14 @@ Main user flows:
 - `lib/screens/monthly_cashback_screen.dart` handles monthly category selection and bulk category entry.
 - `lib/screens/settings/` contains CRUD screens for banks, users, and cards.
 - `lib/utils/category_info.dart` maps category names to Material icons and colors.
-- `test/widget_test.dart` is still the default counter test and does not match the current app.
+- `test/widget_test.dart` contains a current smoke test that starts `MyApp` with `DataProvider`.
 
 ## Data Flow
 
 `DataProvider` is the central source of truth.
 
-- On startup, `main.dart` calls `DataProvider.loadLocalData()` before `runApp`.
+- On startup, `main.dart` creates `DataProvider`, calls `initialize()`, then registers it before `runApp`.
+- `DataProvider.initialize()` loads local cached data and starts a background `fetchAllData()`.
 - `fetchAllData()` loads banks, users, cards, active cashback, and all cashback categories from the backend.
 - Fetched data is cached to `SharedPreferences`.
 - UI screens read state through `Provider.of<DataProvider>(context)` or `Consumer<DataProvider>`.
@@ -96,12 +97,12 @@ JSON uses snake_case field names such as `payment_system`, `last_four_digits`, `
 ## Models And Assumptions
 
 - `BankModel.id`, `BankModel.name`, and `BankModel.description` are nullable in Dart, but most UI code assumes `id` and `name` are present.
-- `CardModel` fields are nullable, but screens frequently force unwrap `id`, `bankId`, `userId`, `lastFourDigits`, and `maxCashbackCategories`.
+- `CardModel` fields are nullable; list screens should render fallbacks rather than force unwrap card metadata.
 - `UserModel.id` and `UserModel.name` are required.
 - `CashbackCategoryModel` fields are required.
 - Dates are serialized with `DateTime.toIso8601String()` and parsed with `DateTime.parse`.
-- `DataProvider.getCardById()` uses `singleWhere`; missing or duplicate cards will throw.
-- `DataProvider.getCardName()` assumes matching bank and user records exist.
+- `DataProvider.getCardById()` returns a fallback `CardModel` when a referenced card is missing.
+- `DataProvider.getCardName()` returns `Unknown card` when matching bank/user data is unavailable.
 
 When changing backend contracts or model nullability, update the model, provider, and dependent UI together.
 
@@ -111,20 +112,16 @@ When changing backend contracts or model nullability, update the model, provider
 - Navigation is currently direct `Navigator.push` with `MaterialPageRoute`.
 - Forms are implemented as stateful screens with `TextEditingController`s.
 - Settings lists use `RefreshIndicator` and fetch all data on pull-to-refresh.
-- Most user-facing text is currently English, but some older Russian strings/comments exist and appear mojibaked in source files.
+- Most user-facing text is currently English, with some Russian UI in monthly cashback flows.
+- Some older Russian strings/comments may appear corrupted as mojibake in untouched source files.
 - Keep UI changes modest and consistent unless explicitly asked for a redesign.
 
 ## Known Issues And Sharp Edges
 
-- Some Russian strings and comments appear corrupted as mojibake. Treat this as an encoding/data-cleanup task, not as incidental formatting. Do not rewrite large files just to fix unrelated mojibake unless asked.
-- `DataProvider.loadLocalData()` force unwraps cached strings with `prefs.getString(...)!`; first launch with empty cache is caught by `try/catch`, but this still logs errors and leaves lists empty.
-- `receiveFromServer()` does not check HTTP status codes before decoding.
-- Several model files import `dart:convert` without using it.
-- `CashbackCategoryModel.toJson()` checks non-null values for required fields, which is redundant.
-- `MonthlyCashbackScreen` has a hardcoded 6-column grid and may not behave well on narrow screens.
-- The local `cardWidth` variable in `MonthlyCashbackScreen` is currently unused.
-- `maxCashbackCategories` is shown and edited locally in `MonthlyCashbackScreen`, but changes are not persisted to the backend in the current code.
-- The default widget test is obsolete and likely fails against the current app.
+- Treat corrupted Russian strings/comments as an explicit encoding/data-cleanup task, not as incidental formatting. Do not rewrite large files just to fix unrelated mojibake unless asked.
+- Some settings/edit screens still force unwrap nullable IDs or names from `BankModel`, `CardModel`, and `UserModel`.
+- `maxCashbackCategories` is shown and edited locally in `MonthlyCashbackScreen`, but changes are intentionally not persisted to the backend yet.
+- `flutter analyze` and `flutter test` require Flutter/Dart to be available in PATH; the current sandbox shell may not have them configured.
 - Git may report dubious ownership in the sandbox for `D:/Projects/CashFlow`; avoid changing git config unless the user approves.
 
 ## Development Commands
@@ -155,14 +152,14 @@ The backend must be reachable at the configured `serverIp` for refresh and mutat
 - Keep model JSON keys aligned with the backend snake_case API.
 - Avoid broad formatting-only edits, especially in files with existing encoding issues.
 - Preserve user edits in a dirty worktree.
-- Add or update tests when changing behavior, but expect the current default test to need replacement before it is useful.
+- Add or update tests when changing behavior; `test/widget_test.dart` is a smoke test for the current app shell.
 - If backend behavior is unclear, ask before inventing an endpoint or changing payload shape.
 
 ## Open Questions
 
 - Is the backend repository available locally, and should agents inspect it when changing API-related code?
 - Should `serverIp` remain hardcoded, move to settings, or be configured through environment/build config?
-- What is the intended app language: English, Russian, or mixed during transition?
-- Should corrupted Russian strings/comments be repaired as a separate cleanup task?
+- Should the full app language stay mixed during transition, or should English settings screens be localized to Russian?
+- Should remaining corrupted Russian strings/comments be repaired as a separate cleanup task?
 - Should monthly `maxCashbackCategories` be persisted, and if yes, which endpoint owns that value?
 - Which platforms are actually supported targets: mobile only, desktop, web, or all generated Flutter platforms?

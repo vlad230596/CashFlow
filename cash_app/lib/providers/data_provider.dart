@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,8 +9,6 @@ import '../models/card_model.dart';
 import '../models/bank_model.dart';
 import '../models/user_model.dart';
 import '../models/cashback_category_model.dart';
-
-
 
 class DataProvider with ChangeNotifier {
   List<BankModel> banks = [];
@@ -19,12 +19,25 @@ class DataProvider with ChangeNotifier {
   String? lastUpdated;
   String? serverIp = '192.168.31.142:5000'; // Default server IP
 
-  Future<List<T>> receiveFromServer<T>(String endpoint, T Function(Map<String, dynamic>) fromJson) async {
-    final banksResponse = await http.get(Uri.parse('http://$serverIp/api/$endpoint'));
-    final result = (json.decode(banksResponse.body) as List)
-          .map((item) => fromJson(item))
-          .toList();
+  Future<List<T>> receiveFromServer<T>(
+    String endpoint,
+    T Function(Map<String, dynamic>) fromJson,
+  ) async {
+    final response = await http.get(Uri.parse('http://$serverIp/api/$endpoint'));
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load $endpoint: ${response.statusCode}');
+    }
+
+    final result = (json.decode(response.body) as List)
+        .map((item) => fromJson(item))
+        .toList();
     return result;
+  }
+
+  Future<void> initialize() async {
+    await loadLocalData();
+    unawaited(fetchAllData());
   }
 
   Future<T> addItemToServer<T>(String endpoint, T item, T Function(Map<String, dynamic>) fromJson, Map<String, dynamic> Function(T) toJson) async {
@@ -54,7 +67,7 @@ Future<void> deleteItemFromServer(String endpoint, int id) async {
     );
 
     if (response.statusCode == 204) {
-      print('Delete from server item with id $id from $endpoint');
+      debugPrint('Delete from server item with id $id from $endpoint');
     } else {
       throw Exception('Failed to delete bank');
     }
@@ -84,24 +97,37 @@ Future<T> updateItemOnServer<T>(String endpoint, int id, T item, T Function(Map<
 }
 
 
-  Future<void> fetchAllData() async {
+  Future<bool> fetchAllData() async {
     try {
-      banks = await receiveFromServer("banks", BankModel.fromJson);
-      users = await receiveFromServer("users", UserModel.fromJson);
-      cards = await receiveFromServer("cards", CardModel.fromJson);
-      activeCashbackCategories = await receiveFromServer("active_cashback", CashbackCategoryModel.fromJson);
+      final fetchedBanks = await receiveFromServer("banks", BankModel.fromJson);
+      final fetchedUsers = await receiveFromServer("users", UserModel.fromJson);
+      final fetchedCards = await receiveFromServer("cards", CardModel.fromJson);
+      final fetchedActiveCashbackCategories = await receiveFromServer(
+        "active_cashback",
+        CashbackCategoryModel.fromJson,
+      );
+      final fetchedCashbackCategories = await receiveFromServer(
+        "cashback",
+        CashbackCategoryModel.fromJson,
+      );
 
-      await fetchCashbackCategories();
+      banks = fetchedBanks;
+      users = fetchedUsers;
+      cards = fetchedCards;
+      activeCashbackCategories = fetchedActiveCashbackCategories;
+      cashbackCategories = fetchedCashbackCategories;
       lastUpdated = DateTime.now().toString();
-      _saveDataLocally();
+      await _saveDataLocally();
       notifyListeners();
+      return true;
     } catch (e) {
       // Handle errors
       debugPrint('Error fetching data: $e');
+      return false;
     }
   }
 
-Future<void> fetchCashbackCategories() async {
+  Future<void> fetchCashbackCategories() async {
     try {
       final response = await http.get(
         Uri.parse('http://$serverIp/api/cashback'),
@@ -110,7 +136,8 @@ Future<void> fetchCashbackCategories() async {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-        cashbackCategories = data.map((json) => CashbackCategoryModel.fromJson(json)).toList();
+        cashbackCategories =
+            data.map((json) => CashbackCategoryModel.fromJson(json)).toList();
         notifyListeners();
       } else {
         throw Exception('Failed to load categories: ${response.statusCode}');
@@ -144,14 +171,38 @@ Future<void> fetchCashbackCategories() async {
   Future<void> loadLocalData() async {
     final prefs = await SharedPreferences.getInstance();
     try {
-      banks = (json.decode(prefs.getString('banks')!) as List).map((item) => BankModel.fromJson(item as Map<String, dynamic>)).toList();
-      users = (json.decode(prefs.getString('users')!) as List).map((item) => UserModel.fromJson(item as Map<String, dynamic>)).toList();
-      cards  = (json.decode(prefs.getString('cards')!) as List).map((item) => CardModel.fromJson(item as Map<String, dynamic>)).toList();
+      final cachedBanks = prefs.getString('banks');
+      final cachedUsers = prefs.getString('users');
+      final cachedCards = prefs.getString('cards');
+      final cachedActiveCashbackCategories =
+          prefs.getString('activeCashbackCategories');
+
+      if (cachedBanks != null) {
+        banks = (json.decode(cachedBanks) as List)
+            .map((item) => BankModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+      if (cachedUsers != null) {
+        users = (json.decode(cachedUsers) as List)
+            .map((item) => UserModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+      if (cachedCards != null) {
+        cards = (json.decode(cachedCards) as List)
+            .map((item) => CardModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
       // cashbackCategories  = json.decode(prefs.getString('cashbackCategories')!);
-      activeCashbackCategories = (json.decode(prefs.getString('activeCashbackCategories')!) as List).map((item) => CashbackCategoryModel.fromJson(item as Map<String, dynamic>)).toList();
+      if (cachedActiveCashbackCategories != null) {
+        activeCashbackCategories = (json.decode(cachedActiveCashbackCategories)
+                as List)
+            .map((item) =>
+                CashbackCategoryModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
       notifyListeners();
-    } catch(e) {
-    debugPrint('Error loadLocalData: $e');
+    } catch (e) {
+      debugPrint('Error loadLocalData: $e');
     }
 
   }
@@ -286,11 +337,35 @@ Future<void> addCard(
   notifyListeners();  
 }
 CardModel getCardById(int cardId) {
-  return cards.singleWhere((x) => x.id == cardId);
+  return cards.firstWhere(
+    (card) => card.id == cardId,
+    orElse: () => CardModel(
+      id: cardId,
+      paymentSystem: '',
+      cardType: '',
+      lastFourDigits: '????',
+    ),
+  );
 }
 String getCardName(int cardId) {
   final card = getCardById(cardId);
-  return '${users.where((x) => x.id == card.userId).first.name} ${banks.where((x) => x.id == card.bankId).first.name}';
+  final userName = users
+      .where((user) => user.id == card.userId)
+      .map((user) => user.name)
+      .firstOrNull;
+  final bankName = banks
+      .where((bank) => bank.id == card.bankId)
+      .map((bank) => bank.name)
+      .firstOrNull;
+
+  if (userName == null && bankName == null) {
+    return 'Unknown card';
+  }
+
+  return [
+    if (userName != null) userName,
+    if (bankName != null) bankName,
+  ].join(' ');
 }
 
 Future<void> updateCard(

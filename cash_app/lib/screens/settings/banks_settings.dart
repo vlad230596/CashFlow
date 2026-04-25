@@ -28,7 +28,9 @@ class BanksSettingsScreen extends StatelessWidget {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () => dataProvider.fetchAllData(),
+        onRefresh: () async {
+          await dataProvider.fetchAllData();
+        },
         child: ListView.builder(
           itemCount: dataProvider.banks.length,
           itemBuilder: (context, index) {

@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
-import 'widgets/cashback_item.dart';
 import '../utils/category_info.dart';
+import 'widgets/cashback_item.dart';
 
 class CashbackScreen extends StatefulWidget {
   const CashbackScreen({super.key});
 
   @override
-  _CashbackScreenState createState() => _CashbackScreenState();
+  State<CashbackScreen> createState() => _CashbackScreenState();
 }
 
 class _CashbackScreenState extends State<CashbackScreen> {
@@ -36,40 +37,34 @@ class _CashbackScreenState extends State<CashbackScreen> {
     super.dispose();
   }
 
-  List<CashbackCategoryModel> _getData(DataProvider dataProvider) {
-    return dataProvider.activeCashbackCategories;
-  }
-
   void _updateFilteredData() {
     final dataProvider = Provider.of<DataProvider>(context, listen: false);
-    final allData = _getData(dataProvider);
-    
+    final allData = dataProvider.activeCashbackCategories;
     final query = _searchController.text.toLowerCase();
+
     if (query.isEmpty) {
       _filteredData = allData;
     } else {
       _filteredData = allData.where((item) {
         final category = item.name.toLowerCase();
-        final cardNumber = dataProvider.getCardById(item.cardId).lastFourDigits!.toLowerCase();
+        final cardNumber =
+            dataProvider.getCardById(item.cardId).lastFourDigits?.toLowerCase() ??
+                '';
         final cardName = dataProvider.getCardName(item.cardId).toLowerCase();
-        
-        return category.contains(query) || 
-               cardNumber.contains(query) ||
-               cardName.contains(query);
+
+        return category.contains(query) ||
+            cardNumber.contains(query) ||
+            cardName.contains(query);
       }).toList();
     }
-    
-    _sortData();
-  }
 
-  void _sortData() {
-    _filteredData.sort((a, b) => b.cashbackPercent.compareTo(a.cashbackPercent));
+    _filteredData.sort(
+      (a, b) => b.cashbackPercent.compareTo(a.cashbackPercent),
+    );
   }
 
   void _onSearchChanged() {
-    setState(() {
-      _updateFilteredData();
-    });
+    setState(_updateFilteredData);
   }
 
   @override
@@ -95,16 +90,19 @@ class _CashbackScreenState extends State<CashbackScreen> {
               if (_filteredData.isEmpty || _searchController.text.isEmpty) {
                 _updateFilteredData();
               }
-              
+
               return ListView.builder(
                 itemCount: _filteredData.length,
                 itemBuilder: (context, index) {
                   final item = _filteredData[index];
+                  final card = dataProvider.getCardById(item.cardId);
+
                   return CashbackItem(
                     category: item.name,
                     percent: item.cashbackPercent,
-                    cardName: '${dataProvider.getCardName(item.cardId)} ${dataProvider.getCardById(item.cardId).lastFourDigits}',
-                    icon: CategoryInfo.getCategoryIcon(item.name)
+                    cardName:
+                        '${dataProvider.getCardName(item.cardId)} ${card.lastFourDigits ?? '????'}',
+                    icon: CategoryInfo.getCategoryIcon(item.name),
                   );
                 },
               );

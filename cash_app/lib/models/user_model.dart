@@ -13,8 +13,8 @@ class UserModel {
 
   static Map<String, dynamic> toJson(UserModel model) {
     final jsonMap = {
-      if (model.id != null) 'id': model.id,
-      if (model.name != null) 'name': model.name,
+      'id': model.id,
+      'name': model.name,
     };
     return jsonMap;
   }

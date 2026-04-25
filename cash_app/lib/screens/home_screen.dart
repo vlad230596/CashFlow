@@ -34,10 +34,17 @@ class HomeScreen extends StatelessWidget {
               onSelected: (value) async {
                 switch (value) {
                   case 'refresh':
-                    await dataProvider.fetchAllData();
+                    final isUpdated = await dataProvider.fetchAllData();
                     //await Provider.of<DataProvider>(context, listen: false).fetchCashbacks();
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Data refreshed successfully')),
+                      SnackBar(
+                        content: Text(
+                          isUpdated
+                              ? 'Data refreshed successfully'
+                              : 'Could not refresh data. Showing cached data.',
+                        ),
+                      ),
                     );
                     break;
                   case 'banks':

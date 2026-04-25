@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../providers/data_provider.dart';
-import 'card_edit_screen.dart';
 
 import '../../models/bank_model.dart';
 import '../../models/user_model.dart';
+import '../../providers/data_provider.dart';
+import 'card_edit_screen.dart';
 
 class CardsSettingsScreen extends StatelessWidget {
   const CardsSettingsScreen({super.key});
@@ -13,19 +13,17 @@ class CardsSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
 
-    // Helper function to get bank name by ID
-    String getBankName(int bankId) {
+    String getBankName(int? bankId) {
       final bank = dataProvider.banks.firstWhere(
-        (b) => b.id == bankId,
+        (bank) => bank.id == bankId,
         orElse: () => BankModel(id: -1, name: 'Unknown', description: ''),
       );
-      return bank.name!;
+      return bank.name ?? 'Unknown';
     }
 
-    // Helper function to get user name by ID
-    String getUserName(int userId) {
+    String getUserName(int? userId) {
       final user = dataProvider.users.firstWhere(
-        (u) => u.id == userId,
+        (user) => user.id == userId,
         orElse: () => UserModel(id: -1, name: 'Unknown'),
       );
       return user.name;
@@ -49,7 +47,9 @@ class CardsSettingsScreen extends StatelessWidget {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () => dataProvider.fetchAllData(),
+        onRefresh: () async {
+          await dataProvider.fetchAllData();
+        },
         child: ListView.builder(
           itemCount: dataProvider.cards.length,
           itemBuilder: (context, index) {
@@ -58,20 +58,21 @@ class CardsSettingsScreen extends StatelessWidget {
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
                 leading: Icon(
-                  card.paymentSystem == 'Visa' 
-                      ? Icons.credit_card 
+                  card.paymentSystem == 'Visa'
+                      ? Icons.credit_card
                       : Icons.payment,
-                  color: card.paymentSystem == 'Visa' 
-                      ? Colors.blue 
-                      : Colors.amber,
+                  color:
+                      card.paymentSystem == 'Visa' ? Colors.blue : Colors.amber,
                 ),
                 title: Text(
-                    '${card.paymentSystem} ${card.cardType} •••• ${card.lastFourDigits}'),
+                  '${card.paymentSystem ?? 'Unknown'} ${card.cardType ?? ''} '
+                  '•••• ${card.lastFourDigits ?? '????'}',
+                ),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Bank: ${getBankName(card.bankId!)}'),
-                    Text('User: ${getUserName(card.userId!)}'),
+                    Text('Bank: ${getBankName(card.bankId)}'),
+                    Text('User: ${getUserName(card.userId)}'),
                   ],
                 ),
                 trailing: IconButton(

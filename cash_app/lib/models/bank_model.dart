@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 class BankModel {
   final int? id;
   final String? name;
