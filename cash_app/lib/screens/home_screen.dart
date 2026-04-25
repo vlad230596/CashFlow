@@ -14,17 +14,18 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
+    final bool showMonthCashback = true;
     
     return DefaultTabController(
-      length: 2,
+      length: showMonthCashback ? 3 : 2,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('CashFlow'),
-          bottom: const TabBar(
+          bottom: TabBar(
             tabs: [
               Tab(text: 'Cashback'),
               Tab(text: 'Cards'),
-              // Tab(text: 'MonthCashback'),
+              if (showMonthCashback) Tab(text: 'MonthCashback'),
             ],
           ),
           actions: [
@@ -162,7 +163,7 @@ class HomeScreen extends StatelessWidget {
           children: [
             CashbackScreen(),
             CardsScreen(),
-            // MonthlyCashbackScreen()
+            if (showMonthCashback) MonthlyCashbackScreen()
           ],
         ),
       ),

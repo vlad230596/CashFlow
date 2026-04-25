@@ -37,8 +37,29 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     }
   }
 
-  DateTime _getEndDate(DateTime month) {
-    return DateTime(month.year, month.month + 1);
+  DateTime _getEndDate(DateTime date) {
+var year = date.year;
+  var month = date.month + 1;
+  var day = date.day;
+
+  // Если месяц больше 12, увеличиваем год
+  if (month > 12) {
+    month = 1;
+    year += 1;
+  }
+
+  // Проверяем, существует ли такой день в следующем месяце
+  // (например, 31 февраля -> 28/29 февраля)
+  final nextMonth = DateTime(year, month + 1, 0); // Последний день нужного месяца
+  final lastDayOfNextMonth = nextMonth.day;
+
+  // Если день больше, чем дней в следующем месяце, 
+  // используем последний день месяца
+  if (day > lastDayOfNextMonth) {
+    day = lastDayOfNextMonth;
+  }
+
+  return DateTime(year, month, day, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
   }
 
   @override
@@ -90,6 +111,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 final card = dataProvider.cards[index];
                 final cardCategories = dataProvider.cashbackCategories
                     .where((c) => c.cardId == card.id)
+                    .where((c) => (c.endDate.year * 12 + c.endDate.month) == (_selectedMonth.year * 12 + _selectedMonth.month + 1)) 
                     .toList();
                 final selectedCount = cardCategories.where((c) => c.isSelected).length;
                 _maxCategoriesPerCard[card.id!] = card.maxCashbackCategories!;

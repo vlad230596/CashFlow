@@ -119,3 +119,4 @@ app.*.symbols
 !/dev/ci/**/Gemfile.lock
 /cash_server/.idea/
 /cash_server/instance/cards.db
+/cash_server/ssl/
