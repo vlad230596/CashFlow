@@ -124,38 +124,39 @@ When changing backend contracts or model nullability, update the model, provider
 - `flutter analyze` and `flutter test` require Flutter/Dart to be available in PATH; the current sandbox shell may not have them configured.
 - Git may report dubious ownership in the sandbox for `D:/Projects/CashFlow`; avoid changing git config unless the user approves.
 
-## Development Commands
+## Flutter Commands
 
-Use these from the repository root. Agents should run Flutter/Dart/build commands through the VS Code-like environment helper so the same SDK configured in VS Code is available even when the sandbox shell does not have `flutter` in `PATH`.
+Run Flutter and Dart commands through the repository helper so the agent uses the same SDK path as VS Code. The helper reads `dart.flutterSdkPath` from VS Code settings JSON and adds that SDK's `bin` directories to the current process environment. It intentionally does not guess SDK locations from `PATH`, `FLUTTER_ROOT`, or common install folders; if VS Code is not configured, Flutter commands should fail until the SDK path is configured.
 
-To update the current PowerShell session:
-
-```powershell
-. .\scripts\setup_vscode_flutter_env.ps1
-```
-
-For one-off commands, prefer:
+Use these from the repository root:
 
 ```powershell
+.\scripts\setup_vscode_flutter_env.ps1 -Run "flutter pub get"
 .\scripts\setup_vscode_flutter_env.ps1 -Run "flutter analyze"
 .\scripts\setup_vscode_flutter_env.ps1 -Run "flutter test"
 .\scripts\setup_vscode_flutter_env.ps1 -Run "dart format lib test"
 ```
 
-Equivalent raw commands, after the helper has been dot-sourced:
+To run several commands in the same PowerShell session, dot-source the helper first:
 
 ```powershell
+. .\scripts\setup_vscode_flutter_env.ps1
 flutter pub get
 flutter analyze
 flutter test
-flutter run
 dart format lib test
 ```
 
-For web:
+For web runs, use the same helper:
 
 ```powershell
-flutter run -d chrome
+.\scripts\setup_vscode_flutter_env.ps1 -Run "flutter run -d chrome"
+```
+
+For one-off troubleshooting only, an explicit SDK path may be passed:
+
+```powershell
+.\scripts\setup_vscode_flutter_env.ps1 -FlutterSdkPath C:\path\to\flutter -Run "flutter --version"
 ```
 
 The backend must be reachable at the configured `serverIp` for refresh and mutation flows.

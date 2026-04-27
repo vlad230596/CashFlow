@@ -190,7 +190,7 @@ class _CashbackCategoryEditScreenState
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<int>(
-              value: cardItems.any((item) => item.value == _cardId)
+              initialValue: cardItems.any((item) => item.value == _cardId)
                   ? _cardId
                   : null,
               decoration: const InputDecoration(

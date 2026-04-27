@@ -35,10 +35,12 @@ class _UserEditScreenState extends State<UserEditScreen> {
 
     final dataProvider = Provider.of<DataProvider>(context, listen: false);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     try {
       if (widget.existingUser == null) {
         await dataProvider.addUser(_nameController.text);
+        if (!mounted) return;
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('User added successfully')),
         );
@@ -47,12 +49,14 @@ class _UserEditScreenState extends State<UserEditScreen> {
           widget.existingUser!.id,
           _nameController.text,
         );
+        if (!mounted) return;
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('User updated successfully')),
         );
       }
-      Navigator.of(context).pop();
+      navigator.pop();
     } catch (e) {
+      if (!mounted) return;
       scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('Error: ${e.toString()}')),
       );
@@ -63,8 +67,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-            widget.existingUser == null ? 'Add New User' : 'Edit User'),
+        title: Text(widget.existingUser == null ? 'Add New User' : 'Edit User'),
         actions: [
           if (widget.existingUser != null)
             IconButton(
@@ -88,16 +91,20 @@ class _UserEditScreenState extends State<UserEditScreen> {
                     ],
                   ),
                 );
+                if (!context.mounted) return;
 
                 if (shouldDelete == true) {
                   try {
                     await Provider.of<DataProvider>(context, listen: false)
                         .deleteUser(widget.existingUser!.id);
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('User deleted successfully')),
+                      const SnackBar(
+                          content: Text('User deleted successfully')),
                     );
                     Navigator.of(context).pop();
                   } catch (e) {
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Error: ${e.toString()}')),
                     );

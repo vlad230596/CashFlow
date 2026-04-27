@@ -36,10 +36,9 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
-    final bool showMonthCashback = true;
-    
+
     return DefaultTabController(
-      length: showMonthCashback ? 3 : 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('CashFlow'),
@@ -47,7 +46,7 @@ class HomeScreen extends StatelessWidget {
             tabs: [
               Tab(text: 'Cashback'),
               Tab(text: 'Cards'),
-              if (showMonthCashback) Tab(text: 'MonthCashback'),
+              Tab(text: 'MonthCashback'),
             ],
           ),
           actions: [
@@ -72,19 +71,22 @@ class HomeScreen extends StatelessWidget {
                   case 'banks':
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => BanksSettingsScreen()),
+                      MaterialPageRoute(
+                          builder: (context) => BanksSettingsScreen()),
                     );
                     break;
                   case 'cards':
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => CardsSettingsScreen()),
+                      MaterialPageRoute(
+                          builder: (context) => CardsSettingsScreen()),
                     );
                     break;
                   case 'users':
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => UsersSettingsScreen()),
+                      MaterialPageRoute(
+                          builder: (context) => UsersSettingsScreen()),
                     );
                     break;
                   case 'cashbackDate':
@@ -107,7 +109,8 @@ class HomeScreen extends StatelessWidget {
                         const Spacer(),
                         Text(
                           dataProvider.lastUpdated ?? 'Never',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          style:
+                              TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),
                       ],
                     ),
@@ -122,9 +125,10 @@ class HomeScreen extends StatelessWidget {
                         const Text('Banks'),
                         const Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
+                            color: Colors.blue.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -145,9 +149,10 @@ class HomeScreen extends StatelessWidget {
                         const Text('Cards'),
                         const Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.1),
+                            color: Colors.green.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -168,9 +173,10 @@ class HomeScreen extends StatelessWidget {
                         const Text('Users'),
                         const Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.1),
+                            color: Colors.purple.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -192,7 +198,8 @@ class HomeScreen extends StatelessWidget {
                         const Spacer(),
                         Text(
                           _formatDate(dataProvider.cashbackEffectiveDate),
-                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          style:
+                              TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),
                       ],
                     ),
@@ -225,7 +232,7 @@ class HomeScreen extends StatelessWidget {
           children: [
             CashbackScreen(),
             CardsScreen(),
-            if (showMonthCashback) MonthlyCashbackScreen()
+            MonthlyCashbackScreen(),
           ],
         ),
       ),

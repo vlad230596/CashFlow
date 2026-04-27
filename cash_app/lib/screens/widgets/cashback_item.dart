@@ -7,7 +7,8 @@ class CashbackItem extends StatelessWidget {
   final String cardName;
   final IconData icon;
 
-  const CashbackItem({super.key, 
+  const CashbackItem({
+    super.key,
     required this.category,
     required this.percent,
     required this.cardName,
@@ -37,7 +38,7 @@ class CashbackItem extends StatelessWidget {
               width: 60,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: categoryColor.withOpacity(0.1),
+                color: categoryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
@@ -64,7 +65,7 @@ class CashbackItem extends StatelessWidget {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    '$cardName',
+                    cardName,
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.grey[600],

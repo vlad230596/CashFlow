@@ -36,44 +36,47 @@ class _BankEditScreenState extends State<BankEditScreen> {
   }
 
   Future<void> _saveBank() async {
-  if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) return;
 
-  final dataProvider = Provider.of<DataProvider>(context, listen: false);
-  final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final dataProvider = Provider.of<DataProvider>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
-  try {
-    if (widget.existingBank == null) {
-      await dataProvider.addBank(
-        _nameController.text,
-        _descriptionController.text, // Still pass the value, even if empty
-      );
+    try {
+      if (widget.existingBank == null) {
+        await dataProvider.addBank(
+          _nameController.text,
+          _descriptionController.text, // Still pass the value, even if empty
+        );
+        if (!mounted) return;
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Bank added successfully')),
+        );
+      } else {
+        await dataProvider.updateBank(
+          widget.existingBank!.id!,
+          _nameController.text,
+          _descriptionController.text, // Still pass the value, even if empty
+        );
+        if (!mounted) return;
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(content: Text('Bank updated successfully')),
+        );
+      }
+      navigator.pop();
+    } catch (e) {
+      if (!mounted) return;
       scaffoldMessenger.showSnackBar(
-        const SnackBar(content: Text('Bank added successfully')),
-      );
-    } else {
-      await dataProvider.updateBank(
-        widget.existingBank!.id!,
-        _nameController.text,
-        _descriptionController.text, // Still pass the value, even if empty
-      );
-      scaffoldMessenger.showSnackBar(
-        const SnackBar(content: Text('Bank updated successfully')),
+        SnackBar(content: Text('Error: ${e.toString()}')),
       );
     }
-    Navigator.of(context).pop();
-  } catch (e) {
-    scaffoldMessenger.showSnackBar(
-      SnackBar(content: Text('Error: ${e.toString()}')),
-    );
   }
-}
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.existingBank == null ? 'Add New Bank' : 'Edit Bank'),
+        title: Text(widget.existingBank == null ? 'Add New Bank' : 'Edit Bank'),
         actions: [
           if (widget.existingBank != null)
             IconButton(
@@ -97,16 +100,20 @@ class _BankEditScreenState extends State<BankEditScreen> {
                     ],
                   ),
                 );
+                if (!context.mounted) return;
 
                 if (shouldDelete == true) {
                   try {
                     await Provider.of<DataProvider>(context, listen: false)
                         .deleteBank(widget.existingBank!.id!);
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Bank deleted successfully')),
+                      const SnackBar(
+                          content: Text('Bank deleted successfully')),
                     );
                     Navigator.of(context).pop();
                   } catch (e) {
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Error: ${e.toString()}')),
                     );
@@ -137,14 +144,14 @@ class _BankEditScreenState extends State<BankEditScreen> {
               ),
               const SizedBox(height: 16),
               TextFormField(
-                  controller: _descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description (optional)',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 3,
-                  // Remove the validator completely
+                controller: _descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                  border: OutlineInputBorder(),
                 ),
+                maxLines: 3,
+                // Remove the validator completely
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _saveBank,

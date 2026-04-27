@@ -55,6 +55,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
 
     final dataProvider = Provider.of<DataProvider>(context, listen: false);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     try {
       if (widget.existingCard == null) {
@@ -65,6 +66,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
           _selectedBankId!,
           _selectedUserId!,
         );
+        if (!mounted) return;
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Card added successfully')),
         );
@@ -77,12 +79,14 @@ class _CardEditScreenState extends State<CardEditScreen> {
           _selectedBankId!,
           _selectedUserId!,
         );
+        if (!mounted) return;
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('Card updated successfully')),
         );
       }
-      Navigator.of(context).pop();
+      navigator.pop();
     } catch (e) {
+      if (!mounted) return;
       scaffoldMessenger.showSnackBar(
         SnackBar(content: Text('Error: ${e.toString()}')),
       );
@@ -95,8 +99,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-            widget.existingCard == null ? 'Add New Card' : 'Edit Card'),
+        title: Text(widget.existingCard == null ? 'Add New Card' : 'Edit Card'),
         actions: [
           if (widget.existingCard != null)
             IconButton(
@@ -120,15 +123,19 @@ class _CardEditScreenState extends State<CardEditScreen> {
                     ],
                   ),
                 );
+                if (!context.mounted) return;
 
                 if (shouldDelete == true) {
                   try {
                     await dataProvider.deleteCard(widget.existingCard!.id!);
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Card deleted successfully')),
+                      const SnackBar(
+                          content: Text('Card deleted successfully')),
                     );
                     Navigator.of(context).pop();
                   } catch (e) {
+                    if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Error: ${e.toString()}')),
                     );
@@ -189,7 +196,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
-                value: _selectedBankId,
+                initialValue: _selectedBankId,
                 decoration: const InputDecoration(
                   labelText: 'Bank',
                   border: OutlineInputBorder(),
@@ -214,7 +221,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<int>(
-                value: _selectedUserId,
+                initialValue: _selectedUserId,
                 decoration: const InputDecoration(
                   labelText: 'User',
                   border: OutlineInputBorder(),
