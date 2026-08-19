@@ -1,0 +1,38 @@
+:root { color: #172033; background: #f4f6fa; font-family: Inter, system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { padding: 16px; }
+header, .bank-heading, .bank-heading > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+h1 { margin: 0; font-size: 19px; }
+header p { margin: 4px 0 0; color: #687386; font-size: 12px; }
+.auto-toggle { display: grid; justify-items: center; gap: 3px; color: #687386; font-size: 11px; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+button { padding: 9px 10px; border: 0; border-radius: 9px; color: white; background: #2563eb; cursor: pointer; }
+button:disabled { cursor: default; opacity: .55; }
+button.secondary { color: #24405f; background: #e1e8f2; }
+button.success { grid-column: 1 / -1; background: #14804a; }
+.banks { display: grid; gap: 10px; }
+.bank { padding: 12px; border: 1px solid #d8deea; border-left: 5px solid #94a3b8; border-radius: 12px; background: white; }
+.bank-ready { border-left-color: #19a15f; }
+.bank-auth { border-color: #ef9a9a; border-left-color: #dc2626; background: #fff7f7; }
+.bank-error { border-left-color: #d97706; }
+.bank-collecting { border-left-color: #2563eb; }
+.bank h2 { margin: 0; font-size: 15px; }
+.status { padding: 3px 7px; border-radius: 999px; color: #526174; background: #edf1f6; font-size: 10px; white-space: nowrap; }
+.bank-auth .status { color: #a20e0e; background: #fee2e2; }
+.bank-ready .status { color: #08733d; background: #dcfce7; }
+.link-button { padding: 5px 8px; color: #2563eb; background: transparent; }
+.message, .summary { margin: 9px 0 0; color: #667085; font-size: 12px; }
+details { margin-top: 9px; }
+details > summary { color: #344054; cursor: pointer; font-size: 12px; }
+.categories { display: grid; gap: 8px; margin: 9px 0 0; padding: 0; list-style: none; }
+.categories li { display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid #edf0f4; }
+.categories li.category-unselected { opacity: .68; }
+.categories img { width: 34px; height: 34px; border-radius: 8px; object-fit: contain; }
+.categories span { display: grid; gap: 2px; min-width: 0; }
+.categories strong { font-size: 12px; }
+.categories small { color: #687386; font-size: 11px; line-height: 1.35; white-space: pre-line; }
+.categories .selection-label { justify-self: start; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 600; }
+.categories .selection-selected { color: #08733d; background: #dcfce7; }
+.categories .selection-unselected { color: #667085; background: #edf1f6; }
+.details-copy { margin-top: 2px; }

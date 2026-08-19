@@ -16,5 +16,6 @@ void main() {
     expect(find.text('Cashback'), findsOneWidget);
     expect(find.text('Cards'), findsOneWidget);
     expect(find.text('MonthCashback'), findsOneWidget);
+    expect(find.byTooltip('Запросить кэшбэк'), findsOneWidget);
   });
 }

@@ -516,7 +516,25 @@ class DataProvider with ChangeNotifier {
     int cardId,
     DateTime startDate,
     DateTime endDate,
-  ) async {
+  ) {
+    return addCashbackCategoryQuietly(
+      name,
+      cashbackPercent,
+      cardId,
+      startDate,
+      endDate,
+      notify: true,
+    );
+  }
+
+  Future<void> addCashbackCategoryQuietly(
+    String name,
+    double cashbackPercent,
+    int cardId,
+    DateTime startDate,
+    DateTime endDate, {
+    required bool notify,
+  }) async {
     try {
       final response = await http.post(
         Uri.parse('http://$serverIp/api/cashback'),
@@ -535,7 +553,9 @@ class DataProvider with ChangeNotifier {
         final newCategory =
             CashbackCategoryModel.fromJson(json.decode(response.body));
         cashbackCategories.add(newCategory);
-        notifyListeners();
+        if (notify) {
+          notifyListeners();
+        }
       } else {
         throw Exception('Failed to add category: ${response.statusCode}');
       }
@@ -543,6 +563,10 @@ class DataProvider with ChangeNotifier {
       debugPrint('Error adding cashback category: $e');
       rethrow;
     }
+  }
+
+  void notifyCashbackCategoriesChanged() {
+    notifyListeners();
   }
 
   Future<void> updateCashbackCategory(

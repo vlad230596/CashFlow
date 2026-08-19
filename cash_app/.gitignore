@@ -33,6 +33,19 @@ migrate_working_dir/
 .pub/
 /build/
 
+# Application dependency lockfile is reproducible project state and must be
+# committed even though the parent repository has a broad *.lock rule.
+!/pubspec.lock
+
+# Local configuration and private signing material.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Symbolication related
 app.*.symbols
 
@@ -43,3 +56,16 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local browsers, browser profiles, certificates, and diagnostic captures.
+# This directory can contain cookies, authenticated sessions, and bank data.
+/.local/
+
+# Project-local development runtimes (for example portable Node.js).
+/.tools/
+
+# Browser extension build artifacts and machine-local WXT runner settings.
+/browser_extension/node_modules/
+/browser_extension/.output/
+/browser_extension/.wxt/
+/browser_extension/web-ext.config.ts

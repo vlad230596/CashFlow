@@ -6,6 +6,49 @@ import '../providers/data_provider.dart';
 import '../utils/category_info.dart';
 import 'cashback_category_edit_screen.dart';
 
+class ParsedCashbackCategoryLine {
+  const ParsedCashbackCategoryLine({
+    required this.categoryName,
+    required this.percent,
+  });
+
+  final String categoryName;
+  final double percent;
+}
+
+@visibleForTesting
+ParsedCashbackCategoryLine parseCashbackCategoryLine(String line) {
+  final trimmed = line.trim();
+  final percentMatch =
+      RegExp(r'(\d+)\s*%|%\s*(\d+)|\b(\d+)\b').firstMatch(trimmed);
+
+  if (percentMatch == null) {
+    throw FormatException('Не найден процент в строке: "$trimmed"');
+  }
+
+  final percentStr =
+      percentMatch.group(1) ?? percentMatch.group(2) ?? percentMatch.group(3);
+  final percent = double.parse(percentStr!);
+  final categoryName = trimmed
+      .replaceRange(percentMatch.start, percentMatch.end, '')
+      .trim()
+      .replaceAll(
+        RegExp(
+            r'''^[\s%.,;:|/\\_\-+()[\]{}"'`]+|[\s%.,;:|/\\_\-+()[\]{}"'`]+$'''),
+        '',
+      )
+      .trim();
+
+  if (categoryName.isEmpty) {
+    throw FormatException('Не указано название категории в строке: "$trimmed"');
+  }
+
+  return ParsedCashbackCategoryLine(
+    categoryName: categoryName,
+    percent: percent,
+  );
+}
+
 class MonthlyCashbackScreen extends StatefulWidget {
   const MonthlyCashbackScreen({super.key});
 
@@ -393,6 +436,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                   if (trimmed.isEmpty) continue;
 
                   try {
+                    final parsed = parseCashbackCategoryLine(trimmed);
                     final percentMatch =
                         RegExp(r'(\d+)\s*%|%\s*(\d+)|\b(\d+)\b')
                             .firstMatch(trimmed);
@@ -401,14 +445,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                       continue;
                     }
 
-                    final percentStr = percentMatch.group(1) ??
-                        percentMatch.group(2) ??
-                        percentMatch.group(3);
-                    final percent = double.parse(percentStr!);
-                    final categoryName = trimmed
-                        .replaceAll(percentMatch.group(0)!, '')
-                        .trim()
-                        .replaceAll(RegExp(r'^\s*[\W_]+|\s*[\W_]+\s*$'), '');
+                    final percent = parsed.percent;
+                    final categoryName = parsed.categoryName;
 
                     if (categoryName.isEmpty) {
                       errors.add(
@@ -417,12 +455,13 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                       continue;
                     }
 
-                    await dataProvider.addCashbackCategory(
+                    await dataProvider.addCashbackCategoryQuietly(
                       categoryName,
                       percent,
                       cardId,
                       _startDate,
                       _getEndOfDay(_endDate),
+                      notify: false,
                     );
                     addedCount++;
                   } catch (e) {
@@ -432,6 +471,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
 
                 if (!mounted) return;
                 navigator.pop();
+                if (addedCount > 0) {
+                  dataProvider.notifyCashbackCategoriesChanged();
+                }
 
                 if (errors.isNotEmpty) {
                   messenger.showSnackBar(
@@ -458,6 +500,11 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
           ],
         );
       },
-    ).then((_) => inputController.dispose());
+    ).then((_) {
+      Future<void>.delayed(
+        const Duration(seconds: 1),
+        inputController.dispose,
+      );
+    });
   }
 }

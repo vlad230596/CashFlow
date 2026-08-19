@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/data_provider.dart';
+import '../services/cashback_import_launcher.dart';
 import 'cashback_screen.dart';
 import 'cards_screen.dart';
 import 'monthly_cashback_screen.dart';
@@ -50,6 +51,22 @@ class HomeScreen extends StatelessWidget {
             ],
           ),
           actions: [
+            IconButton(
+              tooltip: 'Запросить кэшбэк',
+              icon: const Icon(Icons.download_for_offline_outlined),
+              onPressed: () async {
+                final error = await launchCashbackImport();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      error ??
+                          'Chrome открыт. Авторизуйтесь в отмеченных банках и скачайте JSON.',
+                    ),
+                  ),
+                );
+              },
+            ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.settings),
               onSelected: (value) async {
