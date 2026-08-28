@@ -5,6 +5,8 @@ import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
 import '../utils/category_info.dart';
 import 'cashback_category_edit_screen.dart';
+import 'widgets/cashback_description_button.dart';
+import 'widgets/cashback_limits_label.dart';
 
 class ParsedCashbackCategoryLine {
   const ParsedCashbackCategoryLine({
@@ -118,8 +120,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     final categoryStart = DateUtils.dateOnly(startDate);
     final categoryEnd = DateUtils.dateOnly(endDate);
 
-    return !categoryEnd.isBefore(_startDate) &&
-        !categoryStart.isAfter(_endDate);
+    return categoryEnd.isAfter(_startDate) && !categoryStart.isAfter(_endDate);
   }
 
   Future<void> _openCategoryEditor(
@@ -201,7 +202,10 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                     )
                     .toList();
                 final selectedCount = cardCategories
-                    .where((category) => category.isSelected)
+                    .where(
+                      (category) =>
+                          category.isSelected && !category.isStackableBonus,
+                    )
                     .length;
 
                 if (cardId == null) {
@@ -307,18 +311,37 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                                         size: 12,
                                         color: categoryColor,
                                       ),
+                                      CashbackDescriptionButton(
+                                        categoryName: category.name,
+                                        description: category.description,
+                                        iconSize: 14,
+                                      ),
                                       const SizedBox(width: 4),
                                       Expanded(
-                                        child: Text(
-                                          category.name,
-                                          style: const TextStyle(fontSize: 10),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              category.name,
+                                              style:
+                                                  const TextStyle(fontSize: 10),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            CashbackLimitsLabel(
+                                              maxCashbackAmount:
+                                                  category.maxCashbackAmount,
+                                              minPurchaseAmount:
+                                                  category.minPurchaseAmount,
+                                              fontSize: 8,
+                                            ),
+                                          ],
                                         ),
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
-                                        '${category.cashbackPercent}%',
+                                        '${category.isStackableBonus ? '+' : ''}${category.cashbackPercent}%',
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
@@ -341,15 +364,17 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                                       ),
                                       Checkbox(
                                         value: category.isSelected,
-                                        onChanged: (value) {
-                                          Provider.of<DataProvider>(
-                                            context,
-                                            listen: false,
-                                          ).toggleCategorySelection(
-                                            category.id,
-                                            value ?? false,
-                                          );
-                                        },
+                                        onChanged: category.isSelectionLocked
+                                            ? null
+                                            : (value) {
+                                                Provider.of<DataProvider>(
+                                                  context,
+                                                  listen: false,
+                                                ).toggleCategorySelection(
+                                                  category.id,
+                                                  value ?? false,
+                                                );
+                                              },
                                         materialTapTargetSize:
                                             MaterialTapTargetSize.shrinkWrap,
                                         visualDensity: VisualDensity.compact,

@@ -10,6 +10,8 @@ export type CashbackCategory = {
   selected: boolean;
   group: string | null;
   expiresInLabel: string | null;
+  maxCashbackAmount?: number | null;
+  minPurchaseAmount?: number | null;
 };
 
 export type BankId = 'tbank' | 'yandex' | 'alfa' | 'sber' | 'ozon' | 'vtb';
@@ -20,6 +22,7 @@ export type AuthenticationStatus =
   | 'unknown';
 
 export type CashbackSelection = {
+  isLocked: boolean | null;
   selectedCount: number;
   visibleCount: number;
   maxSelectable: number | null;

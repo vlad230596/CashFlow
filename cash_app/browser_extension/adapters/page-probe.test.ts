@@ -20,6 +20,7 @@ describe('extractSelection', () => {
   it('extracts an explicit choose-from limit', () => {
     const root = { textContent: 'Можно выбрать 5 категорий из 8' } as ParentNode;
     expect(extractSelection([category(true), category(false)], root)).toEqual({
+      isLocked: null,
       selectedCount: 1,
       visibleCount: 2,
       maxSelectable: 5,

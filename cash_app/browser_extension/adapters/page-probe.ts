@@ -5,6 +5,7 @@ import type {
   CashbackSelection,
   PageProbe,
 } from './types';
+import { enrichCashbackCategory } from './category-details';
 
 function normalizedPageText(root: ParentNode): string {
   const documentText = (root as Document).documentElement?.textContent;
@@ -52,6 +53,9 @@ export function extractSelection(
 
   const groups = [...new Set(categories.map((category) => category.group).filter(Boolean))] as string[];
   return {
+    // The generic parser cannot yet distinguish a saved bank choice from an
+    // editable full selection. Bank-specific adapters can override this.
+    isLocked: null,
     selectedCount: categories.filter((category) => category.selected).length,
     visibleCount: categories.length,
     maxSelectable,
@@ -86,13 +90,16 @@ export function buildPageProbe(
   bankId: BankId,
   categories: CashbackCategory[],
 ): PageProbe {
+  const enrichedCategories = categories.map((category) =>
+    enrichCashbackCategory(bankId, category),
+  );
   return {
     bankId,
     title: document.title,
     url: window.location.href,
     readyState: document.readyState,
-    authenticationStatus: detectAuthenticationStatus(bankId, categories),
-    selection: extractSelection(categories),
-    categories,
+    authenticationStatus: detectAuthenticationStatus(bankId, enrichedCategories),
+    selection: extractSelection(enrichedCategories),
+    categories: enrichedCategories,
   };
 }

@@ -22,10 +22,14 @@ class _CashbackCategoryEditScreenState
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _cashbackPercentController;
+  late final TextEditingController _descriptionController;
+  late final TextEditingController _maxCashbackAmountController;
+  late final TextEditingController _minPurchaseAmountController;
   late DateTime _startDate;
   late DateTime _endDate;
   late bool _isSelected;
   late int _cardId;
+  late bool _isStackableBonus;
   bool _isSaving = false;
 
   @override
@@ -35,16 +39,29 @@ class _CashbackCategoryEditScreenState
     _cashbackPercentController = TextEditingController(
       text: widget.category.cashbackPercent.toString(),
     );
+    _descriptionController = TextEditingController(
+      text: widget.category.description ?? '',
+    );
+    _maxCashbackAmountController = TextEditingController(
+      text: widget.category.maxCashbackAmount?.toString() ?? '',
+    );
+    _minPurchaseAmountController = TextEditingController(
+      text: widget.category.minPurchaseAmount?.toString() ?? '',
+    );
     _startDate = DateUtils.dateOnly(widget.category.startDate);
     _endDate = DateUtils.dateOnly(widget.category.endDate);
     _isSelected = widget.category.isSelected;
     _cardId = widget.category.cardId;
+    _isStackableBonus = widget.category.isStackableBonus;
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _cashbackPercentController.dispose();
+    _descriptionController.dispose();
+    _maxCashbackAmountController.dispose();
+    _minPurchaseAmountController.dispose();
     super.dispose();
   }
 
@@ -73,6 +90,12 @@ class _CashbackCategoryEditScreenState
         '${date.month.toString().padLeft(2, '0')}.${date.year}';
   }
 
+  double? _parseOptionalAmount(String value) {
+    final normalized =
+        value.replaceAll(RegExp(r'\s+'), '').replaceAll(',', '.');
+    return normalized.isEmpty ? null : double.tryParse(normalized);
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -90,6 +113,10 @@ class _CashbackCategoryEditScreenState
     final dataProvider = Provider.of<DataProvider>(context, listen: false);
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
+    final maxCashbackAmount =
+        _parseOptionalAmount(_maxCashbackAmountController.text);
+    final minPurchaseAmount =
+        _parseOptionalAmount(_minPurchaseAmountController.text);
 
     try {
       await dataProvider.updateCashbackCategory(
@@ -102,6 +129,14 @@ class _CashbackCategoryEditScreenState
           startDate: _startDate,
           endDate: _endOfDay(_endDate),
           isSelected: _isSelected,
+          description: _descriptionController.text.trim(),
+          categoryType: _isStackableBonus ? 'stackable_bonus' : 'standard',
+          maxCashbackAmount: maxCashbackAmount,
+          minPurchaseAmount: minPurchaseAmount,
+          clearMaxCashbackAmount:
+              _maxCashbackAmountController.text.trim().isEmpty,
+          clearMinPurchaseAmount:
+              _minPurchaseAmountController.text.trim().isEmpty,
         ),
       );
 
@@ -189,6 +224,51 @@ class _CashbackCategoryEditScreenState
               },
             ),
             const SizedBox(height: 16),
+            TextFormField(
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Описание',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+              minLines: 2,
+              maxLines: 5,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _maxCashbackAmountController,
+              decoration: const InputDecoration(
+                labelText: 'Максимальный кэшбэк, ₽',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) return null;
+                return _parseOptionalAmount(value) == null
+                    ? 'Введите сумму'
+                    : null;
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _minPurchaseAmountController,
+              decoration: const InputDecoration(
+                labelText: 'Минимальная сумма покупки, ₽',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) return null;
+                return _parseOptionalAmount(value) == null
+                    ? 'Введите сумму'
+                    : null;
+              },
+            ),
+            const SizedBox(height: 16),
             DropdownButtonFormField<int>(
               initialValue: cardItems.any((item) => item.value == _cardId)
                   ? _cardId
@@ -214,11 +294,29 @@ class _CashbackCategoryEditScreenState
             const SizedBox(height: 16),
             SwitchListTile(
               title: const Text('Выбрана'),
+              subtitle: widget.category.isSelectionLocked
+                  ? const Text('Выбор закреплён банком')
+                  : null,
               value: _isSelected,
+              contentPadding: EdgeInsets.zero,
+              onChanged: widget.category.isSelectionLocked
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _isSelected = value;
+                      });
+                    },
+            ),
+            SwitchListTile(
+              title: const Text('Суммируется с другими категориями'),
+              subtitle: const Text(
+                'Не учитывается в лимите выбранных категорий',
+              ),
+              value: _isStackableBonus,
               contentPadding: EdgeInsets.zero,
               onChanged: (value) {
                 setState(() {
-                  _isSelected = value;
+                  _isStackableBonus = value;
                 });
               },
             ),

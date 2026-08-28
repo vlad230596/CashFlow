@@ -1,4 +1,53 @@
+import 'dart:convert';
 import 'dart:io';
+
+class CashbackImportFile {
+  const CashbackImportFile({required this.name, required this.contents});
+
+  final String name;
+  final String contents;
+}
+
+Future<CashbackImportFile?> pickCashbackImportFile() async {
+  if (!Platform.isWindows) {
+    throw UnsupportedError(
+        'Выбор файла импорта пока поддерживается только в Windows.');
+  }
+
+  const script = r'''
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = 'Выберите выгрузку CashFlow'
+$dialog.Filter = 'CashFlow JSON (*.json)|*.json|Все файлы (*.*)|*.*'
+$dialog.InitialDirectory = [Environment]::GetFolderPath('UserProfile') + '\Downloads'
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  Write-Output $dialog.FileName
+}
+''';
+
+  final result = await Process.run(
+    'powershell.exe',
+    ['-NoProfile', '-Sta', '-Command', script],
+    stdoutEncoding: utf8,
+  );
+  if (result.exitCode != 0) {
+    throw ProcessException(
+      'powershell.exe',
+      const [],
+      result.stderr.toString().trim(),
+      result.exitCode,
+    );
+  }
+
+  final path = result.stdout.toString().trim();
+  if (path.isEmpty) return null;
+  final file = File(path);
+  return CashbackImportFile(
+    name: file.uri.pathSegments.last,
+    contents: await file.readAsString(),
+  );
+}
 
 Future<String?> launchCashbackImport() async {
   if (!Platform.isWindows) {

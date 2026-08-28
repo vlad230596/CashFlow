@@ -10,6 +10,29 @@ import '../models/bank_model.dart';
 import '../models/user_model.dart';
 import '../models/cashback_category_model.dart';
 
+class CashbackImportResult {
+  const CashbackImportResult({
+    required this.created,
+    required this.updated,
+    required this.importedBanks,
+    required this.skippedBanks,
+  });
+
+  final int created;
+  final int updated;
+  final int importedBanks;
+  final int skippedBanks;
+
+  factory CashbackImportResult.fromJson(Map<String, dynamic> json) {
+    return CashbackImportResult(
+      created: json['created'] as int? ?? 0,
+      updated: json['updated'] as int? ?? 0,
+      importedBanks: (json['imported_banks'] as List?)?.length ?? 0,
+      skippedBanks: (json['skipped'] as List?)?.length ?? 0,
+    );
+  }
+}
+
 class DataProvider with ChangeNotifier {
   List<BankModel> banks = [];
   List<UserModel> users = [];
@@ -515,14 +538,22 @@ class DataProvider with ChangeNotifier {
     double cashbackPercent,
     int cardId,
     DateTime startDate,
-    DateTime endDate,
-  ) {
+    DateTime endDate, {
+    String? description,
+    String categoryType = 'standard',
+    double? maxCashbackAmount,
+    double? minPurchaseAmount,
+  }) {
     return addCashbackCategoryQuietly(
       name,
       cashbackPercent,
       cardId,
       startDate,
       endDate,
+      description: description,
+      categoryType: categoryType,
+      maxCashbackAmount: maxCashbackAmount,
+      minPurchaseAmount: minPurchaseAmount,
       notify: true,
     );
   }
@@ -534,6 +565,10 @@ class DataProvider with ChangeNotifier {
     DateTime startDate,
     DateTime endDate, {
     required bool notify,
+    String? description,
+    String categoryType = 'standard',
+    double? maxCashbackAmount,
+    double? minPurchaseAmount,
   }) async {
     try {
       final response = await http.post(
@@ -546,6 +581,10 @@ class DataProvider with ChangeNotifier {
           'start_date': startDate.toIso8601String(),
           'end_date': endDate.toIso8601String(),
           'is_selected': false,
+          'description': description,
+          'category_type': categoryType,
+          'max_cashback_amount': maxCashbackAmount,
+          'min_purchase_amount': minPurchaseAmount,
         }),
       );
 
@@ -567,6 +606,41 @@ class DataProvider with ChangeNotifier {
 
   void notifyCashbackCategoriesChanged() {
     notifyListeners();
+  }
+
+  Future<CashbackImportResult> importCashbackDocument(
+    String contents,
+    int userId,
+  ) async {
+    final decoded = json.decode(contents);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('JSON должен содержать объект импорта');
+    }
+
+    final response = await http.post(
+      Uri.parse('http://$serverIp/api/cashback/import'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'document': decoded,
+        'user_id': userId,
+      }),
+    );
+
+    final responseData = json.decode(response.body);
+    if (response.statusCode != 200) {
+      final message =
+          responseData is Map<String, dynamic> ? responseData['error'] : null;
+      throw Exception(message ?? 'Ошибка импорта: ${response.statusCode}');
+    }
+
+    final result = CashbackImportResult.fromJson(
+      responseData as Map<String, dynamic>,
+    );
+    final refreshed = await fetchAllData();
+    if (!refreshed) {
+      throw Exception('Импорт выполнен, но обновить данные не удалось');
+    }
+    return result;
   }
 
   Future<void> updateCashbackCategory(

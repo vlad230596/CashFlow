@@ -1,9 +1,10 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS  # Импортируем CORS
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import re
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///cards.db'
@@ -76,6 +77,11 @@ class CashbackCategory(db.Model):
     end_date = db.Column(db.DateTime, nullable=False)
     is_selected = db.Column(db.Boolean, default=False)
     cashback_percent = db.Column(db.Float, nullable=False)
+    description = db.Column(db.Text)
+    category_type = db.Column(db.String(32), nullable=False, default='standard')
+    is_selection_locked = db.Column(db.Boolean, nullable=False, default=False)
+    max_cashback_amount = db.Column(db.Float)
+    min_purchase_amount = db.Column(db.Float)
 
     card_id = db.Column(db.Integer, db.ForeignKey('bank_card.id'), nullable=False)
     card = db.relationship('BankCard', backref=db.backref('cashback_categories', lazy=True))
@@ -88,6 +94,11 @@ class CashbackCategory(db.Model):
             'end_date': self.end_date.isoformat(),
             'is_selected': self.is_selected,
             'cashback_percent': self.cashback_percent,
+            'description': self.description,
+            'category_type': self.category_type,
+            'is_selection_locked': self.is_selection_locked,
+            'max_cashback_amount': self.max_cashback_amount,
+            'min_purchase_amount': self.min_purchase_amount,
             'card_id': self.card_id
         }
 
@@ -96,6 +107,30 @@ class CashbackCategory(db.Model):
 with app.app_context():
     # db.drop_all()
     db.create_all()
+    columns = {
+        column['name'] for column in inspect(db.engine).get_columns('cashback_category')
+    }
+    if 'description' not in columns:
+        db.session.execute(text('ALTER TABLE cashback_category ADD COLUMN description TEXT'))
+    if 'category_type' not in columns:
+        db.session.execute(text(
+            "ALTER TABLE cashback_category ADD COLUMN category_type VARCHAR(32) "
+            "NOT NULL DEFAULT 'standard'"
+        ))
+    if 'is_selection_locked' not in columns:
+        db.session.execute(text(
+            'ALTER TABLE cashback_category ADD COLUMN is_selection_locked '
+            'BOOLEAN NOT NULL DEFAULT 0'
+        ))
+    if 'max_cashback_amount' not in columns:
+        db.session.execute(text(
+            'ALTER TABLE cashback_category ADD COLUMN max_cashback_amount FLOAT'
+        ))
+    if 'min_purchase_amount' not in columns:
+        db.session.execute(text(
+            'ALTER TABLE cashback_category ADD COLUMN min_purchase_amount FLOAT'
+        ))
+    db.session.commit()
 
 # Роуты для банков
 @app.route('/api/banks', methods=['GET', 'POST'])
@@ -254,7 +289,12 @@ def cashback_categories():
             end_date=end_date,
             cashback_percent=data['cashback_percent'],
             card_id=data['card_id'],
-            is_selected=data.get('is_selected', False)
+            is_selected=data.get('is_selected', False),
+            description=data.get('description'),
+            category_type=data.get('category_type', 'standard'),
+            is_selection_locked=data.get('is_selection_locked', False),
+            max_cashback_amount=data.get('max_cashback_amount'),
+            min_purchase_amount=data.get('min_purchase_amount')
         )
 
         db.session.add(new_category)
@@ -296,6 +336,21 @@ def cashback_category_detail(category_id):
         if 'is_selected' in data:
             category.is_selected = data['is_selected']
 
+        if 'description' in data:
+            category.description = data['description']
+
+        if 'category_type' in data:
+            category.category_type = data['category_type']
+
+        if 'is_selection_locked' in data:
+            category.is_selection_locked = data['is_selection_locked']
+
+        if 'max_cashback_amount' in data:
+            category.max_cashback_amount = data['max_cashback_amount']
+
+        if 'min_purchase_amount' in data:
+            category.min_purchase_amount = data['min_purchase_amount']
+
         if 'card_id' in data:
             if not BankCard.query.get(data['card_id']):
                 return jsonify({'error': 'Card not found'}), 404
@@ -310,14 +365,317 @@ def cashback_category_detail(category_id):
         return jsonify({'message': 'Cashback category deleted successfully'}), 200
 
 
+BANK_IMPORT_NAMES = {
+    'tbank': 'Т-Банк',
+    'yandex': 'Яндекс',
+    'alfa': 'Альфа',
+    'sber': 'Сбер',
+    'ozon': 'Озон',
+    'vtb': 'ВТБ',
+}
+
+RUSSIAN_MONTHS = {
+    'января': 1,
+    'февраля': 2,
+    'марта': 3,
+    'апреля': 4,
+    'мая': 5,
+    'июня': 6,
+    'июля': 7,
+    'августа': 8,
+    'сентября': 9,
+    'октября': 10,
+    'ноября': 11,
+    'декабря': 12,
+}
+
+
+def _parse_import_datetime(value):
+    if not isinstance(value, str):
+        raise ValueError('generatedAt must be an ISO date')
+    parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone(timedelta(hours=3)))
+
+
+def _next_month(value):
+    if value.month == 12:
+        return datetime(value.year + 1, 1, 1)
+    return datetime(value.year, value.month + 1, 1)
+
+
+def _category_period(generated_at, expires_in_label):
+    start = datetime(generated_at.year, generated_at.month, 1)
+    default_end = _next_month(start)
+    if not expires_in_label:
+        return start, default_end
+
+    label = str(expires_in_label).strip().lower()
+    days_match = re.search(r'ещ[её]\s+(\d+)\s+д', label)
+    if days_match:
+        end = datetime(
+            generated_at.year,
+            generated_at.month,
+            generated_at.day,
+        ) + timedelta(days=int(days_match.group(1)))
+        return start, default_end if end <= start else end
+
+    date_match = re.search(r'до\s+(\d{1,2})\s+([а-яё]+)', label)
+    if date_match and date_match.group(2) in RUSSIAN_MONTHS:
+        month = RUSSIAN_MONTHS[date_match.group(2)]
+        year = generated_at.year
+        end_date = datetime(year, month, int(date_match.group(1)))
+        if end_date.date() < generated_at.date():
+            end_date = end_date.replace(year=year + 1)
+        return start, end_date + timedelta(days=1)
+
+    return start, default_end
+
+
+def _resolve_import_card(bank_id, user_id, explicit_card_ids):
+    bank_name = BANK_IMPORT_NAMES.get(bank_id)
+    if bank_name is None:
+        return None, f'Unsupported bank: {bank_id}'
+
+    bank = Bank.query.filter_by(name=bank_name).first()
+    if bank is None:
+        return None, f'Bank is not configured: {bank_name}'
+
+    explicit_id = explicit_card_ids.get(bank_id)
+    query = BankCard.query.filter_by(bank_id=bank.id, user_id=user_id)
+    if explicit_id is not None:
+        card = query.filter_by(id=explicit_id).first()
+        if card is None:
+            return None, f'Card {explicit_id} does not belong to user {user_id} and {bank_name}'
+        return card, None
+
+    cards = query.filter_by(user_id=user_id, is_active=True).all()
+    if len(cards) != 1:
+        return None, f'Expected one active {bank_name} card for user {user_id}, found {len(cards)}'
+    return cards[0], None
+
+
+def _selection_is_locked(bank_result, categories):
+    selection = bank_result.get('selection') or {}
+    explicit_value = selection.get('isLocked')
+    if isinstance(explicit_value, bool):
+        return explicit_value
+
+    max_selectable = selection.get('maxSelectable')
+    selected_count = selection.get('selectedCount')
+    if (
+        isinstance(max_selectable, int)
+        and max_selectable > 0
+        and isinstance(selected_count, int)
+        and selected_count >= max_selectable
+    ):
+        return True
+
+    return bool(categories) and all(
+        bool(category.get('selected', False)) for category in categories
+    )
+
+
+def _amount_value(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _amount_from_match(match):
+    if match is None:
+        return None
+    return float(re.sub(r'[\s\u00a0\u202f]', '', match.group(1)).replace(',', '.'))
+
+
+def _extract_cashback_amounts(imported):
+    max_amount = _amount_value(imported.get('maxCashbackAmount'))
+    min_amount = _amount_value(imported.get('minPurchaseAmount'))
+    source_text = f"{imported.get('subtitle') or ''}\n{imported.get('description') or ''}"
+    amount = r'(\d[\d\s\u00a0\u202f]*(?:[.,]\d+)?)'
+    currency = r'(?:₽|руб(?:ль|ля|лей)?\.?|р\.)'
+
+    if max_amount is None:
+        max_patterns = (
+            rf'к[еэ]шб[еэ]к\s+до\s+{amount}\s*{currency}',
+            rf'лимит\s+к[еэ]шб[еэ]ка[^\d]{{0,40}}{amount}\s*{currency}',
+        )
+        for pattern in max_patterns:
+            max_amount = _amount_from_match(re.search(pattern, source_text, re.IGNORECASE))
+            if max_amount is not None:
+                break
+
+    if min_amount is None:
+        min_patterns = (
+            rf'(?:покупк[а-яё]*|заказ[а-яё]*|чек[а-яё]*)[^.\n]{{0,60}}?\sот\s+{amount}\s*{currency}',
+            rf'минимальн[а-яё]*\s+(?:сумм[а-яё]*|чек[а-яё]*)[^\d]{{0,30}}{amount}\s*{currency}',
+        )
+        for pattern in min_patterns:
+            min_amount = _amount_from_match(re.search(pattern, source_text, re.IGNORECASE))
+            if min_amount is not None:
+                break
+
+    return max_amount, min_amount
+
+
+def _clean_category_description(bank_id, description):
+    if not isinstance(description, str) or not description.strip():
+        return None
+
+    amount = r'\d[\d\s\u00a0\u202f]*(?:[.,]\d+)?'
+    currency = r'(?:₽|руб(?:ль|ля|лей)?\.?|р\.)'
+    cleaned = re.sub(
+        rf'(?:к[еэ]шб[еэ]к\s+до\s+{amount}\s*{currency}'
+        rf'|лимит\s+к[еэ]шб[еэ]ка[^\d]{{0,40}}{amount}\s*{currency})\.?\s*',
+        '',
+        description,
+        flags=re.IGNORECASE,
+    )
+    if bank_id == 'vtb':
+        cleaned = re.sub(
+            r'МСС\s*[—–-]\s*это\s+код\s+вида\s+деятельности\s+продавца\.\s*'
+            r'По\s+нему\s+банк\s+определяет\s+категорию\s+покупки\s+для\s+'
+            r'расчета\s+кешбэка\.?\s*',
+            '',
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+    lines = [re.sub(r'\s+', ' ', line).strip() for line in cleaned.splitlines()]
+    cleaned = '\n'.join(line for line in lines if line)
+    return cleaned or None
+
+
+@app.route('/api/cashback/import', methods=['POST'])
+def import_cashback():
+    payload = request.get_json(silent=True) or {}
+    document = payload.get('document')
+    user_id = payload.get('user_id')
+    explicit_card_ids = payload.get('card_ids') or {}
+
+    if not isinstance(document, dict):
+        return jsonify({'error': 'A cashback import document is required'}), 400
+    if document.get('schemaVersion') != 1 or not isinstance(document.get('banks'), list):
+        return jsonify({'error': 'Unsupported cashback import document'}), 400
+    if not isinstance(user_id, int) or db.session.get(CardUser, user_id) is None:
+        return jsonify({'error': 'A valid user_id is required'}), 400
+
+    try:
+        generated_at = _parse_import_datetime(document.get('generatedAt'))
+    except (TypeError, ValueError) as error:
+        return jsonify({'error': str(error)}), 400
+
+    created = 0
+    updated = 0
+    skipped = []
+    imported_banks = []
+
+    try:
+        for bank_result in document['banks']:
+            bank_id = bank_result.get('bankId')
+            categories = bank_result.get('categories')
+            if bank_result.get('authenticationStatus') != 'authenticated':
+                skipped.append({'bank_id': bank_id, 'reason': 'Bank is not authenticated'})
+                continue
+            if not isinstance(categories, list):
+                skipped.append({'bank_id': bank_id, 'reason': 'Categories are missing'})
+                continue
+
+            card, error = _resolve_import_card(bank_id, user_id, explicit_card_ids)
+            if error:
+                skipped.append({'bank_id': bank_id, 'reason': error})
+                continue
+
+            max_selectable = (bank_result.get('selection') or {}).get('maxSelectable')
+            selection_locked = _selection_is_locked(bank_result, categories)
+            if isinstance(max_selectable, int) and max_selectable > 0:
+                card.max_cashback_categories = max_selectable
+
+            bank_count = 0
+            selected_standard_count = 0
+            for imported in categories:
+                name = str(imported.get('name') or '').strip()
+                percent = imported.get('percent')
+                if not name or not isinstance(percent, (int, float)):
+                    continue
+
+                category_type = imported.get('type') or 'standard'
+                if category_type not in ('standard', 'stackable_bonus'):
+                    category_type = 'standard'
+                start_date, end_date = _category_period(
+                    generated_at,
+                    imported.get('expiresInLabel'),
+                )
+                category = CashbackCategory.query.filter_by(
+                    card_id=card.id,
+                    name=name,
+                    start_date=start_date,
+                    category_type=category_type,
+                ).first()
+                if category is None:
+                    category = CashbackCategory(
+                        card_id=card.id,
+                        name=name,
+                        start_date=start_date,
+                        category_type=category_type,
+                    )
+                    db.session.add(category)
+                    created += 1
+                else:
+                    updated += 1
+
+                category.end_date = end_date
+                category.cashback_percent = float(percent)
+                category.is_selected = bool(imported.get('selected', False))
+                category.description = _clean_category_description(
+                    bank_id,
+                    imported.get('description'),
+                )
+                (
+                    category.max_cashback_amount,
+                    category.min_purchase_amount,
+                ) = _extract_cashback_amounts(imported)
+                category.is_selection_locked = selection_locked
+                if category.is_selected and category_type == 'standard':
+                    selected_standard_count += 1
+                bank_count += 1
+
+            if not isinstance(max_selectable, int) and selected_standard_count > (
+                card.max_cashback_categories or 0
+            ):
+                card.max_cashback_categories = selected_standard_count
+
+            imported_banks.append({
+                'bank_id': bank_id,
+                'card_id': card.id,
+                'categories': bank_count,
+                'selection_locked': selection_locked,
+            })
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    return jsonify({
+        'created': created,
+        'updated': updated,
+        'imported_banks': imported_banks,
+        'skipped': skipped,
+    })
+
+
 @app.route('/api/active_cashback', methods=['GET'])
 def get_active_cashback():
-    today = datetime.now().date()
+    today = datetime.now()
 
     categories = CashbackCategory.query.where(
         CashbackCategory.is_selected == True,
-        # CashbackCategory.start_date <= today,
-        CashbackCategory.end_date >= today
+        CashbackCategory.start_date <= today,
+        CashbackCategory.end_date > today
 
     )
     return jsonify([category.to_dict() for category in categories])

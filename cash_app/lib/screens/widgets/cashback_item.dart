@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../utils/category_info.dart';
+import 'cashback_description_button.dart';
+import 'cashback_limits_label.dart';
 
 class CashbackItem extends StatelessWidget {
   final String category;
   final double percent;
   final String cardName;
   final IconData icon;
+  final String? description;
+  final bool isStackableBonus;
+  final double? maxCashbackAmount;
+  final double? minPurchaseAmount;
 
   const CashbackItem({
     super.key,
@@ -13,6 +19,10 @@ class CashbackItem extends StatelessWidget {
     required this.percent,
     required this.cardName,
     required this.icon,
+    this.description,
+    this.isStackableBonus = false,
+    this.maxCashbackAmount,
+    this.minPurchaseAmount,
   });
 
   @override
@@ -42,7 +52,7 @@ class CashbackItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                '$percent%',
+                '${isStackableBonus ? '+' : ''}$percent%',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
@@ -71,8 +81,17 @@ class CashbackItem extends StatelessWidget {
                       color: Colors.grey[600],
                     ),
                   ),
+                  CashbackLimitsLabel(
+                    maxCashbackAmount: maxCashbackAmount,
+                    minPurchaseAmount: minPurchaseAmount,
+                    fontSize: 10,
+                  ),
                 ],
               ),
+            ),
+            CashbackDescriptionButton(
+              categoryName: category,
+              description: description,
             ),
           ],
         ),

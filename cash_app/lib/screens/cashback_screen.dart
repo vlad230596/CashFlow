@@ -47,12 +47,16 @@ class _CashbackScreenState extends State<CashbackScreen> {
     } else {
       _filteredData = allData.where((item) {
         final category = item.name.toLowerCase();
-        final cardNumber =
-            dataProvider.getCardById(item.cardId).lastFourDigits?.toLowerCase() ??
-                '';
+        final description = item.description?.toLowerCase() ?? '';
+        final cardNumber = dataProvider
+                .getCardById(item.cardId)
+                .lastFourDigits
+                ?.toLowerCase() ??
+            '';
         final cardName = dataProvider.getCardName(item.cardId).toLowerCase();
 
         return category.contains(query) ||
+            description.contains(query) ||
             cardNumber.contains(query) ||
             cardName.contains(query);
       }).toList();
@@ -101,6 +105,10 @@ class _CashbackScreenState extends State<CashbackScreen> {
                     cardName:
                         '${dataProvider.getCardName(item.cardId)} ${card.lastFourDigits ?? '????'}',
                     icon: CategoryInfo.getCategoryIcon(item.name),
+                    description: item.description,
+                    isStackableBonus: item.isStackableBonus,
+                    maxCashbackAmount: item.maxCashbackAmount,
+                    minPurchaseAmount: item.minPurchaseAmount,
                   );
                 },
               );

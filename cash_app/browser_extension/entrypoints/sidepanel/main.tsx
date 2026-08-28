@@ -168,6 +168,7 @@ function App() {
         readyState: null,
         authenticationStatus: view.status === 'auth' ? 'authentication_required' : 'unknown',
         selection: {
+          isLocked: null,
           selectedCount: 0,
           visibleCount: 0,
           maxSelectable: null,

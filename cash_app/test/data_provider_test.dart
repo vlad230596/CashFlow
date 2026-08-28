@@ -4,7 +4,47 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  test('filters effective active cashback categories by selected date', () async {
+  test('cashback category preserves description and stackable type', () {
+    final category = CashbackCategoryModel.fromJson({
+      'id': 7,
+      'name': 'Аптеки в августе',
+      'start_date': '2026-08-01T00:00:00',
+      'end_date': '2026-09-01T00:00:00',
+      'is_selected': true,
+      'cashback_percent': 3,
+      'card_id': 3,
+      'description': 'Дополнительно к обычному кэшбэку',
+      'category_type': 'stackable_bonus',
+      'is_selection_locked': true,
+      'max_cashback_amount': 2000,
+      'min_purchase_amount': 5000,
+    });
+
+    expect(category.description, 'Дополнительно к обычному кэшбэку');
+    expect(category.isStackableBonus, isTrue);
+    expect(category.isSelectionLocked, isTrue);
+    expect(category.maxCashbackAmount, 2000);
+    expect(category.minPurchaseAmount, 5000);
+    expect(
+      CashbackCategoryModel.toJson(category)['category_type'],
+      'stackable_bonus',
+    );
+    expect(
+      CashbackCategoryModel.toJson(category)['is_selection_locked'],
+      isTrue,
+    );
+    expect(
+      CashbackCategoryModel.toJson(category)['max_cashback_amount'],
+      2000,
+    );
+    expect(
+      CashbackCategoryModel.toJson(category)['min_purchase_amount'],
+      5000,
+    );
+  });
+
+  test('filters effective active cashback categories by selected date',
+      () async {
     SharedPreferences.setMockInitialValues({});
     final provider = DataProvider()
       ..cashbackCategories = [
@@ -40,12 +80,14 @@ void main() {
     await provider.setCashbackEffectiveDate(DateTime(2026, 4, 25));
 
     expect(
-      provider.effectiveActiveCashbackCategories.map((category) => category.name),
+      provider.effectiveActiveCashbackCategories
+          .map((category) => category.name),
       ['Current'],
     );
   });
 
-  test('uses active cashback cache when full cashback cache is empty', () async {
+  test('uses active cashback cache when full cashback cache is empty',
+      () async {
     SharedPreferences.setMockInitialValues({});
     final provider = DataProvider()
       ..activeCashbackCategories = [

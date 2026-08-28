@@ -12,6 +12,87 @@ import 'settings/cards_settings.dart';
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
 
+  Future<int?> _selectImportUser(
+    BuildContext context,
+    DataProvider dataProvider,
+  ) async {
+    if (dataProvider.users.isEmpty) return null;
+    if (dataProvider.users.length == 1) return dataProvider.users.single.id;
+
+    var selectedUserId = dataProvider.users.first.id;
+    return showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Кому импортировать категории?'),
+        content: StatefulBuilder(
+          builder: (context, setState) => DropdownButtonFormField<int>(
+            initialValue: selectedUserId,
+            decoration: const InputDecoration(
+              labelText: 'Владелец карт',
+              border: OutlineInputBorder(),
+            ),
+            items: dataProvider.users
+                .map(
+                  (user) => DropdownMenuItem<int>(
+                    value: user.id,
+                    child: Text(user.name),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => selectedUserId = value);
+              }
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, selectedUserId),
+            child: const Text('Импортировать'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _importCashback(
+    BuildContext context,
+    DataProvider dataProvider,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final file = await pickCashbackImportFile();
+      if (file == null || !context.mounted) return;
+      final userId = await _selectImportUser(context, dataProvider);
+      if (userId == null || !context.mounted) return;
+
+      final result = await dataProvider.importCashbackDocument(
+        file.contents,
+        userId,
+      );
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Импортировано банков: ${result.importedBanks}; '
+            'создано: ${result.created}, обновлено: ${result.updated}'
+            '${result.skippedBanks == 0 ? '' : ', пропущено банков: ${result.skippedBanks}'}.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Не удалось импортировать JSON: $error')),
+      );
+    }
+  }
+
   String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
@@ -51,6 +132,11 @@ class HomeScreen extends StatelessWidget {
             ],
           ),
           actions: [
+            IconButton(
+              tooltip: 'Импортировать кэшбэк из JSON',
+              icon: const Icon(Icons.upload_file_outlined),
+              onPressed: () => _importCashback(context, dataProvider),
+            ),
             IconButton(
               tooltip: 'Запросить кэшбэк',
               icon: const Icon(Icons.download_for_offline_outlined),

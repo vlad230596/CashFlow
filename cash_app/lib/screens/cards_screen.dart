@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../providers/data_provider.dart';
 import '../utils/category_info.dart';
+import 'widgets/cashback_description_button.dart';
+import 'widgets/cashback_limits_label.dart';
 
 class CardsScreen extends StatelessWidget {
   const CardsScreen({super.key});
@@ -63,11 +65,27 @@ class CardsScreen extends StatelessWidget {
                               ),
                               const SizedBox(width: 4),
                               Expanded(
-                                child: Text(
-                                  category.name,
-                                  style: const TextStyle(fontSize: 12),
-                                  overflow: TextOverflow.ellipsis,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      category.name,
+                                      style: const TextStyle(fontSize: 12),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    CashbackLimitsLabel(
+                                      maxCashbackAmount:
+                                          category.maxCashbackAmount,
+                                      minPurchaseAmount:
+                                          category.minPurchaseAmount,
+                                    ),
+                                  ],
                                 ),
+                              ),
+                              CashbackDescriptionButton(
+                                categoryName: category.name,
+                                description: category.description,
+                                iconSize: 14,
                               ),
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -79,7 +97,7 @@ class CardsScreen extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  '${category.cashbackPercent}%',
+                                  '${category.isStackableBonus ? '+' : ''}${category.cashbackPercent}%',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
