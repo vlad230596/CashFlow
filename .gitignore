@@ -1,6 +1,7 @@
 # Miscellaneous
 *.class
 *.lock
+!/backend/uv.lock
 *.log
 *.pyc
 *.swp
@@ -117,6 +118,14 @@ app.*.symbols
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 !/dev/ci/**/Gemfile.lock
-/cash_server/.idea/
-/cash_server/instance/cards.db
-/cash_server/ssl/
+# Backend-local environments, databases, and certificates.
+/backend/.idea/
+/backend/.venv/
+/backend/instance/
+/backend/ssl/
+/backend/*.db
+
+# Generated caches left by the pre-rename Flutter workspace. The active
+# application sources live in /app.
+/cash_app/
+/.server-staging/

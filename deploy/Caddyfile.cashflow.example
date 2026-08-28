@@ -1,0 +1,13 @@
+# Add this separate site block to the existing shared Caddy configuration.
+# Replace the placeholder only after the CashFlow DNS A record is active.
+cash-flow-app.duckdns.org:8443 {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+	}
+	reverse_proxy cashflow-backend:8000
+}
