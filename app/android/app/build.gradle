@@ -5,18 +5,33 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def releaseKeystorePath = System.getenv("CASHFLOW_ANDROID_KEYSTORE_PATH")
+def releaseKeystorePassword = System.getenv("CASHFLOW_ANDROID_KEYSTORE_PASSWORD")
+def releaseKeyAlias = System.getenv("CASHFLOW_ANDROID_KEY_ALIAS")
+def releaseKeyPassword = System.getenv("CASHFLOW_ANDROID_KEY_PASSWORD")
+def releaseSigningConfigured = [
+    releaseKeystorePath,
+    releaseKeystorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+].every { value -> value != null && !value.trim().isEmpty() }
+
+if (System.getenv("CI") == "true" && !releaseSigningConfigured) {
+    throw new GradleException("CashFlow release signing environment is incomplete.")
+}
+
 android {
     namespace = "com.example.cash_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
+        jvmTarget = JavaVersion.VERSION_17
     }
 
     defaultConfig {
@@ -24,17 +39,30 @@ android {
         applicationId = "com.example.cash_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 23
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            // Local release builds keep working with the debug key. CI refuses
+            // to build unless the dedicated CashFlow signing key is present.
+            signingConfig = releaseSigningConfigured
+                ? signingConfigs.release
+                : signingConfigs.debug
         }
     }
 }

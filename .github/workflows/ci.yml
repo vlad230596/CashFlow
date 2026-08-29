@@ -58,6 +58,9 @@ jobs:
       - name: Test Flutter app
         working-directory: app
         run: flutter test
+      - name: Build Flutter web frontend
+        working-directory: app
+        run: flutter build web --release
 
   browser-extension:
     runs-on: ubuntu-latest

@@ -7,7 +7,15 @@ cash-flow-app.duckdns.org:8443 {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
-		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 	}
-	reverse_proxy cashflow-backend:8000
+
+	@backend path /api/* /health /ready /version
+	handle @backend {
+		reverse_proxy cashflow-backend:8000
+	}
+
+	handle {
+		reverse_proxy cashflow-frontend:8080
+	}
 }

@@ -57,6 +57,23 @@ services:
         aliases: [cashflow-backend]
     logging: *default-logging
 
+  frontend:
+    image: ${FRONTEND_IMAGE:-cashflow-frontend:local}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks:
+      cashflow-ingress:
+        aliases: [cashflow-frontend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    logging: *default-logging
+
 volumes:
   postgres-data:
 

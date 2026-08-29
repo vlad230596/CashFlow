@@ -1,6 +1,7 @@
-# CashFlow backend deployment
+# CashFlow deployment
 
-Only the backend is deployed. Flutter and the browser extension are not hosted on the VDS.
+The Flask backend and Flutter web frontend are deployed. The browser extension is not hosted
+on the VDS. Signed Android APKs are attached to GitHub Releases.
 
 ## Isolation model
 
@@ -9,16 +10,20 @@ CashFlow uses its own resources:
 - Compose project `cashflow`;
 - directory `/opt/cashflow`;
 - PostgreSQL volume `cashflow_postgres-data`;
+- immutable `cashflow-backend` and `cashflow-frontend` GHCR images;
 - database credentials and root-only `.env`;
 - deploy user `cashflow-deploy` and restricted sudo command;
 - backup user `cashflow-backup` and forced SSH command;
 - backup directory `/var/backups/cashflow`;
 - deployment lock `/run/lock/cashflow-deploy.lock`.
 
-PostgreSQL and Flask publish no host ports. The only shared component is the existing Caddy
-ingress. A dedicated external Docker network `cashflow-ingress` connects Caddy to the alias
-`cashflow-backend`; it does not connect CashFlow to the OfficeCooking application or database
-networks.
+PostgreSQL, Flask, and the static frontend publish no host ports. The only shared component is
+the existing Caddy ingress. A dedicated external Docker network `cashflow-ingress` connects
+Caddy to aliases `cashflow-backend` and `cashflow-frontend`; it does not connect CashFlow to the
+OfficeCooking application or database networks.
+
+On `cash-flow-app.duckdns.org:8443`, Caddy sends `/api/*`, `/health`, `/ready`, and `/version` to
+Flask. All other paths are served by the Flutter single-page application.
 
 The persistent OfficeCooking Compose and Caddy configuration must be updated only after its
 current files have been backed up and validated. The required change is limited to connecting
@@ -54,17 +59,18 @@ data. The legacy `card_owner` and `carduser` tables are unused and intentionally
 
 ## Releases
 
-Tags of exact form `X.Y.Z` run all CI jobs, build the backend once, publish it to GHCR, attest
-the image, and deploy its immutable digest. The root-owned deploy script then:
+Tags of exact form `X.Y.Z` run all CI jobs, build the backend and web frontend once, publish both
+to GHCR, attest both images, build a signed production APK, and attach the APK plus its SHA-256
+file to a GitHub Release. The root-owned deploy script then:
 
 1. locks deployment;
-2. validates SemVer and the GHCR digest reference;
-3. pulls the image;
+2. validates SemVer and both GHCR digest references;
+3. pulls both images;
 4. starts only CashFlow PostgreSQL;
 5. creates a pre-release PostgreSQL dump;
 6. applies Alembic migrations;
-7. starts CashFlow backend;
-8. checks public `/ready` and `/version`.
+7. starts CashFlow backend and frontend;
+8. checks public `/ready`, `/version`, and the Flutter application shell.
 
 The GitHub `production` Environment requires:
 
@@ -77,10 +83,20 @@ The GitHub `production` Environment requires:
 | `VPS_PORT` (`22`) | variable |
 | `PRODUCTION_URL` | variable |
 
+The signed APK job additionally requires these repository-level Actions secrets:
+
+| Name | Type |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | secret |
+| `ANDROID_KEYSTORE_PASSWORD` | secret |
+| `ANDROID_KEY_ALIAS` | secret |
+| `ANDROID_KEY_PASSWORD` | secret |
+
 Enable a required reviewer and restrict the Environment to release tags. Never use `latest` as
 the production version. A container rollback does not roll back database migrations.
 
-Build Flutter clients with the production API origin explicitly:
+Local Android production builds require the signing environment documented in
+`app/android/app/build.gradle`. GitHub Releases build with the production API origin explicitly:
 
 ```powershell
 flutter build apk --dart-define=CASHFLOW_API_URL=https://cash-flow-app.duckdns.org:8443

@@ -1,0 +1,17 @@
+ARG APP_VERSION=dev
+ARG BUILD_DATE=unknown
+
+FROM nginxinc/nginx-unprivileged:1.28.1-alpine AS runtime
+
+ARG APP_VERSION
+ARG BUILD_DATE
+
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.created=$BUILD_DATE
+
+COPY nginx.web.conf /etc/nginx/conf.d/default.conf
+COPY build/web/ /usr/share/nginx/html/
+
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --retries=6 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1

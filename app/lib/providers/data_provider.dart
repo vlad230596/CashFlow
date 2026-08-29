@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,9 +75,10 @@ class _AuthenticatedClient extends http.BaseClient {
 
 class DataProvider with ChangeNotifier {
   DataProvider({
-    this.apiBaseUrl = defaultApiBaseUrl,
+    String? apiBaseUrl,
     FlutterSecureStorage? secureStorage,
-  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage() {
+  })  : apiBaseUrl = apiBaseUrl ?? defaultApiBaseUrl,
+        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
     _client = _AuthenticatedClient(
       http.Client(),
       () => _accessToken,
@@ -85,10 +86,14 @@ class DataProvider with ChangeNotifier {
     );
   }
 
-  static const defaultApiBaseUrl = String.fromEnvironment(
+  static const _configuredApiBaseUrl = String.fromEnvironment(
     'CASHFLOW_API_URL',
-    defaultValue: 'http://192.168.31.142:5000',
   );
+  static String get defaultApiBaseUrl => _configuredApiBaseUrl.isNotEmpty
+      ? _configuredApiBaseUrl
+      : kIsWeb
+          ? Uri.base.origin
+          : 'http://192.168.31.142:5000';
   static const _accessTokenKey = 'cashflowAccessToken';
 
   final String apiBaseUrl;

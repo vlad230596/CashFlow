@@ -8,14 +8,15 @@ readonly COMPOSE_FILE='compose.prod.yaml'
 readonly RELEASE_ENV='.release.env'
 readonly BACKUP_DIR='/var/backups/cashflow'
 
-if [[ $# -ne 3 ]]; then
-  echo 'Usage: cashflow-deploy VERSION BACKEND_IMAGE GHCR_USER' >&2
+if [[ $# -ne 4 ]]; then
+  echo 'Usage: cashflow-deploy VERSION BACKEND_IMAGE FRONTEND_IMAGE GHCR_USER' >&2
   exit 64
 fi
 
 readonly VERSION="$1"
 readonly BACKEND_IMAGE="$2"
-readonly GHCR_USER="$3"
+readonly FRONTEND_IMAGE="$3"
+readonly GHCR_USER="$4"
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo 'Version must be a SemVer core such as 1.0.0.' >&2
@@ -23,6 +24,10 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 if [[ ! "$BACKEND_IMAGE" =~ ^ghcr\.io/[a-z0-9_.-]+/cashflow-backend@sha256:[a-f0-9]{64}$ ]]; then
   echo 'Backend image must be an approved GHCR digest reference.' >&2
+  exit 64
+fi
+if [[ ! "$FRONTEND_IMAGE" =~ ^ghcr\.io/[a-z0-9_.-]+/cashflow-frontend@sha256:[a-f0-9]{64}$ ]]; then
+  echo 'Frontend image must be an approved GHCR digest reference.' >&2
   exit 64
 fi
 if [[ ! "$GHCR_USER" =~ ^[A-Za-z0-9-]+$ ]]; then
@@ -60,11 +65,13 @@ trap cleanup EXIT
 
 printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin >/dev/null
 docker pull "$BACKEND_IMAGE"
+docker pull "$FRONTEND_IMAGE"
 
-readonly IMAGE_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$BACKEND_IMAGE")"
+readonly BACKEND_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$BACKEND_IMAGE")"
+readonly FRONTEND_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$FRONTEND_IMAGE")"
 readonly BUILD_DATE="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.created" }}' "$BACKEND_IMAGE")"
-if [[ "$IMAGE_VERSION" != "$VERSION" ]]; then
-  echo "Image version label does not match release $VERSION." >&2
+if [[ "$BACKEND_VERSION" != "$VERSION" || "$FRONTEND_VERSION" != "$VERSION" ]]; then
+  echo "Image version labels do not match release $VERSION." >&2
   exit 65
 fi
 
@@ -75,6 +82,7 @@ cat >"${RELEASE_ENV}.next" <<EOF
 APP_VERSION=$VERSION
 BUILD_DATE=$BUILD_DATE
 BACKEND_IMAGE=$BACKEND_IMAGE
+FRONTEND_IMAGE=$FRONTEND_IMAGE
 EOF
 mv "${RELEASE_ENV}.next" "$RELEASE_ENV"
 
@@ -99,5 +107,10 @@ if [[ "$VERSION_JSON" != *"\"version\":\"$VERSION\""* ]]; then
   echo "Published backend version does not match $VERSION: $VERSION_JSON" >&2
   exit 70
 fi
+readonly INDEX_HTML="$(curl --fail --silent --show-error "$APP_ORIGIN/")"
+if [[ "$INDEX_HTML" != *'<title>CashFlow</title>'* ]]; then
+  echo 'Published frontend did not return the CashFlow application shell.' >&2
+  exit 70
+fi
 
-echo "CashFlow $VERSION deployed successfully (built $BUILD_DATE)."
+echo "CashFlow backend and frontend $VERSION deployed successfully (built $BUILD_DATE)."
