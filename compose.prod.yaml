@@ -57,7 +57,7 @@ services:
         aliases: [cashflow-backend]
     logging: *default-logging
 
-  frontend:
+  cashflow-frontend:
     image: ${FRONTEND_IMAGE:-cashflow-frontend:local}
     restart: unless-stopped
     init: true
