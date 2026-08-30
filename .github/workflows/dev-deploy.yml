@@ -52,7 +52,7 @@ jobs:
 
   publish-backend:
     needs: prepare
-    if: needs.prepare.result == 'success'
+    if: always() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -97,7 +97,7 @@ jobs:
 
   publish-frontend:
     needs: prepare
-    if: needs.prepare.result == 'success'
+    if: always() && needs.prepare.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
