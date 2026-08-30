@@ -64,7 +64,7 @@ flutter:
   # variable Roboto files are distributed under the SIL Open Font License in
   # assets/fonts/OFL.txt.
   fonts:
-    - family: RobotoLocal
+    - family: Roboto
       fonts:
         - asset: assets/fonts/Roboto-Variable.ttf
         - asset: assets/fonts/Roboto-Italic-Variable.ttf

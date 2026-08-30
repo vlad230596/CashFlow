@@ -16,6 +16,8 @@ services:
   backend:
     build:
       context: ../backend
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     environment:
       CASHFLOW_ENVIRONMENT: production
       CASHFLOW_DATABASE_URL: postgresql+psycopg://cashflow:cashflow-ci-only@postgres/cashflow
