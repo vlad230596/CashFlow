@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+readonly APP_DIR='/opt/cashflow-dev'
+readonly COMPOSE_FILE='compose.dev.yaml'
+readonly RELEASE_ENV='.release.env'
+readonly BACKUP_DIR='/var/backups/cashflow-dev'
+
+if [[ $# -ne 4 ]]; then
+  echo 'Usage: cashflow-dev-deploy VERSION BACKEND_IMAGE FRONTEND_IMAGE GHCR_USER' >&2
+  exit 64
+fi
+
+readonly VERSION="$1"
+readonly BACKEND_IMAGE="$2"
+readonly FRONTEND_IMAGE="$3"
+readonly GHCR_USER="$4"
+
+if [[ ! "$VERSION" =~ ^dev-[a-f0-9]{12}$ ]]; then
+  echo 'Version must have form dev- followed by a 12-character commit prefix.' >&2
+  exit 64
+fi
+if [[ ! "$BACKEND_IMAGE" =~ ^ghcr\.io/[a-z0-9_.-]+/cashflow-backend@sha256:[a-f0-9]{64}$ ]]; then
+  echo 'Backend image must be an approved GHCR digest reference.' >&2
+  exit 64
+fi
+if [[ ! "$FRONTEND_IMAGE" =~ ^ghcr\.io/[a-z0-9_.-]+/cashflow-frontend@sha256:[a-f0-9]{64}$ ]]; then
+  echo 'Frontend image must be an approved GHCR digest reference.' >&2
+  exit 64
+fi
+if [[ ! "$GHCR_USER" =~ ^[A-Za-z0-9-]+$ ]]; then
+  echo 'Invalid GHCR username.' >&2
+  exit 64
+fi
+
+IFS= read -r GHCR_TOKEN
+if [[ -z "$GHCR_TOKEN" ]]; then
+  echo 'GHCR token is required on stdin.' >&2
+  exit 64
+fi
+
+exec 9>/run/lock/cashflow-dev-deploy.lock
+if ! flock -n 9; then
+  echo 'Another CashFlow dev deployment is already running.' >&2
+  exit 75
+fi
+
+cd "$APP_DIR"
+test -f .env
+test -f "$COMPOSE_FILE"
+
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+: "${APP_ORIGIN:?APP_ORIGIN must be set in /opt/cashflow-dev/.env}"
+
+cleanup() {
+  GHCR_TOKEN=''
+  docker logout ghcr.io >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin >/dev/null
+docker pull "$BACKEND_IMAGE"
+docker pull "$FRONTEND_IMAGE"
+
+readonly BACKEND_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$BACKEND_IMAGE")"
+readonly FRONTEND_VERSION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$FRONTEND_IMAGE")"
+readonly BUILD_DATE="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.created" }}' "$BACKEND_IMAGE")"
+if [[ "$BACKEND_VERSION" != "$VERSION" || "$FRONTEND_VERSION" != "$VERSION" ]]; then
+  echo "Image version labels do not match dev version $VERSION." >&2
+  exit 65
+fi
+
+if [[ -f "$RELEASE_ENV" ]]; then
+  cp "$RELEASE_ENV" "${RELEASE_ENV}.previous"
+fi
+cat >"${RELEASE_ENV}.next" <<EOF
+APP_VERSION=$VERSION
+BUILD_DATE=$BUILD_DATE
+BACKEND_IMAGE=$BACKEND_IMAGE
+FRONTEND_IMAGE=$FRONTEND_IMAGE
+EOF
+mv "${RELEASE_ENV}.next" "$RELEASE_ENV"
+
+compose=(docker compose -p cashflow-dev --env-file .env --env-file "$RELEASE_ENV" -f "$COMPOSE_FILE")
+"${compose[@]}" up -d postgres --wait --wait-timeout 120
+
+install -d -m 700 "$BACKUP_DIR"
+readonly BACKUP_PATH="$BACKUP_DIR/before-deploy-${VERSION}-$(date -u +%Y%m%d-%H%M%SZ).dump"
+"${compose[@]}" exec -T postgres \
+  pg_dump -U "${POSTGRES_USER:-cashflow_dev}" -d "${POSTGRES_DB:-cashflow_dev}" -Fc \
+  >"$BACKUP_PATH"
+test -s "$BACKUP_PATH"
+chmod 600 "$BACKUP_PATH"
+
+"${compose[@]}" run --rm --no-deps backend uv run --no-sync alembic upgrade head
+"${compose[@]}" up -d --no-build --wait --wait-timeout 180
+
+curl --fail --silent --show-error "$APP_ORIGIN/ready" >/dev/null
+readonly VERSION_JSON="$(curl --fail --silent --show-error "$APP_ORIGIN/version")"
+if [[ "$VERSION_JSON" != *"\"version\":\"$VERSION\""* ]]; then
+  echo "Published backend version does not match $VERSION: $VERSION_JSON" >&2
+  exit 70
+fi
+readonly INDEX_HTML="$(curl --fail --silent --show-error "$APP_ORIGIN/")"
+if [[ "$INDEX_HTML" != *'<title>CashFlow</title>'* ]]; then
+  echo 'Dev frontend did not return the CashFlow application shell.' >&2
+  exit 70
+fi
+
+echo "CashFlow dev backend and frontend $VERSION deployed successfully."
+

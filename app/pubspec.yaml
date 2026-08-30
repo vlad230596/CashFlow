@@ -60,6 +60,16 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Keep production web builds independent from third-party font CDNs. The
+  # variable Roboto files are distributed under the SIL Open Font License in
+  # assets/fonts/OFL.txt.
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Variable.ttf
+        - asset: assets/fonts/Roboto-Italic-Variable.ttf
+          style: italic
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

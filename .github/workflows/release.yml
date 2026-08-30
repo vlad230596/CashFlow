@@ -1,13 +1,10 @@
 name: Release CashFlow
 
 on:
-  push:
-    tags:
-      - '*.*.*'
   workflow_dispatch:
     inputs:
       version:
-        description: Existing SemVer tag to rebuild and deploy
+        description: New SemVer version to approve, tag, and deploy from main
         required: true
         type: string
 
@@ -23,37 +20,72 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
       ref: ${{ steps.release.outputs.ref }}
       build_date: ${{ steps.release.outputs.build_date }}
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
       - name: Validate release input
         id: release
         env:
-          PUSH_VERSION: ${{ github.ref_name }}
-          MANUAL_VERSION: ${{ inputs.version }}
-          EVENT_NAME: ${{ github.event_name }}
+          VERSION: ${{ inputs.version }}
         run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            version="$MANUAL_VERSION"
-          else
-            version="$PUSH_VERSION"
+          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo 'Release workflow must be started from main.' >&2
+            exit 64
           fi
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tag must be a SemVer core such as 1.0.0." >&2
-            exit 1
+            exit 64
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "ref=refs/tags/$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists." >&2
+            exit 65
+          fi
+          sha="$(git rev-parse HEAD)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "ref=refs/tags/$VERSION" >> "$GITHUB_OUTPUT"
           echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
   quality:
     needs: prepare
     uses: ./.github/workflows/ci.yml
     with:
-      ref: ${{ needs.prepare.outputs.ref }}
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  approve:
+    needs: [prepare, quality]
+    runs-on: ubuntu-latest
+    environment:
+      name: release-approval
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - name: Create approved release tag
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION was created while approval was pending." >&2
+            exit 65
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag --annotate "$VERSION" "$RELEASE_SHA" --message "CashFlow $VERSION"
+          git push origin "refs/tags/$VERSION"
 
   publish:
-    needs: [prepare, quality]
+    needs: [prepare, approve]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -113,7 +145,7 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build web --release --build-name "$VERSION"
+          flutter build web --release --no-web-resources-cdn --build-name "$VERSION"
       - name: Build and publish frontend
         id: frontend
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -141,7 +173,7 @@ jobs:
           push-to-registry: true
 
   apk:
-    needs: [prepare, quality]
+    needs: [prepare, approve]
     runs-on: ubuntu-latest
     permissions:
       contents: write

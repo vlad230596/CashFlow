@@ -26,6 +26,7 @@ class MyApp extends StatelessWidget {
       title: 'CashFlow',
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        fontFamily: 'Roboto',
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       home: const AuthGate(),

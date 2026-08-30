@@ -1,0 +1,74 @@
+name: Frontend CI
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to verify
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to verify
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: '3.41.8'
+          channel: stable
+          cache: true
+      - uses: browser-actions/setup-chrome@48483d551c22a1fe6154c6a195ccc6d5773dc8c4 # v2
+        id: chrome
+      - name: Install Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Analyze Flutter app
+        working-directory: app
+        run: flutter analyze
+      - name: Test Flutter app
+        working-directory: app
+        run: flutter test
+      - name: Build self-contained Flutter web frontend
+        working-directory: app
+        run: flutter build web --release --no-web-resources-cdn
+      - name: Test frontend under production CSP
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          python scripts/web_smoke_server.py --directory app/build/web --port 18080 \
+            > /tmp/cashflow-web-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:18080/ >/dev/null && break
+            sleep 1
+          done
+          "$CHROME_PATH" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --enable-logging=stderr \
+            --virtual-time-budget=15000 \
+            --dump-dom http://127.0.0.1:18080/ \
+            >/tmp/cashflow-dom.html 2>/tmp/cashflow-chrome.log
+          grep -q '<flutter-view' /tmp/cashflow-dom.html
+          if grep -Eqi 'Content Security Policy|www\.gstatic\.com|fonts\.gstatic\.com|Uncaught \(in promise\)' /tmp/cashflow-chrome.log; then
+            cat /tmp/cashflow-chrome.log
+            exit 1
+          fi
+      - name: Build frontend image
+        run: docker build --pull --tag cashflow-frontend:ci --file app/Dockerfile.web app
+
