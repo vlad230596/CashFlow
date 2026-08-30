@@ -1,0 +1,78 @@
+name: cashflow-dev
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cashflow_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-cashflow_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging: *default-logging
+
+  backend:
+    image: ${BACKEND_IMAGE:?set BACKEND_IMAGE in .release.env}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      CASHFLOW_ENVIRONMENT: production
+      CASHFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cashflow_dev}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-cashflow_dev}
+      CASHFLOW_SESSION_TTL_HOURS: ${CASHFLOW_SESSION_TTL_HOURS:-12}
+      CASHFLOW_CORS_ORIGINS: ''
+      CASHFLOW_TRUSTED_HOSTS: ${APP_DOMAIN},localhost,cashflow-dev-backend
+      APP_VERSION: ${APP_VERSION:?set APP_VERSION in .release.env}
+      BUILD_DATE: ${BUILD_DATE:?set BUILD_DATE in .release.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    networks:
+      default: {}
+      cashflow-ingress:
+        aliases: [cashflow-dev-backend]
+    logging: *default-logging
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?set FRONTEND_IMAGE in .release.env}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    networks:
+      cashflow-ingress:
+        aliases: [cashflow-dev-frontend]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    logging: *default-logging
+
+volumes:
+  postgres-dev-data:
+
+networks:
+  cashflow-ingress:
+    external: true
+

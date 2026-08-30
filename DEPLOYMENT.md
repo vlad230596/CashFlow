@@ -25,6 +25,11 @@ OfficeCooking application or database networks.
 On `cash-flow-app.duckdns.org:8443`, Caddy sends `/api/*`, `/health`, `/ready`, and `/version` to
 Flask. All other paths are served by the Flutter single-page application.
 
+The development stack uses the same hostname on port `8444`, but separate directory
+`/opt/cashflow-dev`, Compose project `cashflow-dev`, PostgreSQL volume, network aliases, backup
+directory, and deployment lock. It follows successful CI runs for `main`; it never changes the
+production stack and never creates a Git tag.
+
 The persistent OfficeCooking Compose and Caddy configuration must be updated only after its
 current files have been backed up and validated. The required change is limited to connecting
 the Caddy service to `cashflow-ingress` and adding the site block from
@@ -51,17 +56,35 @@ The VDS needs:
 3. Copy `backend/instance/cards.db` temporarily over the setup SSH channel with mode `0600`.
 4. Run `scripts/migrate_sqlite_to_postgres.py` in a one-off backend container.
 5. Verify exact counts: 7 banks, 2 card owners, 12 cards, and 709 cashback categories.
-6. Create the first administrator interactively with `flask --app main set-auth-user`.
+6. Create the first administrator interactively with
+   `uv run --no-sync flask --app main set-auth-user USERNAME --role admin`.
 7. Remove the temporary SQLite file only after verification.
 
 The migration importer refuses a non-empty target, so it cannot silently duplicate production
 data. The legacy `card_owner` and `carduser` tables are unused and intentionally excluded.
 
+## Branches and component checks
+
+Ongoing changes land on `dev`. Pull requests into `dev` or `main` and pushes to either branch run
+the required CI orchestrator. Backend, Flutter frontend, browser extension, and full-stack
+integration checks are also exposed as separate manually runnable workflows. The final
+`CI / Required checks` job is the stable branch-protection check.
+
+A successful `main` CI run publishes immutable development images and invokes
+`cashflow-dev-deploy`. The full-stack integration check serves the real frontend and backend
+behind the production CSP and opens the page in headless Chrome, so a Flutter bootstrap failure
+cannot pass merely because `index.html` returned HTTP 200.
+
+Flutter web builds use `--no-web-resources-cdn` and the repository-owned Roboto assets. Do not add
+third-party CDN hosts to CSP to work around a missing build resource.
+
 ## Releases
 
-Tags of exact form `X.Y.Z` run all CI jobs, build the backend and web frontend once, publish both
-to GHCR, attest both images, build a signed production APK, and attach the APK plus its SHA-256
-file to a GitHub Release. The root-owned deploy script then:
+Start `Release CashFlow` manually from `main` and enter a new `X.Y.Z` version. The workflow reruns
+all component and integration checks for the exact `main` commit, then waits in the protected
+`release-approval` Environment. Only approval creates the annotated Git tag. The workflow then
+publishes and attests the backend and frontend images, builds a signed production APK, attaches
+the APK plus its SHA-256 file to a GitHub Release, and invokes the root-owned deploy script, which:
 
 1. locks deployment;
 2. validates SemVer and both GHCR digest references;
@@ -92,8 +115,9 @@ The signed APK job additionally requires these repository-level Actions secrets:
 | `ANDROID_KEY_ALIAS` | secret |
 | `ANDROID_KEY_PASSWORD` | secret |
 
-Enable a required reviewer and restrict the Environment to release tags. Never use `latest` as
-the production version. A container rollback does not roll back database migrations.
+Configure the owner as required reviewer for `release-approval`. The `production` Environment
+records deployment but does not create tags. Never use `latest` as the production version. A
+container rollback does not roll back database migrations.
 
 Local Android production builds require the signing environment documented in
 `app/android/app/build.gradle`. GitHub Releases build with the production API origin explicitly:

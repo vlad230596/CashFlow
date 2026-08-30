@@ -1,0 +1,72 @@
+name: Integration CI
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to verify
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to verify
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: '3.41.8'
+          channel: stable
+          cache: true
+      - uses: browser-actions/setup-chrome@48483d551c22a1fe6154c6a195ccc6d5773dc8c4 # v2
+        id: chrome
+      - name: Build frontend
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build web --release --no-web-resources-cdn
+      - name: Start complete application stack
+        run: |
+          docker compose -p cashflow-ci -f deploy/compose.ci.yaml up -d postgres --wait --wait-timeout 60
+          docker compose -p cashflow-ci -f deploy/compose.ci.yaml run --rm backend \
+            uv run --no-sync alembic upgrade head
+          docker compose -p cashflow-ci -f deploy/compose.ci.yaml up -d --build --wait --wait-timeout 180
+      - name: Test frontend/backend contract
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18081/)" = 200
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18081/ready)" = 200
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18081/api/banks)" = 401
+          "$CHROME_PATH" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --enable-logging=stderr \
+            --virtual-time-budget=15000 \
+            --dump-dom http://127.0.0.1:18081/ \
+            >/tmp/cashflow-integration-dom.html 2>/tmp/cashflow-integration-chrome.log
+          grep -q '<flutter-view' /tmp/cashflow-integration-dom.html
+          if grep -Eqi 'Content Security Policy|www\.gstatic\.com|fonts\.gstatic\.com|Uncaught \(in promise\)' /tmp/cashflow-integration-chrome.log; then
+            cat /tmp/cashflow-integration-chrome.log
+            exit 1
+          fi
+      - name: Show container logs after failure
+        if: failure()
+        run: docker compose -p cashflow-ci -f deploy/compose.ci.yaml logs --no-color
+      - name: Stop integration stack
+        if: always()
+        run: docker compose -p cashflow-ci -f deploy/compose.ci.yaml down --volumes --remove-orphans
+
