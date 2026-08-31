@@ -501,7 +501,7 @@ def set_auth_user_command(username, role, password):
 
 
 @app.cli.command('seed-development')
-@click.option('--admin-username', default='dev-admin', show_default=True)
+@click.option('--admin-username', default='devadmin', show_default=True)
 @click.option(
     '--reset',
     is_flag=True,
@@ -519,9 +519,15 @@ def seed_development_command(admin_username, reset, reference_date):
             f'Refusing to seed database {database_name!r}; expected "cashflow_dev".'
         )
 
-    password = os.environ.get('CASHFLOW_DEV_ADMIN_PASSWORD')
-    if password is None:
-        password = click.prompt('DEV admin password', hide_input=True, confirmation_prompt=True)
+    password = None
+    if db.session.query(AuthUser).count() == 0:
+        password = os.environ.get('CASHFLOW_DEV_ADMIN_PASSWORD')
+        if password is None:
+            password = click.prompt(
+                'DEV admin password',
+                hide_input=True,
+                confirmation_prompt=True,
+            )
 
     from development_seed import SeedDataExistsError, seed_development_data
 

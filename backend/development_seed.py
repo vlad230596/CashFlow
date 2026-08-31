@@ -3,8 +3,6 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import text
 
 from main import (
-    AuthLoginAttempt,
-    AuthSession,
     AuthUser,
     Bank,
     BankCard,
@@ -86,54 +84,64 @@ def _existing_counts():
     }
 
 
-def _clear_database():
+def _clear_business_data():
     if db.engine.dialect.name == 'postgresql':
         db.session.execute(text(
-            'TRUNCATE TABLE auth_session, auth_login_attempt, cashback_category, '
-            'bank_card, card_user, bank, auth_user RESTART IDENTITY CASCADE'
+            'TRUNCATE TABLE cashback_category, bank_card, card_user, bank '
+            'RESTART IDENTITY CASCADE'
         ))
         return
 
     for model in (
-        AuthSession,
-        AuthLoginAttempt,
         CashbackCategory,
         BankCard,
         CardUser,
         Bank,
-        AuthUser,
     ):
         db.session.query(model).delete()
 
 
-def seed_development_data(admin_username, admin_password, *, reset=False, reference_date=None):
+def seed_development_data(
+    admin_username='devadmin',
+    admin_password=None,
+    *,
+    reset=False,
+    reference_date=None,
+):
     existing = _existing_counts()
-    if any(existing.values()) and not reset:
-        summary = ', '.join(f'{name}={count}' for name, count in existing.items() if count)
+    business_counts = {
+        name: count
+        for name, count in existing.items()
+        if name != 'auth_users' and count
+    }
+    if business_counts and not reset:
+        summary = ', '.join(f'{name}={count}' for name, count in business_counts.items())
         raise SeedDataExistsError(
-            f'Development database is not empty ({summary}). Use --reset to replace it.'
+            f'Development business data is not empty ({summary}). Use --reset to replace it.'
         )
 
-    username = _normalize_username(admin_username)
-    password_hash = _hash_password(admin_password)
+    create_admin = existing['auth_users'] == 0
+    if create_admin:
+        if admin_password is None:
+            raise ValueError('Admin password is required when no authentication user exists')
+        username = _normalize_username(admin_username)
+        password_hash = _hash_password(admin_password)
     target_month = _default_cashback_month(reference_date)
 
     try:
         if reset:
-            _clear_database()
-        else:
-            db.session.query(AuthSession).delete()
-            db.session.query(AuthLoginAttempt).delete()
+            _clear_business_data()
 
-        now = _utc_now()
-        db.session.add(AuthUser(
-            username=username,
-            password_hash=password_hash,
-            role='admin',
-            auth_enabled=True,
-            created_at=now,
-            updated_at=now,
-        ))
+        if create_admin:
+            now = _utc_now()
+            db.session.add(AuthUser(
+                username=username,
+                password_hash=password_hash,
+                role='admin',
+                auth_enabled=True,
+                created_at=now,
+                updated_at=now,
+            ))
 
         banks = {}
         for name, description in BANKS:

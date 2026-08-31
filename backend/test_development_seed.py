@@ -3,7 +3,18 @@ from datetime import date, datetime
 import pytest
 
 from development_seed import SeedDataExistsError, seed_development_data
-from main import AuthUser, Bank, BankCard, CardUser, CashbackCategory, app, db
+from main import (
+    AuthSession,
+    AuthUser,
+    Bank,
+    BankCard,
+    CardUser,
+    CashbackCategory,
+    _hash_password,
+    _utc_now,
+    app,
+    db,
+)
 
 
 @pytest.fixture()
@@ -74,7 +85,38 @@ def test_reset_replaces_existing_data(seeded_database):
 
     assert counts['banks'] == 6
     assert Bank.query.filter_by(name='Лишний банк').first() is None
-    assert AuthUser.query.one().username == 'replacement-admin'
+    assert AuthUser.query.one().username == 'dev-admin'
+
+
+def test_seed_preserves_existing_authentication(seeded_database):
+    password_hash = _hash_password('existing development password')
+    auth_user = AuthUser(
+        username='devadmin',
+        password_hash=password_hash,
+        role='admin',
+        auth_enabled=True,
+        created_at=_utc_now(),
+        updated_at=_utc_now(),
+    )
+    db.session.add(auth_user)
+    db.session.flush()
+    session = AuthSession(
+        token_digest='a' * 64,
+        user_id=auth_user.id,
+        created_at=_utc_now(),
+        expires_at=_utc_now(),
+    )
+    db.session.add(session)
+    db.session.commit()
+
+    counts = seed_development_data(reference_date=date(2026, 8, 31))
+
+    preserved_user = AuthUser.query.one()
+    assert counts['auth_users'] == 1
+    assert preserved_user.username == 'devadmin'
+    assert preserved_user.password_hash == password_hash
+    assert preserved_user.role == 'admin'
+    assert AuthSession.query.one().token_digest == 'a' * 64
 
 
 def test_cli_refuses_any_database_except_cashflow_dev(seeded_database):
