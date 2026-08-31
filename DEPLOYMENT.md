@@ -75,12 +75,14 @@ docker compose -p cashflow-dev --env-file .env --env-file .release.env \
   uv run --no-sync flask --app main seed-development
 ```
 
-The command prompts for the `dev-admin` password and refuses every database name except
-`cashflow_dev`. It also refuses a non-empty database. An intentional rebuild requires `--reset`;
-the command then removes DEV sessions and data, resets PostgreSQL identities, and recreates the
-same six banks, three synthetic card owners, eight cards, and twelve months of cashback data.
-For non-interactive automation, provide the password only through the process environment as
-`CASHFLOW_DEV_ADMIN_PASSWORD`; never commit it or pass it as a command-line argument.
+The command refuses every database name except `cashflow_dev`. Existing authentication users,
+password hashes, roles, and sessions are always preserved. If no authentication user exists, the
+command creates `devadmin` and prompts for its password. It refuses existing business data unless
+`--reset` is explicit; reset removes only business data, resets its PostgreSQL identities, and
+recreates the same six banks, three synthetic card owners, eight cards, and twelve months of
+cashback data. For non-interactive first-time setup, provide the password only through the process
+environment as `CASHFLOW_DEV_ADMIN_PASSWORD`; never commit it or pass it as a command-line
+argument.
 
 ## Branches and component checks
 
