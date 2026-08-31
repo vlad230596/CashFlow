@@ -4,11 +4,11 @@ services:
   postgres:
     image: postgres:17.6-alpine
     environment:
-      POSTGRES_DB: cashflow
+      POSTGRES_DB: cashflow_dev
       POSTGRES_USER: cashflow
       POSTGRES_PASSWORD: cashflow-ci-only
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cashflow -d cashflow"]
+      test: ["CMD-SHELL", "pg_isready -U cashflow -d cashflow_dev"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -20,7 +20,7 @@ services:
       - /tmp:size=64m,mode=1777
     environment:
       CASHFLOW_ENVIRONMENT: production
-      CASHFLOW_DATABASE_URL: postgresql+psycopg://cashflow:cashflow-ci-only@postgres/cashflow
+      CASHFLOW_DATABASE_URL: postgresql+psycopg://cashflow:cashflow-ci-only@postgres/cashflow_dev
       CASHFLOW_TRUSTED_HOSTS: localhost,127.0.0.1,backend
     depends_on:
       postgres:

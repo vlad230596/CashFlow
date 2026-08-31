@@ -63,6 +63,25 @@ The VDS needs:
 The migration importer refuses a non-empty target, so it cannot silently duplicate production
 data. The legacy `card_owner` and `carduser` tables are unused and intentionally excluded.
 
+## Development dataset
+
+Development never receives production data. Populate the isolated `cashflow_dev` database with
+the canonical synthetic dataset from the running backend image:
+
+```bash
+cd /opt/cashflow-dev
+docker compose -p cashflow-dev --env-file .env --env-file .release.env \
+  -f compose.dev.yaml exec backend \
+  uv run --no-sync flask --app main seed-development
+```
+
+The command prompts for the `dev-admin` password and refuses every database name except
+`cashflow_dev`. It also refuses a non-empty database. An intentional rebuild requires `--reset`;
+the command then removes DEV sessions and data, resets PostgreSQL identities, and recreates the
+same six banks, three synthetic card owners, eight cards, and twelve months of cashback data.
+For non-interactive automation, provide the password only through the process environment as
+`CASHFLOW_DEV_ADMIN_PASSWORD`; never commit it or pass it as a command-line argument.
+
 ## Branches and component checks
 
 Ongoing changes land on `dev`. Pull requests into `dev` or `main` and pushes to either branch run

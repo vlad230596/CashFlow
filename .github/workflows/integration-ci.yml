@@ -41,6 +41,18 @@ jobs:
           docker compose -p cashflow-ci -f deploy/compose.ci.yaml up -d postgres --wait --wait-timeout 60
           docker compose -p cashflow-ci -f deploy/compose.ci.yaml run --rm backend \
             uv run --no-sync alembic upgrade head
+          docker compose -p cashflow-ci -f deploy/compose.ci.yaml run --rm \
+            -e CASHFLOW_DEV_ADMIN_PASSWORD=cashflow-integration-admin \
+            backend uv run --no-sync flask --app main seed-development \
+            --reference-date 2026-08-31
+          test "$(docker compose -p cashflow-ci -f deploy/compose.ci.yaml exec -T postgres \
+            psql -U cashflow -d cashflow_dev -Atc \
+            'SELECT (SELECT count(*) FROM auth_user), (SELECT count(*) FROM bank), (SELECT count(*) FROM card_user), (SELECT count(*) FROM bank_card), (SELECT count(*) FROM cashback_category);')" \
+            = '1|6|3|8|672'
+          docker compose -p cashflow-ci -f deploy/compose.ci.yaml run --rm \
+            -e CASHFLOW_DEV_ADMIN_PASSWORD=cashflow-integration-admin \
+            backend uv run --no-sync flask --app main seed-development --reset \
+            --reference-date 2026-08-31
           docker compose -p cashflow-ci -f deploy/compose.ci.yaml up -d --build --wait --wait-timeout 180
       - name: Test frontend/backend contract
         env:
@@ -49,6 +61,14 @@ jobs:
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18081/)" = 200
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18081/ready)" = 200
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18081/api/banks)" = 401
+          token="$(curl --fail --silent \
+            --header 'Content-Type: application/json' \
+            --data '{"username":"dev-admin","password":"cashflow-integration-admin"}' \
+            http://127.0.0.1:18081/api/auth/login \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])')"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer $token" \
+            http://127.0.0.1:18081/api/banks)" = 200
           "$CHROME_PATH" \
             --headless=new \
             --no-sandbox \
