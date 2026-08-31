@@ -499,6 +499,47 @@ def set_auth_user_command(username, role, password):
     db.session.commit()
     click.echo(f'Authentication enabled for {normalized} with role {role}.')
 
+
+@app.cli.command('seed-development')
+@click.option('--admin-username', default='dev-admin', show_default=True)
+@click.option(
+    '--reset',
+    is_flag=True,
+    help='Delete all existing DEV data before creating the canonical dataset.',
+)
+@click.option(
+    '--reference-date',
+    type=click.DateTime(formats=['%Y-%m-%d']),
+    help='Date used to choose the initial cashback month (YYYY-MM-DD).',
+)
+def seed_development_command(admin_username, reset, reference_date):
+    database_name = db.engine.url.database
+    if database_name != 'cashflow_dev':
+        raise click.ClickException(
+            f'Refusing to seed database {database_name!r}; expected "cashflow_dev".'
+        )
+
+    password = os.environ.get('CASHFLOW_DEV_ADMIN_PASSWORD')
+    if password is None:
+        password = click.prompt('DEV admin password', hide_input=True, confirmation_prompt=True)
+
+    from development_seed import SeedDataExistsError, seed_development_data
+
+    try:
+        counts = seed_development_data(
+            admin_username,
+            password,
+            reset=reset,
+            reference_date=reference_date.date() if reference_date else None,
+        )
+    except (SeedDataExistsError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
+
+    click.echo(
+        'Development dataset created: '
+        + ', '.join(f'{name}={value}' for name, value in counts.items())
+    )
+
 # Роуты для банков
 @app.route('/api/banks', methods=['GET', 'POST'])
 def banks():

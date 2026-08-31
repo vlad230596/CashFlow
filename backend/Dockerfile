@@ -22,6 +22,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY main.py alembic.ini ./
+COPY development_seed.py ./
 COPY migrations ./migrations
 COPY scripts ./scripts
 
