@@ -1,4 +1,5 @@
 import type { BankId, CashbackCategory } from './types';
+import { withCategoryIcon } from './category-icon';
 
 function amountFromMatch(match: RegExpMatchArray | null): number | null {
   if (!match?.[1]) return null;
@@ -63,11 +64,11 @@ export function enrichCashbackCategory(
   const sourceText = `${category.subtitle ?? ''}\n${category.description ?? ''}`;
   const extracted = extractCashbackAmounts(sourceText);
 
-  return {
+  return withCategoryIcon(bankId, {
     ...category,
     description:
       bankId === 'vtb' ? cleanVtbDescription(category.description) : category.description,
     maxCashbackAmount: category.maxCashbackAmount ?? extracted.maxCashbackAmount,
     minPurchaseAmount: category.minPurchaseAmount ?? extracted.minPurchaseAmount,
-  };
+  });
 }

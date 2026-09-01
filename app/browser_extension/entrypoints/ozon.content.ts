@@ -14,7 +14,14 @@ export default defineContentScript({
       async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
         if (message.type !== 'cashflow:probe-page') return undefined;
 
-        return buildPageProbe('ozon', await extractOzonCashbackCategoriesWithDetails());
+        const categories = await extractOzonCashbackCategoriesWithDetails();
+        if (categories.length) return buildPageProbe('ozon', categories);
+
+        const cashbackButton = document.querySelector<HTMLElement>(
+          '[data-testid="cashback-in-current-month-banner"] button',
+        );
+        cashbackButton?.click();
+        return buildPageProbe('ozon', []);
       },
     );
   },

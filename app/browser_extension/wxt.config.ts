@@ -6,17 +6,9 @@ export default defineConfig({
     name: 'CashFlow Cashback Importer',
     description: 'Imports cashback categories from supported online banks.',
     permissions: ['storage', 'scripting', 'sidePanel', 'downloads'],
-    host_permissions: [
-      'https://www.tbank.ru/*',
-      'https://id.tbank.ru/*',
-      'https://bank.yandex.ru/*',
-      'https://sp.yandex.ru/*',
-      'https://web.alfabank.ru/*',
-      'https://private.auth.alfabank.ru/*',
-      'https://online.sberbank.ru/*',
-      'https://finance.ozon.ru/*',
-      'https://online.sbpvtb.ru/*',
-    ],
+    // Category images can live on changing bank CDN hosts and must be fetched
+    // as bytes before they can be packed into a single ZIP archive.
+    host_permissions: ['https://*/*'],
     action: {
       default_title: 'CashFlow Cashback Importer',
     },

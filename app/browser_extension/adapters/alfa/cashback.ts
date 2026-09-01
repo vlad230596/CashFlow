@@ -7,7 +7,7 @@ function normalizeText(value: string | null | undefined): string {
 }
 
 export function isAlfaMonthlySubtitle(value: string): boolean {
-  return /(?:^|\s)в\s+(?:январе|феврале|марте|апреле|мае|июне|июле|августе|сентябре|октябре|ноябре|декабре)(?:\s|$)/i.test(
+  return /^\S(?:.*\S)?\s+в\s+(?:январе|феврале|марте|апреле|мае|июне|июле|августе|сентябре|октябре|ноябре|декабре)$/i.test(
     normalizeText(value),
   );
 }
@@ -78,6 +78,51 @@ function categoryFromItem(item: HTMLElement): AlfaCashbackCategory | null {
   };
 }
 
+function findSelectionItem(input: HTMLInputElement): HTMLElement | null {
+  let item = input.parentElement;
+  let candidate: HTMLElement | null = null;
+  while (item) {
+    const titles = [...item.querySelectorAll<HTMLElement>('p, span, div, h2, h3, h4')]
+      .filter((element) => element.children.length === 0)
+      .filter((element) => parseAlfaCategoryTitle(element.textContent ?? '') != null);
+    const inputCount = item.querySelectorAll(
+      'input[data-test-id^="checkbox-select-cashback-"]',
+    ).length;
+    if (titles.length === 1 && inputCount === 1) {
+      candidate = item;
+    }
+    if (inputCount > 1) break;
+    item = item.parentElement;
+  }
+  return candidate;
+}
+
+export function isAlfaTaskBonus(
+  input: Pick<HTMLInputElement, 'disabled' | 'getAttribute'>,
+  item: HTMLElement | null = null,
+): boolean {
+  if (input.disabled || input.getAttribute('aria-disabled') === 'true') return true;
+  return Boolean(item?.closest(
+    '[aria-disabled="true"], [data-disabled="true"], [data-state="disabled"]',
+  ) || item?.querySelector(
+    '[aria-disabled="true"], [data-disabled="true"], [data-state="disabled"]',
+  ));
+}
+
+function selectionCategoryFromInput(input: HTMLInputElement): AlfaCashbackCategory | null {
+  const item = findSelectionItem(input);
+  if (!item) return null;
+  const category = categoryFromItem(item);
+  if (!category) return null;
+  const taskBonus = isAlfaTaskBonus(input, item);
+  return {
+    ...category,
+    type: taskBonus ? 'task_bonus' : 'standard',
+    selected: taskBonus ? false : input.checked,
+    group: taskBonus ? 'За задания' : 'Доступные категории',
+  };
+}
+
 function stackableCategoryFromSubtitle(subtitle: HTMLElement): AlfaCashbackCategory | null {
   if (subtitle.closest('[data-test-id="chosen-category-item"]')) return null;
   const subtitleText = normalizeText(subtitle.textContent);
@@ -115,6 +160,12 @@ export function extractAlfaCashbackCategories(
   root: ParentNode = document,
 ): AlfaCashbackCategory[] {
   const categories = new Map<string, AlfaCashbackCategory>();
+  for (const input of root.querySelectorAll<HTMLInputElement>(
+    'input[data-test-id^="checkbox-select-cashback-"]',
+  )) {
+    const category = selectionCategoryFromInput(input);
+    if (category) categories.set(`${category.type}\u0000${category.percentLabel}\u0000${category.name}`, category);
+  }
   for (const item of root.querySelectorAll<HTMLElement>(
     '[data-test-id="chosen-category-item"]',
   )) {

@@ -102,9 +102,54 @@ function extractFullYandexCashbackCategories(root: ParentNode): YandexCashbackCa
   return [...categories.values()];
 }
 
+function extractYandexSelectorCategories(root: ParentNode): YandexCashbackCategory[] {
+  const categories = new Map<string, YandexCashbackCategory>();
+
+  for (const item of root.querySelectorAll<HTMLElement>(
+    '[data-testid="selector-page-list-item"], [data-test-id="selector-page-list-item"]',
+  )) {
+    const lines = item.innerText
+      .split(/\n+/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    const title = item
+      .querySelector<HTMLElement>('[class*="ListItem_title__"]')
+      ?.textContent?.replace(/\s+/g, ' ').trim()
+      ?? lines.find((line) => /^[−-]?\d+(?:[.,]\d+)?\s*%\s+\S/.test(line));
+    const match = title?.match(/^([−-]?\d+(?:[.,]\d+)?)\s*%\s+(.+?)$/);
+    if (!match) continue;
+
+    const image = item.querySelector<HTMLImageElement>('img');
+    const input = item.querySelector<HTMLInputElement>('input[type="checkbox"], input[type="radio"]');
+    const selected = input?.checked ?? item.getAttribute('aria-checked') === 'true';
+    const percentText = match[1]!;
+    const category: YandexCashbackCategory = {
+      type: 'standard',
+      name: match[2]!,
+      percent: Math.abs(Number(percentText.replace('−', '-').replace(',', '.'))),
+      percentLabel: `${percentText}%`,
+      subtitle: null,
+      description: item
+        .querySelector<HTMLElement>('[class*="ListItem_descriptionSecondary"]')
+        ?.textContent?.replace(/\s+/g, ' ').trim() || null,
+      iconUrl: image?.currentSrc || image?.src || null,
+      iconBackgroundColor: null,
+      selected,
+      group: 'Доступные категории',
+      expiresInLabel: null,
+    };
+    categories.set(`${category.name}\u0000${category.percentLabel}`, category);
+  }
+
+  return [...categories.values()];
+}
+
 export function extractYandexCashbackCategories(
   root: ParentNode = document,
 ): YandexCashbackCategory[] {
+  const selectorCategories = extractYandexSelectorCategories(root);
+  if (selectorCategories.length) return selectorCategories;
+
   const fullCategories = extractFullYandexCashbackCategories(root);
   if (fullCategories.length) return fullCategories;
 

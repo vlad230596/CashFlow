@@ -891,6 +891,10 @@ def _selection_is_locked(bank_result, categories):
     )
 
 
+def _normalize_import_category_type(value):
+    return value if value in ('standard', 'stackable_bonus', 'task_bonus') else 'standard'
+
+
 def _amount_value(value):
     if isinstance(value, bool):
         return None
@@ -1016,9 +1020,7 @@ def import_cashback():
                 if not name or not isinstance(percent, (int, float)):
                     continue
 
-                category_type = imported.get('type') or 'standard'
-                if category_type not in ('standard', 'stackable_bonus'):
-                    category_type = 'standard'
+                category_type = _normalize_import_category_type(imported.get('type'))
                 start_date, end_date = _category_period(
                     generated_at,
                     imported.get('expiresInLabel'),

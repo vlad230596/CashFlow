@@ -20,9 +20,9 @@ export const BANKS: BankDefinition[] = [
     id: 'yandex',
     name: 'Яндекс Пэй',
     startUrl:
-      'https://sp.yandex.ru/cashback/current?utm_source=cashflow&utm_medium=extension',
+      'https://sp.yandex.ru/cashback?utm_source=cashflow&utm_medium=extension&retRoute=internal',
     tabPatterns: ['https://bank.yandex.ru/*', 'https://sp.yandex.ru/*'],
-    preferredUrlParts: ['/cashback/current'],
+    preferredUrlParts: ['/cashback?', '/cashback/current'],
   },
   {
     id: 'alfa',
@@ -42,16 +42,16 @@ export const BANKS: BankDefinition[] = [
   {
     id: 'ozon',
     name: 'Ozon Банк',
-    startUrl: 'https://finance.ozon.ru/lk/cashback',
+    startUrl: 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true',
     tabPatterns: ['https://finance.ozon.ru/*'],
-    preferredUrlParts: ['/lk/cashback', '/lk/bonus'],
+    preferredUrlParts: ['/lk/favorite-categories', '/lk/cashback', '/lk/bonus'],
   },
   {
     id: 'vtb',
     name: 'ВТБ',
-    startUrl: 'https://online.sbpvtb.ru/bonus/categories',
+    startUrl: 'https://online.sbpvtb.ru/home',
     tabPatterns: ['https://online.sbpvtb.ru/*'],
-    preferredUrlParts: ['/bonus/categories', '/bonus'],
+    preferredUrlParts: ['/bonus/categories', '/bonus', '/home'],
   },
 ];
 

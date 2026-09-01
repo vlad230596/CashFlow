@@ -1,10 +1,11 @@
 export type CashbackCategory = {
-  type: 'standard' | 'stackable_bonus';
+  type: 'standard' | 'stackable_bonus' | 'task_bonus';
   name: string;
   percent: number | null;
   percentLabel: string | null;
   subtitle: string | null;
   description: string | null;
+  iconId?: string | null;
   iconUrl: string | null;
   iconBackgroundColor: string | null;
   selected: boolean;

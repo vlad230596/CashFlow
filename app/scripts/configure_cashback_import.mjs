@@ -26,12 +26,12 @@ await new Promise((resolve, reject) => {
 const expression = `(async () => {
   const banks = ${JSON.stringify(banks)};
   const definitions = ${JSON.stringify({
-    tbank: { url: 'https://www.tbank.ru/mybank/bonuses/', match: '/mybank/bonuses', hosts: ['www.tbank.ru', 'id.tbank.ru'] },
-    yandex: { url: 'https://sp.yandex.ru/cashback/current?utm_source=cashflow&utm_medium=extension', match: '/cashback/current', hosts: ['sp.yandex.ru', 'bank.yandex.ru'] },
-    alfa: { url: 'https://web.alfabank.ru/marketplace/?loyaltyType=104', match: '/marketplace/', hosts: ['web.alfabank.ru', 'private.auth.alfabank.ru'] },
-    sber: { url: 'https://online.sberbank.ru/CSAFront/index.do#/app/loyalty/main/categories/select', match: '/loyalty/main/categories', hosts: ['online.sberbank.ru'] },
-    ozon: { url: 'https://finance.ozon.ru/lk/cashback', match: '/lk/cashback', hosts: ['finance.ozon.ru'] },
-    vtb: { url: 'https://online.sbpvtb.ru/bonus/categories', match: '/bonus/categories', hosts: ['online.sbpvtb.ru'] },
+    tbank: { url: 'https://www.tbank.ru/mybank/bonuses/', matches: ['/mybank/bonuses'], hosts: ['www.tbank.ru', 'id.tbank.ru'] },
+    yandex: { url: 'https://sp.yandex.ru/cashback?utm_source=cashflow&utm_medium=extension&retRoute=internal', matches: ['/cashback?', '/cashback/current'], hosts: ['sp.yandex.ru', 'bank.yandex.ru'] },
+    alfa: { url: 'https://web.alfabank.ru/marketplace/?loyaltyType=104', matches: ['/marketplace/'], hosts: ['web.alfabank.ru', 'private.auth.alfabank.ru'] },
+    sber: { url: 'https://online.sberbank.ru/CSAFront/index.do#/app/loyalty/main/categories/select', matches: ['/loyalty/main/categories', '/CSAFront/index.do#/app/loyalty'], hosts: ['online.sberbank.ru'] },
+    ozon: { url: 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true', matches: ['/lk/favorite-categories', '/lk/cashback', '/lk/bonus'], hosts: ['finance.ozon.ru'] },
+    vtb: { url: 'https://online.sbpvtb.ru/home', matches: ['/bonus/categories', '/bonus', '/home'], hosts: ['online.sbpvtb.ru'] },
   })};
   await chrome.storage.local.set({
     cashflowImportRequest: { banks, autoCollect: true, requestedAt: new Date().toISOString() },
@@ -40,7 +40,9 @@ const expression = `(async () => {
   for (const bank of banks) {
     const definition = definitions[bank];
     if (!definition) continue;
-    const target = existing.find((tab) => tab.url?.includes(definition.match));
+    const target = existing.find((tab) =>
+      definition.matches.some((route) => tab.url?.includes(route)),
+    );
     if (target?.id) {
       await chrome.tabs.reload(target.id);
     } else {
@@ -48,7 +50,7 @@ const expression = `(async () => {
       try { return definition.hosts.includes(new URL(tab.url).hostname); } catch { return false; }
       });
       if (bankTab?.id) {
-        await chrome.tabs.reload(bankTab.id);
+        await chrome.tabs.update(bankTab.id, { url: definition.url });
       } else {
         await chrome.tabs.create({ url: definition.url, active: false });
       }

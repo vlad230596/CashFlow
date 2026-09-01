@@ -1,4 +1,4 @@
-import { extractVtbCashbackCategoriesWithDetails } from '../adapters/vtb/cashback';
+import { extractVtbCashbackCategories } from '../adapters/vtb/cashback';
 import { buildPageProbe } from '../adapters/page-probe';
 import type { PageProbe } from '../adapters/types';
 
@@ -14,7 +14,27 @@ export default defineContentScript({
       async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
         if (message.type !== 'cashflow:probe-page') return undefined;
 
-        return buildPageProbe('vtb', await extractVtbCashbackCategoriesWithDetails());
+        // Probes run repeatedly while the side panel is open. Reading the category
+        // cards is deliberately passive: opening every "Подробнее" modal here made
+        // the VTB page visibly flash on each automatic collection cycle.
+        const categories = extractVtbCashbackCategories();
+        if (categories.length) return buildPageProbe('vtb', categories);
+
+        if (window.location.pathname === '/home') {
+          document.querySelector<HTMLElement>(
+            '[data-test-id="morebenefits_favorite-buttons"]',
+          )?.click();
+        } else if (window.location.pathname === '/bonus') {
+          const categoryControl = document.querySelector<HTMLElement>(
+            '[aria-label^="Выберите категории кешбэка"]',
+          ) ?? [...document.querySelectorAll<HTMLElement>('button, [role="button"]')]
+            .find((element) => /^(?:Посмотреть категории кешбэка|Выберите категории кешбэка)/i.test(
+              element.innerText.replace(/\s+/g, ' ').trim(),
+            ));
+          categoryControl?.click();
+        }
+
+        return buildPageProbe('vtb', []);
       },
     );
   },

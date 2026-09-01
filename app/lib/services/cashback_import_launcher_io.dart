@@ -54,26 +54,14 @@ Future<String?> launchCashbackImport() async {
     return 'Запуск браузера пока поддерживается только в Windows.';
   }
 
-  Directory? directory = Directory.current.absolute;
-  File? launcher;
-  while (directory != null) {
-    final candidate = File(
-      '${directory.path}${Platform.pathSeparator}scripts${Platform.pathSeparator}start_cashback_import.ps1',
-    );
-    if (candidate.existsSync()) {
-      launcher = candidate;
-      break;
-    }
-    final parent = directory.parent;
-    directory = parent.path == directory.path ? null : parent;
-  }
+  final launcher = _findCashbackImportLauncher();
 
   if (launcher == null) {
     return 'Не найден scripts/start_cashback_import.ps1. Запустите приложение из каталога проекта.';
   }
 
   try {
-    await Process.start(
+    final result = await Process.run(
       'powershell.exe',
       [
         '-NoProfile',
@@ -89,10 +77,52 @@ Future<String?> launchCashbackImport() async {
         'tbank,yandex,alfa,sber,ozon,vtb',
       ],
       workingDirectory: launcher.parent.parent.path,
-      mode: ProcessStartMode.detached,
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
     );
+    if (result.exitCode != 0) {
+      final stderr = result.stderr.toString().trim();
+      final stdout = result.stdout.toString().trim();
+      final details = stderr.isNotEmpty
+          ? stderr
+          : stdout.isNotEmpty
+              ? stdout
+              : 'PowerShell завершил работу с кодом ${result.exitCode}.';
+      return 'Не удалось запустить Chrome: $details';
+    }
     return null;
   } on ProcessException catch (error) {
     return 'Не удалось запустить Chrome: ${error.message}';
   }
+}
+
+File? _findCashbackImportLauncher() {
+  final separator = Platform.pathSeparator;
+  final startDirectories = <Directory>{
+    Directory.current.absolute,
+    File(Platform.resolvedExecutable).absolute.parent,
+  };
+  final visitedDirectories = <String>{};
+
+  for (final startDirectory in startDirectories) {
+    Directory? directory = startDirectory;
+    while (directory != null && visitedDirectories.add(directory.path)) {
+      final candidates = [
+        File(
+          '${directory.path}${separator}scripts${separator}start_cashback_import.ps1',
+        ),
+        File(
+          '${directory.path}${separator}app${separator}scripts${separator}start_cashback_import.ps1',
+        ),
+      ];
+      for (final candidate in candidates) {
+        if (candidate.existsSync()) return candidate;
+      }
+
+      final parent = directory.parent;
+      directory = parent.path == directory.path ? null : parent;
+    }
+  }
+
+  return null;
 }

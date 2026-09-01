@@ -11,11 +11,11 @@ export default defineContentScript({
     browser.runtime.onMessage.addListener(
       async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
         if (message.type !== 'cashflow:probe-page') return undefined;
-        if (!document.querySelector('[data-test-id="chosen-category-item"]')) {
+        if (!document.querySelector('[data-test-id="chosen-category-item"], [data-test-id^="checkbox-select-cashback-"]')) {
           const title = [...document.querySelectorAll<HTMLElement>(
             '[data-test-id="cashback-programs-item-title"]',
-          )].find((element) => /^Категории\s+в\s+/i.test(element.textContent?.trim() ?? ''));
-          title?.click();
+          )].find((element) => /^(?:Выберите категории|Категории\s+в\s+)/i.test(element.textContent?.trim() ?? ''));
+          (title?.closest<HTMLElement>('[data-test-id="cashback-programs-item"]') ?? title)?.click();
           return buildPageProbe('alfa', []);
         }
         return buildPageProbe(

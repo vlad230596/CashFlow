@@ -91,9 +91,7 @@ class DataProvider with ChangeNotifier {
   );
   static String get defaultApiBaseUrl => _configuredApiBaseUrl.isNotEmpty
       ? _configuredApiBaseUrl
-      : kIsWeb
-          ? Uri.base.origin
-          : 'http://192.168.31.142:5000';
+      : 'https://cash-flow-app.duckdns.org:8443';
   static const _accessTokenKey = 'cashflowAccessToken';
 
   final String apiBaseUrl;

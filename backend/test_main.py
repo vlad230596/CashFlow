@@ -5,6 +5,7 @@ from main import (
     _category_period,
     _clean_category_description,
     _extract_cashback_amounts,
+    _normalize_import_category_type,
     _parse_import_datetime,
     _selection_is_locked,
 )
@@ -60,6 +61,10 @@ class CashbackImportDatesTest(unittest.TestCase):
                 [{'selected': True}, {'selected': True}],
             )
         )
+
+    def test_task_bonus_type_is_preserved_during_import(self):
+        self.assertEqual(_normalize_import_category_type('task_bonus'), 'task_bonus')
+        self.assertEqual(_normalize_import_category_type('unknown'), 'standard')
 
     def test_extracts_vtb_max_cashback_and_minimum_purchase(self):
         imported = {

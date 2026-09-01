@@ -16,6 +16,18 @@ const category = (selected: boolean, group: string | null = null): CashbackCateg
   expiresInLabel: null,
 });
 
+const stackableCategory = (): CashbackCategory => ({
+  ...category(true, 'Суммирующаяся категория'),
+  type: 'stackable_bonus',
+  name: 'Красота в сентябре',
+});
+
+const taskBonusCategory = (): CashbackCategory => ({
+  ...category(false, 'За задания'),
+  type: 'task_bonus',
+  name: 'Награда за задание',
+});
+
 describe('extractSelection', () => {
   it('extracts an explicit choose-from limit', () => {
     const root = { textContent: 'Можно выбрать 5 категорий из 8' } as ParentNode;
@@ -47,6 +59,30 @@ describe('extractSelection', () => {
     } as unknown as ParentNode;
     expect(extractSelection([category(false), category(false)], root)).toMatchObject({
       maxSelectable: 3,
+      totalOptions: 2,
+    });
+  });
+
+  it('does not include a stackable bonus in the selection counters', () => {
+    const root = { textContent: 'Можно выбрать 4 категории' } as ParentNode;
+    expect(extractSelection([category(true), category(false), stackableCategory()], root)).toMatchObject({
+      selectedCount: 1,
+      visibleCount: 2,
+      maxSelectable: 4,
+      totalOptions: 2,
+    });
+  });
+
+  it('does not include task rewards in selectable categories', () => {
+    const root = { textContent: 'Можно выбрать 4 категории из 10' } as ParentNode;
+    expect(extractSelection([
+      category(true),
+      category(false),
+      taskBonusCategory(),
+    ], root)).toMatchObject({
+      selectedCount: 1,
+      visibleCount: 2,
+      maxSelectable: 4,
       totalOptions: 2,
     });
   });

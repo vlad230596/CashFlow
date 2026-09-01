@@ -42,9 +42,56 @@ function findExpiryLabel(root: ParentNode): string | null {
   );
 }
 
+function extractOzonFavoriteCategories(root: ParentNode): OzonCashbackCategory[] {
+  const list = root.querySelector<HTMLElement>('[data-testid="favorite-category-list"]');
+  if (!list) return [];
+
+  const categories = new Map<string, OzonCashbackCategory>();
+  const leaves = [...list.querySelectorAll<HTMLElement>('div, span, p')]
+    .filter((element) => element.children.length === 0);
+  for (const leaf of leaves) {
+    const parsed = parseOzonCategoryTitle(leaf.textContent ?? '');
+    if (!parsed) continue;
+
+    let item = leaf.parentElement;
+    while (item?.parentElement && item.parentElement !== list) {
+      const parsedLeaves = [...item.querySelectorAll<HTMLElement>('div, span, p')]
+        .filter((element) => element.children.length === 0)
+        .filter((element) => parseOzonCategoryTitle(element.textContent ?? '') != null);
+      if (parsedLeaves.length === 1 && (item.matches('[role="button"]') || item.querySelector('img, input'))) break;
+      item = item.parentElement;
+    }
+    if (!item) continue;
+
+    const image = item.querySelector<HTMLImageElement>('img');
+    const input = item.querySelector<HTMLInputElement>('input[type="checkbox"], input[type="radio"]');
+    const selected = input?.checked ?? item.getAttribute('aria-checked') === 'true';
+    const description = [...item.querySelectorAll<HTMLElement>('div, span, p')]
+      .filter((element) => element.children.length === 0)
+      .map((element) => normalizeText(element.textContent))
+      .find((text) => text && parseOzonCategoryTitle(text) == null) ?? null;
+    const category: OzonCashbackCategory = {
+      type: 'standard',
+      ...parsed,
+      subtitle: null,
+      description,
+      iconUrl: image?.currentSrc || image?.src || null,
+      iconBackgroundColor: null,
+      selected,
+      group: 'Доступные категории',
+      expiresInLabel: null,
+    };
+    categories.set(`${category.name}\u0000${category.percentLabel}`, category);
+  }
+  return [...categories.values()];
+}
+
 export function extractOzonCashbackCategories(
   root: ParentNode = document,
 ): OzonCashbackCategory[] {
+  const favoriteCategories = extractOzonFavoriteCategories(root);
+  if (favoriteCategories.length) return favoriteCategories;
+
   const container = root.querySelector<HTMLElement>('[data-testid="categories-container"]');
   if (!container) return [];
 
@@ -113,6 +160,7 @@ export async function extractOzonCashbackCategoriesWithDetails(): Promise<
   OzonCashbackCategory[]
 > {
   const categories = extractOzonCashbackCategories();
+  if (document.querySelector('[data-testid="favorite-category-list"]')) return categories;
   const items = [
     ...document.querySelectorAll<HTMLElement>(
       '[data-testid="categories-container"] [data-testid="carousel-item"]',

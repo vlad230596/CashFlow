@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { strToU8, zipSync } from 'fflate';
 import type { BankId, CashbackImportBankResult, CashbackImportDocument, CollectionStatus, PageProbe } from '../../adapters/types';
 import { DEFAULT_BANK_IDS, findBank } from '../../banks/registry';
 import './style.css';
@@ -7,11 +8,56 @@ import './style.css';
 type BankViewStatus = CollectionStatus;
 type BankView = { status: BankViewStatus; result: CashbackImportBankResult | null; message: string | null };
 type ImportRequest = { banks?: BankId[]; autoCollect?: boolean };
+type ExportedIcon = {
+  id: string;
+  bankId: BankId;
+  category: string;
+  fileName: string;
+  url: string;
+};
 
 const emptyBankView = (): BankView => ({ status: 'waiting', result: null, message: null });
 const isLoginUrl = (url: string) => /\/login|\/signin|\/auth\/|passport\.yandex|private\.auth\.alfabank|\/passport\/|\/apps\/auth|\/csafront\/index\.do(?:#\/?)?$/i.test(url);
 const isAuthenticationTab = (tab: { url?: string; title?: string }) =>
   isLoginUrl(tab.url ?? '') || /^(?:вход|авторизация)/i.test(tab.title ?? '');
+
+function CategoryIcon({ name, url, backgroundColor }: {
+  name: string;
+  url: string | null;
+  backgroundColor: string | null;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+
+  if (url && !failed) {
+    return <img
+      src={url}
+      alt=""
+      referrerPolicy="no-referrer"
+      style={backgroundColor ? { backgroundColor } : undefined}
+      onError={() => setFailed(true)}
+    />;
+  }
+
+  return <span
+    className="category-icon-fallback"
+    aria-hidden="true"
+    style={backgroundColor ? { backgroundColor } : undefined}
+  >◆</span>;
+}
+
+function iconExtension(url: string): string {
+  const dataMime = url.match(/^data:image\/([a-z0-9.+-]+)[;,]/i)?.[1]?.toLowerCase();
+  if (dataMime === 'svg+xml') return 'svg';
+  if (dataMime === 'jpeg') return 'jpg';
+  if (dataMime) return dataMime.replace(/[^a-z0-9]/g, '') || 'img';
+  try {
+    const extension = new URL(url).pathname.match(/\.([a-z0-9]{2,5})$/i)?.[1];
+    return extension?.toLowerCase() ?? 'img';
+  } catch {
+    return 'img';
+  }
+}
 
 async function requestedBankIds(): Promise<BankId[]> {
   const stored = await browser.storage.local.get('cashflowImportRequest');
@@ -77,6 +123,8 @@ function App() {
   const [views, setViews] = useState<Record<string, BankView>>({});
   const [autoCollect, setAutoCollect] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [iconsBusy, setIconsBusy] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
   const viewsRef = useRef(views);
   const collectingRef = useRef(false);
 
@@ -119,7 +167,7 @@ function App() {
 
   useEffect(() => {
     if (!autoCollect) return undefined;
-    const timer = window.setInterval(() => void collect(true, false), 5000);
+    const timer = window.setInterval(() => void collect(false, false), 5000);
     return () => window.clearInterval(timer);
   }, [autoCollect, collect]);
 
@@ -184,13 +232,91 @@ function App() {
   const readyCount = output.banks.filter((bank) => bank.collectionStatus === 'ready').length;
 
   async function downloadJson() {
-    const json = JSON.stringify({ ...output, generatedAt: new Date().toISOString() }, null, 2);
+    const exported = {
+      ...output,
+      generatedAt: new Date().toISOString(),
+      banks: output.banks.map((bank) => ({
+        ...bank,
+        categories: bank.categories.map(({ iconUrl: _iconUrl, ...category }) => category),
+      })),
+    };
+    const json = JSON.stringify(exported, null, 2);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     await browser.downloads.download({
       url: `data:application/json;charset=utf-8,${encodeURIComponent(json)}`,
       filename: `CashFlow/cashback-${stamp}.json`,
       saveAs: true,
     });
+  }
+
+  async function downloadIcons() {
+    const icons = new Map<string, ExportedIcon>();
+    for (const bank of output.banks) {
+      for (const category of bank.categories) {
+        if (!category.iconId || !category.iconUrl || icons.has(category.iconId)) continue;
+        const fileName = `${category.iconId}.${iconExtension(category.iconUrl)}`;
+        icons.set(category.iconId, {
+          id: category.iconId,
+          bankId: bank.bankId,
+          category: category.name,
+          fileName,
+          url: category.iconUrl,
+        });
+      }
+    }
+    if (!icons.size) {
+      setExportMessage('Нет собранных значков');
+      return;
+    }
+
+    setIconsBusy(true);
+    setExportMessage(null);
+    try {
+      const zipFiles: Record<string, Uint8Array> = {};
+      const exportedIcons: Omit<ExportedIcon, 'url'>[] = [];
+      const failedIcons: Array<Pick<ExportedIcon, 'id' | 'bankId' | 'category'>> = [];
+      for (const icon of icons.values()) {
+        try {
+          const response = await fetch(icon.url, { credentials: 'include' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          zipFiles[`icons/${icon.fileName}`] = new Uint8Array(await response.arrayBuffer());
+          const { url: _url, ...manifestIcon } = icon;
+          exportedIcons.push(manifestIcon);
+        } catch {
+          const { id, bankId, category } = icon;
+          failedIcons.push({ id, bankId, category });
+        }
+      }
+      const manifest = JSON.stringify({
+        schemaVersion: 1,
+        exportedAt: new Date().toISOString(),
+        icons: exportedIcons,
+        failedIcons,
+      }, null, 2);
+      zipFiles['manifest.json'] = strToU8(manifest);
+
+      const archive = zipSync(zipFiles, { level: 6 });
+      const archiveBuffer = archive.buffer.slice(
+        archive.byteOffset,
+        archive.byteOffset + archive.byteLength,
+      ) as ArrayBuffer;
+      const archiveUrl = URL.createObjectURL(new Blob([archiveBuffer], { type: 'application/zip' }));
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      try {
+        await browser.downloads.download({
+          url: archiveUrl,
+          filename: `CashFlow/cashflow-icons-${stamp}.zip`,
+          saveAs: true,
+        });
+      } finally {
+        URL.revokeObjectURL(archiveUrl);
+      }
+      setExportMessage(failedIcons.length
+        ? `Архив готов: ${exportedIcons.length} из ${icons.size} значков`
+        : `Архив готов: ${exportedIcons.length} значков`);
+    } finally {
+      setIconsBusy(false);
+    }
   }
 
   return <main>
@@ -201,8 +327,10 @@ function App() {
     <div className="actions">
       <button type="button" className="secondary" onClick={openTabs}>Открыть вкладки</button>
       <button type="button" onClick={() => void collect(false)} disabled={busy}>{busy ? 'Собираю…' : 'Собрать все'}</button>
+      <button type="button" className="icons" onClick={() => void downloadIcons()} disabled={iconsBusy}>{iconsBusy ? 'Собираю ZIP…' : 'Скачать значки ZIP'}</button>
       <button type="button" className="success" onClick={downloadJson}>Скачать JSON</button>
     </div>
+    {exportMessage && <p className="export-message">{exportMessage}</p>}
     <section className="banks">{bankIds.map((id) => {
       const bank = findBank(id);
       const view = views[id] ?? emptyBankView();
@@ -214,8 +342,8 @@ function App() {
         {view.message && <p className="message">{view.message}</p>}
         {result && <><p className="summary">Выбрано: {result.selection.selectedCount}{result.selection.maxSelectable != null && ` из ${result.selection.maxSelectable}`} · Найдено: {result.selection.visibleCount}{result.selection.totalOptions != null && ` / ${result.selection.totalOptions}`}</p>
           <details><summary>Все категории ({result.categories.length})</summary><ul className="categories">{result.categories.map((category, index) => <li className={category.selected ? 'category-selected' : 'category-unselected'} key={`${category.name}-${category.percentLabel}-${index}`}>
-            {category.iconUrl && <img src={category.iconUrl} alt="" />}<span><strong>{category.percentLabel} {category.name}</strong>
-              <small className={`selection-label ${category.selected ? 'selection-selected' : 'selection-unselected'}`}>{category.selected ? '✓ Выбрано' : 'Не выбрано'}</small>
+            <CategoryIcon name={category.name} url={category.iconUrl} backgroundColor={category.iconBackgroundColor} /><span><strong>{category.percentLabel} {category.name}</strong>
+              <small className={`selection-label ${category.selected ? 'selection-selected' : 'selection-unselected'}`}>{category.type === 'task_bonus' ? 'За задание' : category.selected ? '✓ Выбрано' : 'Не выбрано'}</small>
               {category.expiresInLabel && <small>{category.expiresInLabel}</small>}{category.group && <small>{category.group}</small>}
               {category.subtitle && category.subtitle !== category.expiresInLabel && <small>{category.subtitle}</small>}{category.description && <small className="details-copy">{category.description}</small>}
             </span></li>)}</ul></details></>}

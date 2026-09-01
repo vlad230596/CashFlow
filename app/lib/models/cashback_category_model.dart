@@ -28,6 +28,8 @@ class CashbackCategoryModel {
   });
 
   bool get isStackableBonus => categoryType == 'stackable_bonus';
+  bool get isTaskBonus => categoryType == 'task_bonus';
+  bool get isSelectable => categoryType == 'standard';
 
   factory CashbackCategoryModel.fromJson(Map<String, dynamic> json) {
     return CashbackCategoryModel(

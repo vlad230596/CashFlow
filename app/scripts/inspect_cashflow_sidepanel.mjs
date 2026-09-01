@@ -28,11 +28,22 @@ const response = await new Promise((resolve, reject) => {
       expression: `JSON.stringify({
         autoCollect: document.querySelector('.auto-toggle input')?.checked ?? null,
         busy: document.querySelector('.actions button:nth-child(2)')?.disabled ?? null,
+        actions: Array.from(document.querySelectorAll('.actions button'), (button) => ({
+          text: button.textContent?.trim(),
+          disabled: button.disabled,
+        })),
+        exportMessage: document.querySelector('.export-message')?.textContent?.trim() ?? null,
         banks: Array.from(document.querySelectorAll('.bank'), (card) => ({
           bank: card.querySelector('h2')?.textContent,
           status: card.querySelector('.status')?.textContent?.trim(),
           summary: card.querySelector('.summary')?.textContent?.trim() ?? null,
           categories: card.querySelectorAll('.categories li').length,
+          images: Array.from(card.querySelectorAll('.categories img'), (image) => ({
+            src: image.currentSrc || image.src,
+            loaded: image.complete && image.naturalWidth > 0,
+            width: image.naturalWidth,
+            category: image.closest('li')?.querySelector('strong')?.textContent?.trim() ?? null,
+          })),
         })),
       })`,
       returnByValue: true,

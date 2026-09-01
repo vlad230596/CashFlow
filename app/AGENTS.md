@@ -62,10 +62,10 @@ The app uses a REST API base URL supplied at build time:
 --dart-define=CASHFLOW_API_URL=https://host:port
 ```
 
-The local-development default remains:
+Without a build-time override, the app uses the production API:
 
 ```dart
-http://192.168.31.142:5000
+https://cash-flow-app.duckdns.org:8443
 ```
 
 All `/api` requests except login carry a bearer token. The token is stored with

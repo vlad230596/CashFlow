@@ -29,4 +29,51 @@ void main() {
       expect(parsed.percent, 10);
     });
   });
+
+  group('normalizedCashbackCategoryName', () {
+    test('groups common bank aliases into one user need', () {
+      expect(
+        normalizedCashbackCategoryName('Спорт и фитнес'),
+        'Спорт и активный отдых',
+      );
+      expect(
+        normalizedCashbackCategoryName('Активный отдых'),
+        'Спорт и активный отдых',
+      );
+      expect(normalizedCashbackCategoryName('Лекарства'), 'Аптеки');
+      expect(
+        normalizedCashbackCategoryName('Такси и каршеринг'),
+        'Такси и каршеринг',
+      );
+    });
+
+    test('keeps an unknown category readable', () {
+      expect(
+        normalizedCashbackCategoryName('Цветы и подарки'),
+        'Цветы и подарки',
+      );
+    });
+  });
+
+  test('sorts everyday needs before entertainment and niche shops', () {
+    final categories = [
+      'Магазин Ромашка',
+      'Кино',
+      'Аптеки',
+      'Одежда',
+      'Супермаркеты',
+    ]..sort(
+        (a, b) => cashbackCategorySortPriority(a).compareTo(
+          cashbackCategorySortPriority(b),
+        ),
+      );
+
+    expect(categories, [
+      'Супермаркеты',
+      'Одежда',
+      'Аптеки',
+      'Кино',
+      'Магазин Ромашка',
+    ]);
+  });
 }

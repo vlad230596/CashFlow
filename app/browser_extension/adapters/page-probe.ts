@@ -31,6 +31,9 @@ export function extractSelection(
   categories: CashbackCategory[],
   root: ParentNode = document,
 ): CashbackSelection {
+  const selectableCategories = categories.filter(
+    (category) => category.type === 'standard',
+  );
   const text = normalizedPageText(root);
   let maxSelectable: number | null = null;
   let totalOptions: number | null = null;
@@ -47,8 +50,11 @@ export function extractSelection(
   } else if (choose) {
     maxSelectable = Number(choose[1]);
   }
-  if (maxSelectable != null && totalOptions == null && categories.length > 0) {
-    totalOptions = categories.length;
+  if (maxSelectable != null && totalOptions == null && selectableCategories.length > 0) {
+    totalOptions = selectableCategories.length;
+  }
+  if (categories.some((category) => category.type === 'task_bonus')) {
+    totalOptions = selectableCategories.length;
   }
 
   const groups = [...new Set(categories.map((category) => category.group).filter(Boolean))] as string[];
@@ -56,8 +62,8 @@ export function extractSelection(
     // The generic parser cannot yet distinguish a saved bank choice from an
     // editable full selection. Bank-specific adapters can override this.
     isLocked: null,
-    selectedCount: categories.filter((category) => category.selected).length,
-    visibleCount: categories.length,
+    selectedCount: selectableCategories.filter((category) => category.selected).length,
+    visibleCount: selectableCategories.length,
     maxSelectable,
     totalOptions,
     groups,

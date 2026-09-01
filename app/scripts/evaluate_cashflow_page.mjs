@@ -78,6 +78,14 @@ const response = await new Promise((resolve, reject) => {
               'li[class*="SelectorListItem_block"]',
             ).length,
           },
+          dataTestNodes: Array.from(
+            document.querySelectorAll('[data-testid], [data-test-id]'),
+            (element) => ({
+              tag: element.tagName,
+              testId: element.getAttribute('data-testid') || element.getAttribute('data-test-id'),
+              text: element.innerText?.trim().slice(0, 300) || null,
+            }),
+          ).filter((item) => item.text).slice(0, 200),
           selectorItems: Array.from(
             document.querySelectorAll('li[class*="SelectorListItem_block"]'),
             (element) => ({

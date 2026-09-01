@@ -14,7 +14,15 @@ export default defineContentScript({
       async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
         if (message.type !== 'cashflow:probe-page') return undefined;
 
-        return buildPageProbe('yandex', extractYandexCashbackCategories());
+        const categories = extractYandexCashbackCategories();
+        if (categories.length) return buildPageProbe('yandex', categories);
+
+        if (window.location.pathname === '/cashback/current') {
+          const more = [...document.querySelectorAll<HTMLElement>('button, [role="button"]')]
+            .find((element) => /Ещё\s+5\s+категори/i.test(element.innerText));
+          more?.click();
+        }
+        return buildPageProbe('yandex', []);
       },
     );
   },

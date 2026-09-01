@@ -4,6 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('uses the production server as the default API URL', () {
+    expect(
+      DataProvider.defaultApiBaseUrl,
+      'https://cash-flow-app.duckdns.org:8443',
+    );
+  });
+
   test('cashback category preserves description and stackable type', () {
     final category = CashbackCategoryModel.fromJson({
       'id': 7,
@@ -41,6 +48,24 @@ void main() {
       CashbackCategoryModel.toJson(category)['min_purchase_amount'],
       5000,
     );
+  });
+
+  test('task bonus category is not selectable', () {
+    final category = CashbackCategoryModel.fromJson({
+      'id': 8,
+      'name': 'Награда за задание',
+      'start_date': '2026-09-01T00:00:00',
+      'end_date': '2026-10-01T00:00:00',
+      'is_selected': false,
+      'cashback_percent': 5,
+      'card_id': 3,
+      'category_type': 'task_bonus',
+    });
+
+    expect(category.isTaskBonus, isTrue);
+    expect(category.isSelectable, isFalse);
+    expect(
+        CashbackCategoryModel.toJson(category)['category_type'], 'task_bonus');
   });
 
   test('filters effective active cashback categories by selected date',

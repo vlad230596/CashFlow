@@ -5,7 +5,7 @@ const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
 const target = targets.find(
   (candidate) =>
     candidate.type === 'page' &&
-    /^https:\/\/finance\.ozon\.ru\/lk\/(?:bonus|cashback)/.test(candidate.url) &&
+    /^https:\/\/finance\.ozon\.ru\/lk\/(?:bonus|cashback|favorite-categories)/.test(candidate.url) &&
     (!targetId || candidate.id === targetId),
 );
 

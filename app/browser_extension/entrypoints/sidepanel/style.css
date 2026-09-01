@@ -10,7 +10,9 @@ header p { margin: 4px 0 0; color: #687386; font-size: 12px; }
 button { padding: 9px 10px; border: 0; border-radius: 9px; color: white; background: #2563eb; cursor: pointer; }
 button:disabled { cursor: default; opacity: .55; }
 button.secondary { color: #24405f; background: #e1e8f2; }
+button.icons { grid-column: 1 / -1; color: #24405f; background: #dbeafe; }
 button.success { grid-column: 1 / -1; background: #14804a; }
+.export-message { margin: -6px 0 12px; color: #526174; font-size: 11px; }
 .banks { display: grid; gap: 10px; }
 .bank { padding: 12px; border: 1px solid #d8deea; border-left: 5px solid #94a3b8; border-radius: 12px; background: white; }
 .bank-ready { border-left-color: #19a15f; }
@@ -28,7 +30,8 @@ details > summary { color: #344054; cursor: pointer; font-size: 12px; }
 .categories { display: grid; gap: 8px; margin: 9px 0 0; padding: 0; list-style: none; }
 .categories li { display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid #edf0f4; }
 .categories li.category-unselected { opacity: .68; }
-.categories img { width: 34px; height: 34px; border-radius: 8px; object-fit: contain; }
+.categories img, .category-icon-fallback { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 8px; object-fit: contain; }
+.category-icon-fallback { display: grid; place-items: center; color: #344054; background: #e8edf5; font-size: 15px; font-weight: 700; }
 .categories span { display: grid; gap: 2px; min-width: 0; }
 .categories strong { font-size: 12px; }
 .categories small { color: #687386; font-size: 11px; line-height: 1.35; white-space: pre-line; }

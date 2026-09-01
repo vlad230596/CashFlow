@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "CashFlow Web (Opera, Production API)",
+            "request": "launch",
+            "type": "dart",
+            "program": "${workspaceFolder}/app/lib/main.dart",
+            "cwd": "${workspaceFolder}/app",
+            "deviceId": "chrome",
+            "env": {
+                "CHROME_EXECUTABLE": "${env:LOCALAPPDATA}\\Programs\\Opera\\opera.exe"
+            },
+            "toolArgs": [
+                "--dart-define=CASHFLOW_API_URL=https://cash-flow-app.duckdns.org:8443",
+                "--web-browser-flag=--disable-web-security"
+            ]
+        }
+    ]
+}
