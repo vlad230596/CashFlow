@@ -99,7 +99,9 @@ jobs:
           test "$(curl --fail --silent --head http://127.0.0.1:18082/main.dart.js \
             | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-cache, must-revalidate'
           curl --fail --silent http://127.0.0.1:18082/flutter_bootstrap.js \
-            | grep -F 'await window.cashFlowCacheReset'
+            | grep -F '_flutter.loader.load();'
           curl --fail --silent http://127.0.0.1:18082/cache_reset.js \
             | grep -F 'registration.unregister()'
+          curl --fail --silent http://127.0.0.1:18082/refresh \
+            | grep -F 'Обновление CashFlow'
 
