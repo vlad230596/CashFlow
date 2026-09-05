@@ -8,6 +8,7 @@ import 'cards_screen.dart';
 import 'monthly_cashback_screen.dart';
 import 'settings/banks_settings.dart';
 import 'settings/users_settings.dart';
+import 'widgets/versioned_app_bar_title.dart';
 import 'settings/cards_settings.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -170,7 +171,7 @@ class HomeScreen extends StatelessWidget {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('CashFlow'),
+          title: const VersionedAppBarTitle(title: 'CashFlow'),
           bottom: TabBar(
             tabs: [
               Tab(text: 'Cashback'),

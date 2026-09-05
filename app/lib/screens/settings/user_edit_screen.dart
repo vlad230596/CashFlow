@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
+import '../widgets/versioned_app_bar_title.dart';
 import '../../models/user_model.dart';
 
 class UserEditScreen extends StatefulWidget {
@@ -67,7 +68,9 @@ class _UserEditScreenState extends State<UserEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.existingUser == null ? 'Add New User' : 'Edit User'),
+        title: VersionedAppBarTitle(
+          title: widget.existingUser == null ? 'Add New User' : 'Edit User',
+        ),
         actions: [
           if (widget.existingUser != null)
             IconButton(

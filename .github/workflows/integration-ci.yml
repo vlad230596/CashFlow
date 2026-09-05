@@ -35,7 +35,8 @@ jobs:
         working-directory: app
         run: |
           flutter pub get
-          flutter build web --release --no-web-resources-cdn
+          flutter build web --release --no-web-resources-cdn \
+            --dart-define=CASHFLOW_APP_VERSION=ci
       - name: Start complete application stack
         run: |
           docker compose -p cashflow-ci -f deploy/compose.ci.yaml up -d postgres --wait --wait-timeout 60

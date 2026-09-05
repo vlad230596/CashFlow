@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
+import '../widgets/versioned_app_bar_title.dart';
 import 'user_edit_screen.dart';
 
 class UsersSettingsScreen extends StatelessWidget {
@@ -12,7 +13,9 @@ class UsersSettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Manage Users (${dataProvider.users.length})'),
+        title: VersionedAppBarTitle(
+          title: 'Manage Users (${dataProvider.users.length})',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),

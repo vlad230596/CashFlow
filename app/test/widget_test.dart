@@ -13,6 +13,7 @@ void main() {
     );
 
     expect(find.text('CashFlow'), findsOneWidget);
+    expect(find.text('CashFlow local'), findsOneWidget);
     expect(find.text('Логин'), findsOneWidget);
     expect(find.text('Пароль'), findsOneWidget);
     expect(find.text('Войти'), findsOneWidget);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
+import '../widgets/versioned_app_bar_title.dart';
 import '../../models/bank_model.dart';
 
 class BankEditScreen extends StatefulWidget {
@@ -76,7 +77,9 @@ class _BankEditScreenState extends State<BankEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.existingBank == null ? 'Add New Bank' : 'Edit Bank'),
+        title: VersionedAppBarTitle(
+          title: widget.existingBank == null ? 'Add New Bank' : 'Edit Bank',
+        ),
         actions: [
           if (widget.existingBank != null)
             IconButton(

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/bank_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/data_provider.dart';
+import '../widgets/versioned_app_bar_title.dart';
 import 'card_edit_screen.dart';
 
 class CardsSettingsScreen extends StatelessWidget {
@@ -31,7 +32,9 @@ class CardsSettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Manage Cards (${dataProvider.cards.length})'),
+        title: VersionedAppBarTitle(
+          title: 'Manage Cards (${dataProvider.cards.length})',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),

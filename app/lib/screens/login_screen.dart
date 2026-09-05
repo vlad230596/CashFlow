@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/data_provider.dart';
 import 'widgets/browser_login_form.dart';
+import 'widgets/versioned_app_bar_title.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -151,6 +152,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ],
                         const SizedBox(height: 12),
+                        const AppVersionText(),
+                        const SizedBox(height: 4),
                         Text(
                           provider.apiBaseUrl,
                           textAlign: TextAlign.center,

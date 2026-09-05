@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
+import '../widgets/versioned_app_bar_title.dart';
 import 'bank_edit_screen.dart';
 
 class BanksSettingsScreen extends StatelessWidget {
@@ -12,7 +13,9 @@ class BanksSettingsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Manage Banks (${dataProvider.banks.length})'),
+        title: VersionedAppBarTitle(
+          title: 'Manage Banks (${dataProvider.banks.length})',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),

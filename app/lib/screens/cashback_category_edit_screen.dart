@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'widgets/versioned_app_bar_title.dart';
+
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
 
@@ -174,7 +176,7 @@ class _CashbackCategoryEditScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Редактировать кешбек'),
+        title: const VersionedAppBarTitle(title: 'Редактировать кешбек'),
       ),
       body: Form(
         key: _formKey,

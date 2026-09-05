@@ -42,7 +42,9 @@ jobs:
         run: flutter test
       - name: Build self-contained Flutter web frontend
         working-directory: app
-        run: flutter build web --release --no-web-resources-cdn
+        run: >-
+          flutter build web --release --no-web-resources-cdn
+          --dart-define=CASHFLOW_APP_VERSION=ci
       - name: Test frontend under production CSP
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
