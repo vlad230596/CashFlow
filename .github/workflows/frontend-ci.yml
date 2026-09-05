@@ -70,5 +70,21 @@ jobs:
             exit 1
           fi
       - name: Build frontend image
-        run: docker build --pull --tag cashflow-frontend:ci --file app/Dockerfile.web app
+        run: |
+          docker build --pull --tag cashflow-frontend:ci --file app/Dockerfile.web app
+          docker run --detach --rm --name cashflow-frontend-ci \
+            --publish 18082:8080 cashflow-frontend:ci
+          trap 'docker stop cashflow-frontend-ci 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:18082/ >/dev/null && break
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18082/ \
+            | grep -F 'flutter_bootstrap.js?v=dev'
+          test "$(curl --fail --silent --head http://127.0.0.1:18082/flutter_bootstrap.js \
+            | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-store'
+          test "$(curl --fail --silent --head http://127.0.0.1:18082/flutter_service_worker.js \
+            | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-store'
+          test "$(curl --fail --silent --head http://127.0.0.1:18082/main.dart.js \
+            | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-cache, must-revalidate'
 
