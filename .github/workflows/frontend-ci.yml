@@ -86,10 +86,20 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:18082/ \
             | grep -F 'flutter_bootstrap.js?v=dev'
+          curl --fail --silent http://127.0.0.1:18082/ \
+            | grep -F 'cache_reset.js'
           test "$(curl --fail --silent --head http://127.0.0.1:18082/flutter_bootstrap.js \
             | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-store'
+          test "$(curl --fail --silent --head http://127.0.0.1:18082/cache_reset.js \
+            | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-store'
+          test "$(curl --fail --silent --head http://127.0.0.1:18082/refresh \
+            | tr -d '\r' | sed -n 's/^Clear-Site-Data: //p')" = '"cache"'
           test "$(curl --fail --silent --head http://127.0.0.1:18082/flutter_service_worker.js \
             | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-store'
           test "$(curl --fail --silent --head http://127.0.0.1:18082/main.dart.js \
             | tr -d '\r' | sed -n 's/^Cache-Control: //p')" = 'no-cache, must-revalidate'
+          curl --fail --silent http://127.0.0.1:18082/flutter_bootstrap.js \
+            | grep -F 'await window.cashFlowCacheReset'
+          curl --fail --silent http://127.0.0.1:18082/cache_reset.js \
+            | grep -F 'registration.unregister()'
 
