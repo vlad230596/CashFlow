@@ -65,6 +65,9 @@ jobs:
             --dump-dom http://127.0.0.1:18080/ \
             >/tmp/cashflow-dom.html 2>/tmp/cashflow-chrome.log
           grep -q '<flutter-view' /tmp/cashflow-dom.html
+          grep -q 'id="cashflow-login-form"' /tmp/cashflow-dom.html
+          grep -q 'autocomplete="username"' /tmp/cashflow-dom.html
+          grep -q 'autocomplete="current-password"' /tmp/cashflow-dom.html
           if grep -Eqi 'Content Security Policy|www\.gstatic\.com|fonts\.gstatic\.com|Uncaught \(in promise\)' /tmp/cashflow-chrome.log; then
             cat /tmp/cashflow-chrome.log
             exit 1
