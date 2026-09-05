@@ -40,7 +40,17 @@ export function extractTbankCashbackFromBonusesResponse(
     .map((item) => item.data!);
   const group = groups.sort((left, right) => {
     const active = (items: TbankApiEssence[] = []) => items.filter((item) => item.isActive).length;
-    return active(right.essences) - active(left.essences);
+    const leftActive = active(left.essences);
+    const rightActive = active(right.essences);
+    const leftCapacity = leftActive + (left.availableEssenceCount ?? 0);
+    const rightCapacity = rightActive + (right.availableEssenceCount ?? 0);
+
+    // T-Bank can return a small promotional group before the regular monthly
+    // categories. Older responses were distinguishable by active selections;
+    // newer responses expose the monthly limit via availableEssenceCount.
+    return rightCapacity - leftCapacity ||
+      rightActive - leftActive ||
+      (right.essences?.length ?? 0) - (left.essences?.length ?? 0);
   })[0];
   if (!group?.essences?.length) return null;
 

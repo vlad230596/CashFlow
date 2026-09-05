@@ -1,10 +1,14 @@
 param(
     [ValidateSet('user-1', 'user-2')]
     [string]$Profile = 'user-1',
-    [int]$DebugPort = 9223,
+    [int]$DebugPort = 0,
     [string[]]$Banks = @('tbank', 'yandex', 'alfa', 'sber', 'ozon', 'vtb'),
     [string]$ExtensionId
 )
+
+if ($DebugPort -eq 0) {
+    $DebugPort = if ($Profile -eq 'user-2') { 9224 } else { 9223 }
+}
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $nodeExecutable = Join-Path $env:ProgramFiles 'nodejs\node.exe'

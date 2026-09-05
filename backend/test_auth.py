@@ -1,8 +1,16 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
-from main import AuthSession, AuthUser, _hash_password, _utc_now, app, db
+from main import (
+    AuthSession,
+    AuthUser,
+    _as_utc,
+    _hash_password,
+    _utc_now,
+    app,
+    db,
+)
 
 
 @pytest.fixture()
@@ -76,6 +84,28 @@ def test_expired_session_is_rejected(client):
         headers={'Authorization': f'Bearer {token}'},
     )
     assert response.status_code == 401
+
+
+def test_active_session_is_extended_and_expiration_is_exposed(client):
+    token = login(client)
+    with app.app_context():
+        session = AuthSession.query.one()
+        old_expiration = _utc_now() + timedelta(hours=1)
+        session.expires_at = old_expiration
+        db.session.commit()
+
+    response = client.get(
+        '/api/auth/me',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+
+    assert response.status_code == 200
+    exposed_expiration = datetime.fromisoformat(
+        response.headers['X-CashFlow-Session-Expires-At']
+    )
+    assert exposed_expiration > old_expiration
+    with app.app_context():
+        assert _as_utc(AuthSession.query.one().expires_at) == exposed_expiration
 
 
 def test_viewer_cannot_mutate_business_data(client):

@@ -99,8 +99,10 @@ Use a different profile and port for a second user:
 ```
 
 Alfa Bank uses the Russian trusted CA chain. Its verified root certificate is
-installed only in Chrome's profile-local certificate store for
-`.local/chrome-profiles/user-1`; Windows certificate stores are not changed.
+installed in Chrome's profile-local certificate stores for `user-1` and
+`user-2`; Windows certificate stores are not changed. When a secondary profile
+is first created, the launcher seeds only Chrome's dedicated certificate
+database from `user-1`; cookies and other browser state remain isolated.
 The Yandex Browser launcher remains an unused fallback and is not part of the
 current development workflow. See `docs/bank-cashback-parsing.md` for the
 certificate fingerprint and verification notes.

@@ -65,4 +65,41 @@ describe('extractTbankCashbackFromBonusesResponse', () => {
     });
     expect(result?.categories[1]?.subtitle).toBe('MCC: 5912');
   });
+
+  it('chooses the full monthly group when a promotional group comes first', () => {
+    const result = extractTbankCashbackFromBonusesResponse({
+      payload: {
+        data: [
+          {
+            serviceType: 'regularEssences',
+            data: {
+              availableEssenceCount: 1,
+              essences: [
+                { name: 'Подписка партнёра', percent: 50, isActive: false },
+                { name: 'Игровой бонус', percent: 100, isActive: false },
+              ],
+            },
+          },
+          {
+            serviceType: 'regularEssences',
+            data: {
+              availableEssenceCount: 4,
+              essences: [
+                { name: 'Все покупки', percent: 1, isActive: false },
+                { name: 'Аптеки', percent: 5, isActive: false },
+                { name: 'Такси', percent: 5, isActive: false },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({ maxSelectable: 4, totalOptions: 3 });
+    expect(result?.categories.map((category) => category.name)).toEqual([
+      'Все покупки',
+      'Аптеки',
+      'Такси',
+    ]);
+  });
 });

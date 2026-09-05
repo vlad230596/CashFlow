@@ -1,3 +1,5 @@
+import 'cashback_import_profile.dart';
+
 class CashbackImportFile {
   const CashbackImportFile({required this.name, required this.contents});
 
@@ -11,5 +13,5 @@ Future<CashbackImportFile?> pickCashbackImportFile() async {
   );
 }
 
-Future<String?> launchCashbackImport() async =>
+Future<String?> launchCashbackImport(CashbackImportProfile profile) async =>
     'Запуск браузера поддерживается только в локальном Windows-приложении.';

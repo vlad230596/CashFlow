@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/data_provider.dart';
+import '../services/app_session_type.dart';
 import '../services/cashback_import_launcher.dart';
 import 'cashback_screen.dart';
 import 'cards_screen.dart';
@@ -10,7 +11,52 @@ import 'settings/users_settings.dart';
 import 'settings/cards_settings.dart';
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.sessionType});
+
+  final AppSessionType? sessionType;
+
+  Future<CashbackImportProfile?> _selectBrowserProfile(
+    BuildContext context,
+  ) {
+    return showDialog<CashbackImportProfile>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Выберите профиль браузера'),
+        children: [
+          for (final profile in cashbackImportProfiles)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, profile),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.person_outline),
+                title: Text(profile.label),
+                subtitle: Text(
+                  profile.banks.contains('vtb')
+                      ? 'Все банки'
+                      : 'Все банки, кроме ВТБ',
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _launchCashbackBrowser(BuildContext context) async {
+    final profile = await _selectBrowserProfile(context);
+    if (profile == null || !context.mounted) return;
+
+    final error = await launchCashbackImport(profile);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error ??
+              '${profile.label} открыт. Авторизуйтесь в отмеченных банках и скачайте JSON.',
+        ),
+      ),
+    );
+  }
 
   Future<int?> _selectImportUser(
     BuildContext context,
@@ -118,6 +164,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
+    final currentSessionType = sessionType ?? detectAppSessionType();
 
     return DefaultTabController(
       length: 3,
@@ -132,29 +179,20 @@ class HomeScreen extends StatelessWidget {
             ],
           ),
           actions: [
-            IconButton(
-              tooltip: 'Импортировать кэшбэк из JSON',
-              icon: const Icon(Icons.upload_file_outlined),
-              onPressed: dataProvider.canEdit
-                  ? () => _importCashback(context, dataProvider)
-                  : null,
-            ),
-            IconButton(
-              tooltip: 'Запросить кэшбэк',
-              icon: const Icon(Icons.download_for_offline_outlined),
-              onPressed: () async {
-                final error = await launchCashbackImport();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      error ??
-                          'Chrome открыт. Авторизуйтесь в отмеченных банках и скачайте JSON.',
-                    ),
-                  ),
-                );
-              },
-            ),
+            if (currentSessionType.canImportCashbackFile)
+              IconButton(
+                tooltip: 'Импортировать кэшбэк из JSON',
+                icon: const Icon(Icons.upload_file_outlined),
+                onPressed: dataProvider.canEdit
+                    ? () => _importCashback(context, dataProvider)
+                    : null,
+              ),
+            if (currentSessionType.canLaunchCashbackBrowser)
+              IconButton(
+                tooltip: 'Запросить кэшбэк',
+                icon: const Icon(Icons.download_for_offline_outlined),
+                onPressed: () => _launchCashbackBrowser(context),
+              ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.settings),
               onSelected: (value) async {

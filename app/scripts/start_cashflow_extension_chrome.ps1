@@ -38,6 +38,19 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
 }
 
 New-Item -ItemType Directory -Force -Path $profileDirectory | Out-Null
+$defaultProfileDirectory = Join-Path $profileDirectory 'Default'
+$certificateStore = Join-Path $defaultProfileDirectory 'ServerCertificate'
+$certificateStoreSource = Join-Path $repositoryRoot '.local\chrome-profiles\user-1\Default\ServerCertificate'
+
+# Chrome keeps user-added trust anchors in this dedicated SQLite database.
+# Seed it for a new secondary profile without copying cookies, local storage,
+# history, credentials, or any other browser state.
+if ($Profile -ne 'user-1' -and
+    -not (Test-Path -LiteralPath $certificateStore) -and
+    (Test-Path -LiteralPath $certificateStoreSource)) {
+    New-Item -ItemType Directory -Force -Path $defaultProfileDirectory | Out-Null
+    Copy-Item -LiteralPath $certificateStoreSource -Destination $certificateStore
+}
 $baseLanguage = ($Language -split '-')[0]
 
 $arguments = @(

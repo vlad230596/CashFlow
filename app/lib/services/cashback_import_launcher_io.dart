@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'cashback_import_profile.dart';
+
 class CashbackImportFile {
   const CashbackImportFile({required this.name, required this.contents});
 
@@ -49,7 +51,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   );
 }
 
-Future<String?> launchCashbackImport() async {
+Future<String?> launchCashbackImport(CashbackImportProfile profile) async {
   if (!Platform.isWindows) {
     return 'Запуск браузера пока поддерживается только в Windows.';
   }
@@ -72,9 +74,11 @@ Future<String?> launchCashbackImport() async {
         '-File',
         launcher.path,
         '-Profile',
-        'user-1',
+        profile.id,
+        '-DebugPort',
+        profile.debugPort.toString(),
         '-Banks',
-        'tbank,yandex,alfa,sber,ozon,vtb',
+        profile.banks.join(','),
       ],
       workingDirectory: launcher.parent.parent.path,
       stdoutEncoding: utf8,

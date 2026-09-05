@@ -50,14 +50,26 @@ class AuthIdentity {
         username: json['username'] as String,
         role: json['role'] as String,
       );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'username': username,
+        'role': role,
+      };
 }
 
 class _AuthenticatedClient extends http.BaseClient {
-  _AuthenticatedClient(this._inner, this._token, this._onUnauthorized);
+  _AuthenticatedClient(
+    this._inner,
+    this._token,
+    this._onUnauthorized,
+    this._onSessionExpiration,
+  );
 
   final http.Client _inner;
   final String? Function() _token;
-  final Future<void> Function() _onUnauthorized;
+  final Future<void> Function(String? token) _onUnauthorized;
+  final Future<void> Function(String expiresAt) _onSessionExpiration;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -67,22 +79,43 @@ class _AuthenticatedClient extends http.BaseClient {
     }
     final response = await _inner.send(request);
     if (response.statusCode == 401) {
-      await _onUnauthorized();
+      await _onUnauthorized(token);
+    } else {
+      final expiresAt = response.headers.entries
+          .where(
+            (header) =>
+                header.key.toLowerCase() == 'x-cashflow-session-expires-at',
+          )
+          .map((header) => header.value)
+          .firstOrNull;
+      if (expiresAt != null) {
+        await _onSessionExpiration(expiresAt);
+      }
     }
     return response;
   }
+
+  @override
+  void close() => _inner.close();
 }
 
 class DataProvider with ChangeNotifier {
   DataProvider({
     String? apiBaseUrl,
     FlutterSecureStorage? secureStorage,
+    http.Client? httpClient,
   })  : apiBaseUrl = apiBaseUrl ?? defaultApiBaseUrl,
-        _secureStorage = secureStorage ?? const FlutterSecureStorage() {
+        _secureStorage = secureStorage ??
+            const FlutterSecureStorage(
+              aOptions: AndroidOptions(migrateWithBackup: true),
+            ) {
+    final innerClient = httpClient ?? http.Client();
+    _rawClient = innerClient;
     _client = _AuthenticatedClient(
-      http.Client(),
+      innerClient,
       () => _accessToken,
       _clearAuthentication,
+      _saveSessionExpiration,
     );
   }
 
@@ -93,16 +126,23 @@ class DataProvider with ChangeNotifier {
       ? _configuredApiBaseUrl
       : 'https://cash-flow-app.duckdns.org:8443';
   static const _accessTokenKey = 'cashflowAccessToken';
+  static const _authIdentityKey = 'cashflowAuthIdentity';
+  static const _sessionExpiresAtKey = 'cashflowSessionExpiresAt';
 
   final String apiBaseUrl;
   final FlutterSecureStorage _secureStorage;
+  late final http.Client _rawClient;
   late final http.Client _client;
   String? _accessToken;
+  DateTime? _sessionExpiresAt;
   AuthIdentity? currentAuthUser;
   bool authReady = true;
   String? authError;
 
-  bool get isAuthenticated => _accessToken != null && currentAuthUser != null;
+  bool get isAuthenticated =>
+      _accessToken != null &&
+      currentAuthUser != null &&
+      (_sessionExpiresAt == null || _sessionExpiresAt!.isAfter(DateTime.now()));
   bool get canEdit =>
       currentAuthUser?.role == 'editor' || currentAuthUser?.role == 'admin';
   bool get isAdmin => currentAuthUser?.role == 'admin';
@@ -120,28 +160,95 @@ class DataProvider with ChangeNotifier {
         '${apiBaseUrl.replaceFirst(RegExp(r'/$'), '')}/api/$path',
       );
 
-  Future<void> _clearAuthentication() async {
+  Future<void> _clearAuthentication([String? token]) async {
+    // A late 401 from an old request must not erase a newer login.
+    if (token != null && token != _accessToken) return;
     _accessToken = null;
+    _sessionExpiresAt = null;
     currentAuthUser = null;
-    await _secureStorage.delete(key: _accessTokenKey);
-    notifyListeners();
+    try {
+      await Future.wait([
+        _secureStorage.delete(key: _accessTokenKey),
+        _secureStorage.delete(key: _authIdentityKey),
+        _secureStorage.delete(key: _sessionExpiresAtKey),
+      ]);
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _persistAuthentication() async {
+    final user = currentAuthUser;
+    final token = _accessToken;
+    if (user == null || token == null) return;
+    await Future.wait([
+      _secureStorage.write(key: _accessTokenKey, value: token),
+      _secureStorage.write(
+        key: _authIdentityKey,
+        value: json.encode(user.toJson()),
+      ),
+      if (_sessionExpiresAt != null)
+        _secureStorage.write(
+          key: _sessionExpiresAtKey,
+          value: _sessionExpiresAt!.toUtc().toIso8601String(),
+        ),
+    ]);
+  }
+
+  Future<void> _saveSessionExpiration(String value) async {
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null || parsed == _sessionExpiresAt) return;
+    _sessionExpiresAt = parsed;
+    try {
+      await _secureStorage.write(
+        key: _sessionExpiresAtKey,
+        value: parsed.toUtc().toIso8601String(),
+      );
+    } catch (error) {
+      // A storage hiccup must not turn a successful API request into a failure.
+      debugPrint('Could not persist the extended session expiration: $error');
+    }
   }
 
   Future<bool> _restoreAuthentication() async {
-    _accessToken = await _secureStorage.read(key: _accessTokenKey);
-    if (_accessToken == null) return false;
     try {
+      final stored = await Future.wait([
+        _secureStorage.read(key: _accessTokenKey),
+        _secureStorage.read(key: _authIdentityKey),
+        _secureStorage.read(key: _sessionExpiresAtKey),
+      ]);
+      _accessToken = stored[0];
+      if (_accessToken == null) return false;
+
+      final cachedIdentity = stored[1];
+      if (cachedIdentity != null) {
+        currentAuthUser = AuthIdentity.fromJson(
+          json.decode(cachedIdentity) as Map<String, dynamic>,
+        );
+      }
+      _sessionExpiresAt = DateTime.tryParse(stored[2] ?? '');
+
       final response = await _client.get(_apiUri('auth/me'));
       if (response.statusCode != 200) {
-        await _clearAuthentication();
         return false;
       }
       currentAuthUser = AuthIdentity.fromJson(
         json.decode(response.body) as Map<String, dynamic>,
       );
+      await _persistAuthentication();
       return true;
     } catch (_) {
-      authError = 'Не удалось проверить сохранённую сессию';
+      // Allow a previously verified session to open from cached data while
+      // offline. A later 401 still clears it immediately.
+      if (currentAuthUser != null &&
+          (_sessionExpiresAt == null ||
+              _sessionExpiresAt!.isAfter(DateTime.now()))) {
+        return true;
+      }
+      _accessToken = null;
+      _sessionExpiresAt = null;
+      currentAuthUser = null;
+      authError = 'Не удалось восстановить сохранённую сессию';
       return false;
     }
   }
@@ -149,7 +256,7 @@ class DataProvider with ChangeNotifier {
   Future<bool> login(String username, String password) async {
     authError = null;
     try {
-      final response = await http.post(
+      final response = await _rawClient.post(
         _apiUri('auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'username': username, 'password': password}),
@@ -161,10 +268,12 @@ class DataProvider with ChangeNotifier {
         return false;
       }
       _accessToken = payload['access_token'] as String;
+      _sessionExpiresAt =
+          DateTime.tryParse(payload['expires_at'] as String? ?? '');
       currentAuthUser = AuthIdentity.fromJson(
         payload['user'] as Map<String, dynamic>,
       );
-      await _secureStorage.write(key: _accessTokenKey, value: _accessToken);
+      await _persistAuthentication();
       notifyListeners();
       await fetchAllData();
       return true;

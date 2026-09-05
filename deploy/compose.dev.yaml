@@ -33,7 +33,7 @@ services:
     environment:
       CASHFLOW_ENVIRONMENT: production
       CASHFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cashflow_dev}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-cashflow_dev}
-      CASHFLOW_SESSION_TTL_HOURS: ${CASHFLOW_SESSION_TTL_HOURS:-12}
+      CASHFLOW_SESSION_TTL_HOURS: ${CASHFLOW_SESSION_TTL_HOURS:-720}
       CASHFLOW_CORS_ORIGINS: ''
       CASHFLOW_TRUSTED_HOSTS: ${APP_DOMAIN},localhost,cashflow-dev-backend
       APP_VERSION: ${APP_VERSION:?set APP_VERSION in .release.env}

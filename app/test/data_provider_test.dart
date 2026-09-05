@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -130,5 +135,125 @@ void main() {
     await provider.setCashbackEffectiveDate(DateTime(2026, 4, 25));
 
     expect(provider.effectiveActiveCashbackCategories.single.name, 'Cached');
+  });
+
+  test('restores a previously verified session while offline', () async {
+    final expiration = DateTime.now().toUtc().add(const Duration(days: 30));
+    FlutterSecureStorage.setMockInitialValues({
+      'cashflowAccessToken': 'persisted-token',
+      'cashflowAuthIdentity': json.encode({
+        'id': 7,
+        'username': 'admin',
+        'role': 'admin',
+      }),
+      'cashflowSessionExpiresAt': expiration.toIso8601String(),
+    });
+    SharedPreferences.setMockInitialValues({});
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((_) async {
+        throw http.ClientException('offline');
+      }),
+    );
+
+    await provider.initialize();
+
+    expect(provider.isAuthenticated, isTrue);
+    expect(provider.currentAuthUser?.username, 'admin');
+  });
+
+  test('clears a saved session only when the server rejects it', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'cashflowAccessToken': 'expired-token',
+      'cashflowAuthIdentity': json.encode({
+        'id': 7,
+        'username': 'admin',
+        'role': 'admin',
+      }),
+      'cashflowSessionExpiresAt':
+          DateTime.now().toUtc().add(const Duration(days: 1)).toIso8601String(),
+    });
+    SharedPreferences.setMockInitialValues({});
+    final storage = const FlutterSecureStorage();
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      secureStorage: storage,
+      httpClient: MockClient((_) async => http.Response('Unauthorized', 401)),
+    );
+
+    await provider.initialize();
+
+    expect(provider.isAuthenticated, isFalse);
+    expect(await storage.read(key: 'cashflowAccessToken'), isNull);
+    expect(await storage.read(key: 'cashflowAuthIdentity'), isNull);
+  });
+
+  test('does not restore an expired cached session while offline', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'cashflowAccessToken': 'expired-token',
+      'cashflowAuthIdentity': json.encode({
+        'id': 7,
+        'username': 'admin',
+        'role': 'admin',
+      }),
+      'cashflowSessionExpiresAt': DateTime.now()
+          .toUtc()
+          .subtract(const Duration(minutes: 1))
+          .toIso8601String(),
+    });
+    SharedPreferences.setMockInitialValues({});
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((_) async {
+        throw http.ClientException('offline');
+      }),
+    );
+
+    await provider.initialize();
+
+    expect(provider.isAuthenticated, isFalse);
+  });
+
+  test('stores identity and extended server expiration securely', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'cashflowAccessToken': 'persisted-token',
+      'cashflowAuthIdentity': json.encode({
+        'id': 7,
+        'username': 'old-name',
+        'role': 'viewer',
+      }),
+    });
+    SharedPreferences.setMockInitialValues({});
+    final storage = const FlutterSecureStorage();
+    const extendedExpiration = '2027-09-05T12:00:00+00:00';
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      secureStorage: storage,
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/api/auth/me') {
+          expect(request.headers['Authorization'], 'Bearer persisted-token');
+          return http.Response(
+            json.encode({'id': 7, 'username': 'admin', 'role': 'admin'}),
+            200,
+            headers: {
+              'X-CashFlow-Session-Expires-At': extendedExpiration,
+            },
+          );
+        }
+        return http.Response('[]', 200);
+      }),
+    );
+
+    await provider.initialize();
+
+    expect(provider.currentAuthUser?.username, 'admin');
+    expect(
+      await storage.read(key: 'cashflowSessionExpiresAt'),
+      '2027-09-05T12:00:00.000Z',
+    );
+    expect(
+      json.decode(await storage.read(key: 'cashflowAuthIdentity') as String),
+      {'id': 7, 'username': 'admin', 'role': 'admin'},
+    );
   });
 }

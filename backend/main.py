@@ -21,8 +21,8 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['CASHFLOW_ENVIRONMENT'] = os.environ.get('CASHFLOW_ENVIRONMENT', 'development')
 app.config['CASHFLOW_SESSION_TTL_HOURS'] = min(
-    max(int(os.environ.get('CASHFLOW_SESSION_TTL_HOURS', '12')), 1),
-    24,
+    max(int(os.environ.get('CASHFLOW_SESSION_TTL_HOURS', '720')), 1),
+    8760,
 )
 trusted_hosts = [
     host.strip()
@@ -45,6 +45,7 @@ CORS(
     app,
     origins=allowed_origins or [],
     allow_headers=['Authorization', 'Content-Type'],
+    expose_headers=['X-CashFlow-Session-Expires-At'],
 )
 if app.config['CASHFLOW_ENVIRONMENT'] == 'production':
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
@@ -297,7 +298,24 @@ def authenticate_request():
 
     g.auth_user = user
     g.auth_session = session
+
+    # Sliding expiration keeps regularly used installations signed in without
+    # keeping abandoned sessions alive forever. Refresh at most twice per TTL.
+    session_ttl = timedelta(hours=app.config['CASHFLOW_SESSION_TTL_HOURS'])
+    if _as_utc(session.expires_at) - now < session_ttl / 2:
+        session.expires_at = now + session_ttl
+        db.session.commit()
     return None
+
+
+@app.after_request
+def expose_session_expiration(response):
+    session = getattr(g, 'auth_session', None)
+    if session is not None:
+        response.headers['X-CashFlow-Session-Expires-At'] = (
+            _as_utc(session.expires_at).isoformat()
+        )
+    return response
 
 
 @app.get('/health')
