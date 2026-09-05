@@ -121,7 +121,8 @@ jobs:
           flutter pub get
           flutter build web --release --no-web-resources-cdn \
             --build-name "${{ needs.prepare.outputs.version }}" \
-            --dart-define="CASHFLOW_APP_VERSION=${{ needs.prepare.outputs.version }}"
+            --dart-define="CASHFLOW_APP_VERSION=${{ needs.prepare.outputs.version }}" \
+            --dart-define="CASHFLOW_API_URL=https://cash-flow-app.duckdns.org:8444"
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
