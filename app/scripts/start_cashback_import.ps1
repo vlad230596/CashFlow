@@ -3,7 +3,8 @@ param(
     [string]$Profile = 'user-1',
     [int]$DebugPort = 0,
     [string[]]$Banks = @('tbank', 'yandex', 'alfa', 'sber', 'ozon', 'vtb'),
-    [string]$ExtensionId
+    [string]$ExtensionId,
+    [string]$SelectionPlanPath
 )
 
 if ($DebugPort -eq 0) {
@@ -58,7 +59,7 @@ if (-not $ExtensionId) {
 
 $banksValue = $Banks -join ','
 & $nodeExecutable (Join-Path $PSScriptRoot 'configure_cashback_import.mjs') `
-    $DebugPort $ExtensionId $banksValue
+    $DebugPort $ExtensionId $banksValue $SelectionPlanPath
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 & $nodeExecutable (Join-Path $PSScriptRoot 'open_cashflow_sidepanel.mjs') `

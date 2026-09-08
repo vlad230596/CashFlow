@@ -45,6 +45,16 @@ void main() {
         normalizedCashbackCategoryName('Такси и каршеринг'),
         'Такси и каршеринг',
       );
+      expect(
+          normalizedCashbackCategoryName('Онлайн-образование'), 'Образование');
+      expect(normalizedCashbackCategoryName('Книги и обучение'), 'Образование');
+      expect(
+          normalizedCashbackCategoryName('Салоны красоты'), 'Красота и уход');
+      expect(normalizedCashbackCategoryName('Косметика и парфюмерия'),
+          'Красота и уход');
+      expect(
+          normalizedCashbackCategoryName('Товары для детей'), 'Детские товары');
+      expect(normalizedCashbackCategoryName('Игрушки'), 'Детские товары');
     });
 
     test('keeps an unknown category readable', () {
@@ -60,7 +70,9 @@ void main() {
       'Магазин Ромашка',
       'Кино',
       'Аптеки',
+      'Образование',
       'Одежда',
+      'Детские товары',
       'Супермаркеты',
     ]..sort(
         (a, b) => cashbackCategorySortPriority(a).compareTo(
@@ -71,7 +83,9 @@ void main() {
     expect(categories, [
       'Супермаркеты',
       'Одежда',
+      'Детские товары',
       'Аптеки',
+      'Образование',
       'Кино',
       'Магазин Ромашка',
     ]);

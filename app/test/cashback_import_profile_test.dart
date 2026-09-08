@@ -7,10 +7,12 @@ void main() {
     final second = cashbackImportProfiles[1];
 
     expect(first.id, 'user-1');
+    expect(first.userSlot, 0);
     expect(first.debugPort, 9223);
     expect(first.banks, contains('vtb'));
 
     expect(second.id, 'user-2');
+    expect(second.userSlot, 1);
     expect(second.debugPort, 9224);
     expect(second.banks, isNot(contains('vtb')));
     expect(

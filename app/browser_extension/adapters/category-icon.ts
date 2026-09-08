@@ -32,19 +32,28 @@ export function buildCategoryIconId(
 }
 
 function symbolForCategory(name: string): string {
-  const value = name.toLocaleLowerCase('ru');
-  if (/красот|космет|парфюм|салон/.test(value)) return '✨';
+  const value = name.toLocaleLowerCase('ru').replaceAll('ё', 'е');
+  if (/красот|космет|парфюм|салон|спа|летуал|рив гош/.test(value)) return '✨';
+  if (/дет|ребен|игруш|малыш/.test(value)) return '🧸';
+  if (/книг|образован|обучен|школ|курс/.test(value)) return '📚';
   if (/кино|театр|развлеч/.test(value)) return '🎭';
-  if (/хобби|творч|подар|цвет/.test(value)) return '🎨';
+  if (/хобби|творч|искусств/.test(value)) return '🎨';
+  if (/подар|цвет/.test(value)) return '✿';
   if (/спорт|фитнес|активн/.test(value)) return '⚽';
-  if (/дет|реб[её]н/.test(value)) return '🧸';
   if (/путеше|отел|авиа|тревел/.test(value)) return '✈';
-  if (/транспорт|такси/.test(value)) return '🚕';
-  if (/аптек|здоров/.test(value)) return '✚';
-  if (/книг|образован/.test(value)) return '📚';
-  if (/топлив|авто/.test(value)) return '⛽';
+  if (/такси|каршер/.test(value)) return '🚕';
+  if (/транспорт|метро|автобус/.test(value)) return '▰';
+  if (/аптек|здоров|медицин/.test(value)) return '✚';
+  if (/топлив|азс|заправ/.test(value)) return '⛽';
+  if (/авто/.test(value)) return '◆';
+  if (/дом|ремонт|мебел/.test(value)) return '⌂';
   if (/одеж|обув/.test(value)) return '👕';
-  if (/кафе|ресторан|продукт|супермаркет|покуп/.test(value)) return '🛒';
+  if (/животн|питом|зоотовар/.test(value)) return '●';
+  if (/кафе|ресторан|фастфуд|кофе|еда/.test(value)) return '♨';
+  if (/продукт|супермаркет|лавк/.test(value)) return '🛒';
+  if (/электрон|техник|цифров/.test(value)) return '▣';
+  if (/страхован|каско|осаго/.test(value)) return '◇';
+  if (/все|покуп/.test(value)) return '∞';
   if (/музык/.test(value)) return '♪';
   return '◆';
 }

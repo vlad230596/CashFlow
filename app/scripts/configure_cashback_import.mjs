@@ -1,10 +1,13 @@
-const [, , portArg = '9223', extensionId, banksArg = 'tbank,yandex,alfa,sber,ozon,vtb'] = process.argv;
+import { readFile } from 'node:fs/promises';
+
+const [, , portArg = '9223', extensionId, banksArg = 'tbank,yandex,alfa,sber,ozon,vtb', planPath] = process.argv;
 if (!extensionId) {
   throw new Error('Usage: configure_cashback_import.mjs <port> <extension-id> [banks]');
 }
 
 const port = Number(portArg);
 const banks = banksArg.split(',').map((value) => value.trim()).filter(Boolean);
+const selectionPlan = planPath ? JSON.parse(await readFile(planPath, 'utf8')) : null;
 const extensionUrl = `chrome-extension://${extensionId}/sidepanel.html`;
 const previousTargets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
 for (const previousTarget of previousTargets.filter(
@@ -35,6 +38,7 @@ const expression = `(async () => {
   })};
   await chrome.storage.local.set({
     cashflowImportRequest: { banks, autoCollect: true, requestedAt: new Date().toISOString() },
+    cashflowSelectionPlan: ${JSON.stringify(selectionPlan)},
   });
   const existing = await chrome.tabs.query({});
   for (const bank of banks) {

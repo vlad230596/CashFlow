@@ -18,7 +18,10 @@ class HomeScreen extends StatelessWidget {
 
   Future<CashbackImportProfile?> _selectBrowserProfile(
     BuildContext context,
+    DataProvider dataProvider,
   ) {
+    final orderedUsers = [...dataProvider.users]
+      ..sort((a, b) => a.id.compareTo(b.id));
     return showDialog<CashbackImportProfile>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
@@ -30,11 +33,13 @@ class HomeScreen extends StatelessWidget {
               child: ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.person_outline),
-                title: Text(profile.label),
+                title: Text(
+                  profile.userSlot < orderedUsers.length
+                      ? orderedUsers[profile.userSlot].name
+                      : profile.label,
+                ),
                 subtitle: Text(
-                  profile.banks.contains('vtb')
-                      ? 'Все банки'
-                      : 'Все банки, кроме ВТБ',
+                  '${profile.label} · ${profile.banks.contains('vtb') ? 'все банки' : 'без ВТБ'}',
                 ),
               ),
             ),
@@ -43,8 +48,11 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _launchCashbackBrowser(BuildContext context) async {
-    final profile = await _selectBrowserProfile(context);
+  Future<void> _launchCashbackBrowser(
+    BuildContext context,
+    DataProvider dataProvider,
+  ) async {
+    final profile = await _selectBrowserProfile(context, dataProvider);
     if (profile == null || !context.mounted) return;
 
     final error = await launchCashbackImport(profile);
@@ -192,7 +200,7 @@ class HomeScreen extends StatelessWidget {
               IconButton(
                 tooltip: 'Запросить кэшбэк',
                 icon: const Icon(Icons.download_for_offline_outlined),
-                onPressed: () => _launchCashbackBrowser(context),
+                onPressed: () => _launchCashbackBrowser(context, dataProvider),
               ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.settings),

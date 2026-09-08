@@ -13,5 +13,8 @@ Future<CashbackImportFile?> pickCashbackImportFile() async {
   );
 }
 
-Future<String?> launchCashbackImport(CashbackImportProfile profile) async =>
+Future<String?> launchCashbackImport(
+  CashbackImportProfile profile, {
+  String? selectionPlan,
+}) async =>
     'Запуск браузера поддерживается только в локальном Windows-приложении.';

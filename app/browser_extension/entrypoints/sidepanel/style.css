@@ -13,6 +13,23 @@ button.secondary { color: #24405f; background: #e1e8f2; }
 button.icons { grid-column: 1 / -1; color: #24405f; background: #dbeafe; }
 button.success { grid-column: 1 / -1; background: #14804a; }
 .export-message { margin: -6px 0 12px; color: #526174; font-size: 11px; }
+.selection-plan { margin: 0 0 14px; padding: 12px; border: 1px solid #93c5fd; border-radius: 12px; background: #eff6ff; }
+.plan-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.plan-heading h2 { margin: 0; font-size: 15px; }
+.plan-heading p { margin: 2px 0 0; color: #526174; font-size: 11px; }
+.plan-heading > span { padding: 3px 7px; border-radius: 999px; color: #1d4ed8; background: #dbeafe; font-size: 10px; white-space: nowrap; }
+.plan-bank { margin-top: 9px; padding-top: 9px; border-top: 1px solid #bfdbfe; }
+.plan-bank:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
+.plan-bank > strong { display: block; margin-bottom: 6px; font-size: 12px; }
+.plan-bank ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.plan-bank li { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 5px; padding: 6px 7px; border-radius: 8px; font-size: 11px; }
+.plan-bank li > span { font-size: 15px; font-weight: 800; text-align: center; }
+.plan-bank li > small { font-size: 10px; }
+.plan-done { color: #08733d; background: #dcfce7; }
+.plan-select { color: #92400e; background: #fef3c7; }
+.plan-remove { color: #b42318; background: #fee2e2; }
+.plan-missing { color: #7c2d12; background: #ffedd5; }
+.plan-pending { color: #475467; background: #e4e7ec; }
 .banks { display: grid; gap: 10px; }
 .bank { padding: 12px; border: 1px solid #d8deea; border-left: 5px solid #94a3b8; border-radius: 12px; background: white; }
 .bank-ready { border-left-color: #19a15f; }

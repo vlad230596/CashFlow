@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cashflow/models/cashback_category_model.dart';
@@ -255,5 +256,56 @@ void main() {
       json.decode(await storage.read(key: 'cashflowAuthIdentity') as String),
       {'id': 7, 'username': 'admin', 'role': 'admin'},
     );
+  });
+
+  test('updates category selection immediately while server request is pending',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final response = Completer<http.Response>();
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((_) => response.future),
+    )..cashbackCategories = [
+        CashbackCategoryModel(
+          id: 10,
+          name: 'Аптеки',
+          startDate: DateTime(2026, 9),
+          endDate: DateTime(2026, 10),
+          isSelected: false,
+          cashbackPercent: 5,
+          cardId: 1,
+        ),
+      ];
+
+    final update = provider.toggleCategorySelection(10, true);
+
+    expect(provider.cashbackCategories.single.isSelected, isTrue);
+    response.complete(http.Response('{}', 200));
+    await update;
+  });
+
+  test('rolls optimistic category selection back after server failure',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((_) async => http.Response('{}', 500)),
+    )..cashbackCategories = [
+        CashbackCategoryModel(
+          id: 10,
+          name: 'Аптеки',
+          startDate: DateTime(2026, 9),
+          endDate: DateTime(2026, 10),
+          isSelected: false,
+          cashbackPercent: 5,
+          cardId: 1,
+        ),
+      ];
+
+    final update = provider.toggleCategorySelection(10, true);
+    expect(provider.cashbackCategories.single.isSelected, isTrue);
+
+    await expectLater(update, throwsException);
+    expect(provider.cashbackCategories.single.isSelected, isFalse);
   });
 }

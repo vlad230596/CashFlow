@@ -63,3 +63,23 @@ export type CashbackImportDocument = {
   requestedBanks: BankId[];
   banks: CashbackImportBankResult[];
 };
+
+export type CashbackSelectionPlanCategory = {
+  name: string;
+  percent: number | null;
+};
+
+export type CashbackSelectionPlanBank = {
+  bankId: BankId;
+  cardId: number;
+  cardLabel: string;
+  desiredCategories: CashbackSelectionPlanCategory[];
+};
+
+export type CashbackSelectionPlanDocument = {
+  schemaVersion: 1;
+  kind: 'cashback_selection_plan';
+  generatedAt: string;
+  effectiveDate: string;
+  banks: CashbackSelectionPlanBank[];
+};

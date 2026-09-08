@@ -1,9 +1,14 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
+import '../services/app_session_type.dart';
+import '../services/cashback_import_launcher.dart';
+import '../services/cashback_selection_plan.dart';
 import '../utils/category_info.dart';
 import 'cashback_category_edit_screen.dart';
 import 'widgets/cashback_description_button.dart';
@@ -78,7 +83,13 @@ String normalizedCashbackCategoryName(String value) {
     return 'Кафе и рестораны';
   }
   if (containsAny(['одежд', 'обув', 'fashion'])) return 'Одежда и обувь';
+  if (containsAny(['детск', 'для детей', 'игруш', 'малыш'])) {
+    return 'Детские товары';
+  }
   if (containsAny(['азс', 'топлив', 'заправ'])) return 'АЗС и топливо';
+  if (containsAny(['красот', 'космет', 'парфюм', 'бьюти', 'салон', 'спа'])) {
+    return 'Красота и уход';
+  }
   if (containsAny(['такси', 'каршер'])) return 'Такси и каршеринг';
   if (containsAny(['транспорт', 'метро', 'автобус'])) {
     return 'Общественный транспорт';
@@ -88,6 +99,17 @@ String normalizedCashbackCategoryName(String value) {
   }
   if (containsAny(['спорт', 'фитнес', 'активный отдых'])) {
     return 'Спорт и активный отдых';
+  }
+  if (containsAny([
+    'образован',
+    'обучен',
+    'курс',
+    'школ',
+    'университет',
+    'репетитор',
+    'книг',
+  ])) {
+    return 'Образование';
   }
   if (containsAny(['кино', 'развлеч'])) return 'Развлечения';
   if (containsAny(['путешеств', 'авиабилет', 'отел', 'travel'])) {
@@ -113,18 +135,24 @@ int cashbackCategorySortPriority(String categoryName) {
       return 20;
     case 'Одежда и обувь':
       return 30;
+    case 'Детские товары':
+      return 35;
     case 'Аптеки':
       return 40;
     case 'Все покупки':
       return 45;
     case 'АЗС и топливо':
       return 50;
+    case 'Красота и уход':
+      return 55;
     case 'Общественный транспорт':
       return 60;
     case 'Такси и каршеринг':
       return 65;
     case 'Дом и ремонт':
       return 70;
+    case 'Образование':
+      return 75;
     case 'Спорт и активный отдых':
       return 80;
     case 'Путешествия':
@@ -141,6 +169,13 @@ int cashbackCategorySortPriority(String categoryName) {
 enum _MonthlyView { categories, banks }
 
 enum _CategoryFilter { all, uncovered, duplicates }
+
+class _BrowserProfileChoice {
+  const _BrowserProfileChoice({required this.profile, this.userId});
+
+  final CashbackImportProfile profile;
+  final int? userId;
+}
 
 class _CategoryGroup {
   const _CategoryGroup({required this.title, required this.offers});
@@ -169,11 +204,13 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
 
   final Map<int, int> _maxCategoriesPerCard = {};
   final Map<int, TextEditingController> _maxCategoriesControllers = {};
+  final Set<int> _rejectedCategoryIds = {};
   late DateTime _startDate;
   late DateTime _endDate;
   _MonthlyView _view = _MonthlyView.categories;
   _CategoryFilter _filter = _CategoryFilter.all;
   String _query = '';
+  bool _sendingToChrome = false;
 
   @override
   void initState() {
@@ -247,6 +284,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     final groups = grouped.entries.map((entry) {
       entry.value.sort((a, b) {
         if (a.isSelected != b.isSelected) return a.isSelected ? -1 : 1;
+        final aRejected = _rejectedCategoryIds.contains(a.id);
+        final bRejected = _rejectedCategoryIds.contains(b.id);
+        if (aRejected != bRejected) return aRejected ? 1 : -1;
         return b.cashbackPercent.compareTo(a.cashbackPercent);
       });
       return _CategoryGroup(title: entry.key, offers: entry.value);
@@ -345,6 +385,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
 
     try {
       await dataProvider.toggleCategorySelection(category.id, value);
+      if (mounted) {
+        setState(() => _rejectedCategoryIds.remove(category.id));
+      }
       if (!mounted || !value || group == null) return;
       final selectedElsewhere = group.offers.any(
         (offer) => offer.id != category.id && offer.isSelected,
@@ -373,6 +416,126 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     }
   }
 
+  Future<void> _toggleCategoryRejection(
+    BuildContext context,
+    DataProvider dataProvider,
+    CashbackCategoryModel category,
+  ) async {
+    if (category.isSelectionLocked || category.isTaskBonus) return;
+    final reject = !_rejectedCategoryIds.contains(category.id);
+    setState(() {
+      if (reject) {
+        _rejectedCategoryIds.add(category.id);
+      } else {
+        _rejectedCategoryIds.remove(category.id);
+      }
+    });
+    if (!reject) return;
+
+    try {
+      if (category.isSelected) {
+        await dataProvider.toggleCategorySelection(category.id, false);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _rejectedCategoryIds.remove(category.id));
+      }
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось исключить категорию')),
+      );
+    }
+  }
+
+  Future<_BrowserProfileChoice?> _selectBrowserProfile(
+    BuildContext context,
+    DataProvider dataProvider,
+  ) {
+    final orderedUsers = [...dataProvider.users]
+      ..sort((a, b) => a.id.compareTo(b.id));
+    return showDialog<_BrowserProfileChoice>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Куда передать план?'),
+        children: [
+          for (final profile in cashbackImportProfiles)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                _BrowserProfileChoice(
+                  profile: profile,
+                  userId: profile.userSlot < orderedUsers.length
+                      ? orderedUsers[profile.userSlot].id
+                      : null,
+                ),
+              ),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.person_outline),
+                title: Text(
+                  profile.userSlot < orderedUsers.length
+                      ? orderedUsers[profile.userSlot].name
+                      : profile.label,
+                ),
+                subtitle: Text(profile.label),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendTodayPlanToChrome(
+    BuildContext context,
+    DataProvider dataProvider,
+  ) async {
+    final target = await _selectBrowserProfile(context, dataProvider);
+    if (target == null || !context.mounted) return;
+    final profile = target.profile;
+
+    final plan = buildCashbackSelectionPlan(
+      now: DateTime.now(),
+      banks: dataProvider.banks,
+      users: dataProvider.users,
+      cards: dataProvider.cards,
+      categories: dataProvider.cashbackCategories,
+      requestedBankIds: profile.banks,
+      userId: target.userId,
+    );
+    final planBanks = plan['banks'] as List<dynamic>;
+    if (planBanks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'На сегодня нет категорий для поддерживаемых банков.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _sendingToChrome = true);
+    String? error;
+    try {
+      error = await launchCashbackImport(
+        profile,
+        selectionPlan: jsonEncode(plan),
+      );
+    } catch (exception) {
+      error = 'Не удалось передать план в Chrome: $exception';
+    }
+    if (!context.mounted) return;
+    setState(() => _sendingToChrome = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error ??
+              'План на сегодня передан в Chrome. Справа открыт чек-лист без автоматических кликов.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
@@ -390,7 +553,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     return Scaffold(
       body: Column(
         children: [
-          _buildHeader(context),
+          _buildHeader(context, dataProvider),
           Expanded(
             child: _view == _MonthlyView.categories
                 ? _buildCategoryView(context, dataProvider, visibleGroups)
@@ -408,7 +571,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, DataProvider dataProvider) {
     return Material(
       color: Theme.of(context).colorScheme.surface,
       elevation: 1,
@@ -444,6 +607,22 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 setState(() => _view = selection.first);
               },
             );
+            final sendButton = FilledButton.icon(
+              onPressed: _sendingToChrome
+                  ? null
+                  : () => _sendTodayPlanToChrome(context, dataProvider),
+              icon: _sendingToChrome
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.open_in_browser, size: 18),
+              label: Text(
+                _sendingToChrome ? 'Передаём…' : 'Показать в Chrome',
+              ),
+            );
+            final canSendToChrome =
+                detectAppSessionType().canLaunchCashbackBrowser;
 
             if (compact) {
               return Column(
@@ -452,11 +631,23 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                   dateButton,
                   const SizedBox(height: 8),
                   switcher,
+                  if (canSendToChrome) ...[
+                    const SizedBox(height: 8),
+                    sendButton,
+                  ],
                 ],
               );
             }
             return Row(
-              children: [dateButton, const Spacer(), switcher],
+              children: [
+                dateButton,
+                const Spacer(),
+                switcher,
+                if (canSendToChrome) ...[
+                  const SizedBox(width: 8),
+                  sendButton,
+                ],
+              ],
             );
           },
         ),
@@ -694,111 +885,178 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     final isBest = offer.cashbackPercent == group.bestPercent;
     final originalNameDiffers =
         offer.name.trim().toLowerCase() != group.title.trim().toLowerCase();
+    final isRejected = _rejectedCategoryIds.contains(offer.id);
 
     return InkWell(
       onLongPress: () => _openCategoryEditor(context, offer),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(6, 5, 8, 5),
-        child: Row(
-          children: [
-            Checkbox(
-              value: offer.isSelected,
-              onChanged: offer.isSelectionLocked || offer.isTaskBonus
-                  ? null
-                  : (value) => _toggleCategory(
-                        context,
-                        dataProvider,
-                        offer,
-                        value ?? false,
-                        group,
-                      ),
-            ),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _cardLabel(dataProvider, offer.cardId),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: offer.isSelected
-                                ? FontWeight.w700
-                                : FontWeight.w500,
+      child: Ink(
+        color: isRejected
+            ? Theme.of(context)
+                .colorScheme
+                .errorContainer
+                .withValues(alpha: 0.35)
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(6, 5, 8, 5),
+          child: Row(
+            children: [
+              _buildDecisionControls(
+                context,
+                dataProvider,
+                offer,
+                group,
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _cardLabel(dataProvider, offer.cardId),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: offer.isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
                           ),
                         ),
-                      ),
-                      if (offer.isSelectionLocked) ...[
-                        const SizedBox(width: 4),
-                        const Tooltip(
-                          message: 'Выбор уже закреплён банком',
-                          child: Icon(Icons.lock, size: 14),
-                        ),
+                        if (offer.isSelectionLocked) ...[
+                          const SizedBox(width: 4),
+                          const Tooltip(
+                            message: 'Выбор уже закреплён банком',
+                            child: Icon(Icons.lock, size: 14),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                  if (originalNameDiffers)
-                    Text(
-                      offer.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
                     ),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 2,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
+                    if (originalNameDiffers)
                       Text(
-                        isBest
-                            ? 'Лучший процент'
-                            : 'Есть ${_formatPercent(group.bestPercent)}',
+                        offer.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11,
-                          color: isBest ? Colors.green : Colors.orange,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      CashbackLimitsLabel(
-                        maxCashbackAmount: offer.maxCashbackAmount,
-                        minPurchaseAmount: offer.minPurchaseAmount,
-                        fontSize: 10,
-                      ),
-                    ],
-                  ),
-                ],
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          isBest
+                              ? 'Лучший процент'
+                              : 'Есть ${_formatPercent(group.bestPercent)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isBest ? Colors.green : Colors.orange,
+                          ),
+                        ),
+                        CashbackLimitsLabel(
+                          maxCashbackAmount: offer.maxCashbackAmount,
+                          minPurchaseAmount: offer.minPurchaseAmount,
+                          fontSize: 10,
+                        ),
+                        if (isRejected)
+                          Text(
+                            'Исключено',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            CashbackDescriptionButton(
-              categoryName: offer.name,
-              description: offer.description,
-              iconSize: 17,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '${offer.isStackableBonus ? '+' : ''}${_formatPercent(offer.cashbackPercent)}',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: offer.isSelected
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
+              CashbackDescriptionButton(
+                categoryName: offer.name,
+                description: offer.description,
+                iconSize: 17,
               ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.edit_outlined, size: 17),
-              tooltip: 'Редактировать',
-              visualDensity: VisualDensity.compact,
-              onPressed: () => _openCategoryEditor(context, offer),
-            ),
-          ],
+              const SizedBox(width: 4),
+              Text(
+                '${offer.isStackableBonus ? '+' : ''}${_formatPercent(offer.cashbackPercent)}',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: offer.isSelected
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, size: 17),
+                tooltip: 'Редактировать',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => _openCategoryEditor(context, offer),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildDecisionControls(
+    BuildContext context,
+    DataProvider dataProvider,
+    CashbackCategoryModel category,
+    _CategoryGroup? group,
+  ) {
+    final disabled = category.isSelectionLocked || category.isTaskBonus;
+    final rejected = _rejectedCategoryIds.contains(category.id);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          constraints: const BoxConstraints.tightFor(width: 32, height: 36),
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          tooltip: category.isSelected ? 'Снять выбор' : 'Выбрать',
+          onPressed: disabled
+              ? null
+              : () => _toggleCategory(
+                    context,
+                    dataProvider,
+                    category,
+                    !category.isSelected,
+                    group,
+                  ),
+          icon: Icon(
+            category.isSelected
+                ? Icons.check_circle
+                : Icons.check_circle_outline,
+            color: category.isSelected ? Colors.green : null,
+            size: 22,
+          ),
+        ),
+        IconButton(
+          constraints: const BoxConstraints.tightFor(width: 32, height: 36),
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          tooltip: rejected ? 'Вернуть в рассмотрение' : 'Исключить',
+          onPressed: disabled
+              ? null
+              : () => _toggleCategoryRejection(
+                    context,
+                    dataProvider,
+                    category,
+                  ),
+          icon: Icon(
+            rejected ? Icons.cancel : Icons.cancel_outlined,
+            color: rejected ? Theme.of(context).colorScheme.error : null,
+            size: 22,
+          ),
+        ),
+      ],
     );
   }
 
@@ -834,6 +1092,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 if (a.isSelected != b.isSelected) {
                   return a.isSelected ? -1 : 1;
                 }
+                final aRejected = _rejectedCategoryIds.contains(a.id);
+                final bRejected = _rejectedCategoryIds.contains(b.id);
+                if (aRejected != bRejected) return aRejected ? 1 : -1;
                 return b.cashbackPercent.compareTo(a.cashbackPercent);
               });
             return _buildBankCard(
@@ -934,10 +1195,24 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: CashbackLimitsLabel(
-                          maxCashbackAmount: category.maxCashbackAmount,
-                          minPurchaseAmount: category.minPurchaseAmount,
-                          fontSize: 10,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CashbackLimitsLabel(
+                              maxCashbackAmount: category.maxCashbackAmount,
+                              minPurchaseAmount: category.minPurchaseAmount,
+                              fontSize: 10,
+                            ),
+                            if (_rejectedCategoryIds.contains(category.id))
+                              Text(
+                                'Исключено из плана',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                          ],
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -952,30 +1227,22 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                               style:
                                   const TextStyle(fontWeight: FontWeight.w700),
                             ),
-                            Checkbox(
-                              value: category.isSelected,
-                              onChanged: category.isSelectionLocked ||
-                                      category.isTaskBonus
-                                  ? null
-                                  : (value) => _toggleCategory(
-                                        context,
-                                        dataProvider,
-                                        category,
-                                        value ?? false,
-                                        _CategoryGroup(
-                                          title: groupTitle,
-                                          offers:
-                                              _periodCategories(dataProvider)
-                                                  .where(
-                                                    (offer) =>
-                                                        normalizedCashbackCategoryName(
-                                                          offer.name,
-                                                        ) ==
-                                                        groupTitle,
-                                                  )
-                                                  .toList(),
-                                        ),
-                                      ),
+                            _buildDecisionControls(
+                              context,
+                              dataProvider,
+                              category,
+                              _CategoryGroup(
+                                title: groupTitle,
+                                offers: _periodCategories(dataProvider)
+                                    .where(
+                                      (offer) =>
+                                          normalizedCashbackCategoryName(
+                                            offer.name,
+                                          ) ==
+                                          groupTitle,
+                                    )
+                                    .toList(),
+                              ),
                             ),
                           ],
                         ),

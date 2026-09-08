@@ -51,7 +51,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   );
 }
 
-Future<String?> launchCashbackImport(CashbackImportProfile profile) async {
+Future<String?> launchCashbackImport(
+  CashbackImportProfile profile, {
+  String? selectionPlan,
+}) async {
   if (!Platform.isWindows) {
     return 'Запуск браузера пока поддерживается только в Windows.';
   }
@@ -62,7 +65,17 @@ Future<String?> launchCashbackImport(CashbackImportProfile profile) async {
     return 'Не найден scripts/start_cashback_import.ps1. Запустите приложение из каталога проекта.';
   }
 
+  File? planFile;
   try {
+    if (selectionPlan != null) {
+      final planDirectory = await Directory.systemTemp.createTemp(
+        'cashflow-selection-',
+      );
+      planFile = File(
+        '${planDirectory.path}${Platform.pathSeparator}selection-plan.json',
+      );
+      await planFile.writeAsString(selectionPlan, encoding: utf8, flush: true);
+    }
     final result = await Process.run(
       'powershell.exe',
       [
@@ -79,6 +92,10 @@ Future<String?> launchCashbackImport(CashbackImportProfile profile) async {
         profile.debugPort.toString(),
         '-Banks',
         profile.banks.join(','),
+        if (planFile != null) ...[
+          '-SelectionPlanPath',
+          planFile.path,
+        ],
       ],
       workingDirectory: launcher.parent.parent.path,
       stdoutEncoding: utf8,
@@ -97,6 +114,14 @@ Future<String?> launchCashbackImport(CashbackImportProfile profile) async {
     return null;
   } on ProcessException catch (error) {
     return 'Не удалось запустить Chrome: ${error.message}';
+  } finally {
+    if (planFile != null) {
+      try {
+        await planFile.parent.delete(recursive: true);
+      } catch (_) {
+        // Best-effort cleanup of the short-lived, credential-free plan.
+      }
+    }
   }
 }
 

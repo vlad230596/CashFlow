@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { strToU8, zipSync } from 'fflate';
-import type { BankId, CashbackImportBankResult, CashbackImportDocument, CollectionStatus, PageProbe } from '../../adapters/types';
+import type { BankId, CashbackCategory, CashbackImportBankResult, CashbackImportDocument, CashbackSelectionPlanCategory, CashbackSelectionPlanDocument, CollectionStatus, PageProbe } from '../../adapters/types';
 import { DEFAULT_BANK_IDS, findBank } from '../../banks/registry';
 import './style.css';
 
@@ -15,6 +15,22 @@ type ExportedIcon = {
   fileName: string;
   url: string;
 };
+
+function normalizedCategoryName(value: string): string {
+  return value.toLocaleLowerCase('ru-RU')
+    .replaceAll('ё', 'е')
+    .replace(/[^a-zа-я0-9]+/giu, ' ')
+    .trim();
+}
+
+function categoryMatches(
+  category: CashbackCategory,
+  desired: CashbackSelectionPlanCategory,
+): boolean {
+  if (normalizedCategoryName(category.name) !== normalizedCategoryName(desired.name)) return false;
+  return desired.percent == null || category.percent == null ||
+    Math.abs(category.percent - desired.percent) < 0.01;
+}
 
 const emptyBankView = (): BankView => ({ status: 'waiting', result: null, message: null });
 const isLoginUrl = (url: string) => /\/login|\/signin|\/auth\/|passport\.yandex|private\.auth\.alfabank|\/passport\/|\/apps\/auth|\/csafront\/index\.do(?:#\/?)?$/i.test(url);
@@ -125,6 +141,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [iconsBusy, setIconsBusy] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [selectionPlan, setSelectionPlan] = useState<CashbackSelectionPlanDocument | null>(null);
   const viewsRef = useRef(views);
   const collectingRef = useRef(false);
 
@@ -152,11 +169,23 @@ function App() {
   useEffect(() => {
     void (async () => {
       const ids = await requestedBankIds();
-      const stored = await browser.storage.local.get('cashflowImportRequest');
+      const stored = await browser.storage.local.get(['cashflowImportRequest', 'cashflowSelectionPlan']);
       const request = stored.cashflowImportRequest as ImportRequest | undefined;
       setBankIds(ids);
       setAutoCollect(request?.autoCollect ?? true);
+      const plan = stored.cashflowSelectionPlan as CashbackSelectionPlanDocument | undefined;
+      setSelectionPlan(plan?.kind === 'cashback_selection_plan' ? plan : null);
     })();
+  }, []);
+
+  useEffect(() => {
+    const listener = (changes: Record<string, Browser.storage.StorageChange>) => {
+      if (!changes.cashflowSelectionPlan) return;
+      const plan = changes.cashflowSelectionPlan.newValue as CashbackSelectionPlanDocument | undefined;
+      setSelectionPlan(plan?.kind === 'cashback_selection_plan' ? plan : null);
+    };
+    browser.storage.onChanged.addListener(listener);
+    return () => browser.storage.onChanged.removeListener(listener);
   }, []);
 
   useEffect(() => {
@@ -331,6 +360,39 @@ function App() {
       <button type="button" className="success" onClick={downloadJson}>Скачать JSON</button>
     </div>
     {exportMessage && <p className="export-message">{exportMessage}</p>}
+    {selectionPlan && <section className="selection-plan">
+      <div className="plan-heading"><div><h2>План на сегодня</h2><p>{selectionPlan.effectiveDate}</p></div><span>Только подсказка</span></div>
+      {selectionPlan.banks.map((planBank) => {
+        const view = views[planBank.bankId];
+        const ready = view?.status === 'ready';
+        const actual = view?.result?.categories ?? [];
+        const desired = planBank.desiredCategories;
+        const bankDesired = selectionPlan.banks
+          .filter((item) => item.bankId === planBank.bankId)
+          .flatMap((item) => item.desiredCategories);
+        const removals = ready ? actual.filter((category) => category.type === 'standard' && category.selected &&
+          !bankDesired.some((item) => categoryMatches(category, item))) : [];
+        return <div className="plan-bank" key={`${planBank.bankId}-${planBank.cardId}`}>
+          <strong>{planBank.cardLabel}</strong>
+          <ul>
+            {desired.map((item, index) => {
+              const match = actual.find((category) => categoryMatches(category, item));
+              const state = !ready ? 'pending' : !match ? 'missing' : match.selected ? 'done' : 'select';
+              return <li className={`plan-${state}`} key={`${item.name}-${index}`}>
+                <span>{state === 'pending' ? '…' : state === 'done' ? '✓' : state === 'select' ? '+' : '!'}</span>
+                <b>{item.percent != null ? `${item.percent}% ` : ''}{item.name}</b>
+                <small>{state === 'pending' ? 'ожидаем страницу банка' : state === 'done' ? 'уже выбрано' : state === 'select' ? 'нужно выбрать' : 'не найдено на странице'}</small>
+              </li>;
+            })}
+            {removals.map((category, index) => <li className="plan-remove" key={`remove-${category.name}-${index}`}>
+              <span>−</span><b>{category.percentLabel} {category.name}</b><small>нужно снять</small>
+            </li>)}
+            {ready && !desired.length && !removals.length && <li className="plan-done"><span>✓</span><b>Ничего выбирать не нужно</b></li>}
+            {!ready && !desired.length && <li className="plan-pending"><span>…</span><b>Ожидаем страницу банка</b></li>}
+          </ul>
+        </div>;
+      })}
+    </section>}
     <section className="banks">{bankIds.map((id) => {
       const bank = findBank(id);
       const view = views[id] ?? emptyBankView();

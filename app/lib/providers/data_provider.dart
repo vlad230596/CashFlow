@@ -135,6 +135,7 @@ class DataProvider with ChangeNotifier {
   late final http.Client _client;
   String? _accessToken;
   DateTime? _sessionExpiresAt;
+  final Map<int, int> _selectionMutationVersions = {};
   AuthIdentity? currentAuthUser;
   bool authReady = true;
   String? authError;
@@ -944,6 +945,19 @@ class DataProvider with ChangeNotifier {
   }
 
   Future<void> toggleCategorySelection(int categoryId, bool isSelected) async {
+    final index = cashbackCategories.indexWhere((c) => c.id == categoryId);
+    if (index == -1) {
+      throw StateError('Cashback category $categoryId was not found');
+    }
+
+    final original = cashbackCategories[index];
+    final optimistic = original.copyWith(isSelected: isSelected);
+    final version = (_selectionMutationVersions[categoryId] ?? 0) + 1;
+    _selectionMutationVersions[categoryId] = version;
+    cashbackCategories[index] = optimistic;
+    _syncActiveCategory(optimistic);
+    notifyListeners();
+
     try {
       final response = await _client.put(
         _apiUri('cashback/$categoryId'),
@@ -951,19 +965,34 @@ class DataProvider with ChangeNotifier {
         body: json.encode({'is_selected': isSelected}),
       );
 
-      if (response.statusCode == 200) {
-        final index = cashbackCategories.indexWhere((c) => c.id == categoryId);
-        if (index != -1) {
-          cashbackCategories[index] =
-              cashbackCategories[index].copyWith(isSelected: isSelected);
-          notifyListeners();
-        }
-      } else {
+      if (response.statusCode != 200) {
         throw Exception('Failed to update category: ${response.statusCode}');
       }
+      await _saveDataLocally();
     } catch (e) {
+      if (_selectionMutationVersions[categoryId] == version) {
+        final rollbackIndex =
+            cashbackCategories.indexWhere((c) => c.id == categoryId);
+        if (rollbackIndex != -1) cashbackCategories[rollbackIndex] = original;
+        _syncActiveCategory(original);
+        notifyListeners();
+      }
       debugPrint('Error toggling category selection: $e');
       rethrow;
+    }
+  }
+
+  void _syncActiveCategory(CashbackCategoryModel category) {
+    final activeIndex =
+        activeCashbackCategories.indexWhere((item) => item.id == category.id);
+    if (category.isSelected) {
+      if (activeIndex == -1) {
+        activeCashbackCategories.add(category);
+      } else {
+        activeCashbackCategories[activeIndex] = category;
+      }
+    } else if (activeIndex != -1) {
+      activeCashbackCategories.removeAt(activeIndex);
     }
   }
 }
