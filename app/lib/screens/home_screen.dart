@@ -10,6 +10,7 @@ import 'settings/banks_settings.dart';
 import 'settings/users_settings.dart';
 import 'widgets/versioned_app_bar_title.dart';
 import 'settings/cards_settings.dart';
+import 'settings/mcc_rules_settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, this.sessionType});
@@ -241,6 +242,14 @@ class HomeScreen extends StatelessWidget {
                           builder: (context) => UsersSettingsScreen()),
                     );
                     break;
+                  case 'mccRules':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MccRulesSettingsScreen(),
+                      ),
+                    );
+                    break;
                   case 'cashbackDate':
                     await _pickCashbackDate(context, dataProvider);
                     break;
@@ -305,6 +314,17 @@ class HomeScreen extends StatelessWidget {
                           const Text('Users'),
                           const Spacer(),
                           Text('${dataProvider.users.length}'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'mccRules',
+                      child: Row(
+                        children: [
+                          Icon(Icons.rule_folder_outlined, size: 20),
+                          SizedBox(width: 8),
+                          Text('Расширенные настройки MCC'),
                         ],
                       ),
                     ),

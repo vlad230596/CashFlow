@@ -189,7 +189,8 @@ void main() {
     expect(await storage.read(key: 'cashflowAuthIdentity'), isNull);
   });
 
-  test('does not restore an expired cached session while offline', () async {
+  test('keeps a verified session when cached expiration passes offline',
+      () async {
     FlutterSecureStorage.setMockInitialValues({
       'cashflowAccessToken': 'expired-token',
       'cashflowAuthIdentity': json.encode({
@@ -212,7 +213,32 @@ void main() {
 
     await provider.initialize();
 
-    expect(provider.isAuthenticated, isFalse);
+    expect(provider.isAuthenticated, isTrue);
+    expect(provider.currentAuthUser?.username, 'admin');
+  });
+
+  test('keeps a verified session during a temporary server failure', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'cashflowAccessToken': 'persisted-token',
+      'cashflowAuthIdentity': json.encode({
+        'id': 7,
+        'username': 'admin',
+        'role': 'admin',
+      }),
+      'cashflowSessionExpiresAt': DateTime.now()
+          .toUtc()
+          .subtract(const Duration(days: 1))
+          .toIso8601String(),
+    });
+    SharedPreferences.setMockInitialValues({});
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((_) async => http.Response('Unavailable', 503)),
+    );
+
+    await provider.initialize();
+
+    expect(provider.isAuthenticated, isTrue);
   });
 
   test('stores identity and extended server expiration securely', () async {

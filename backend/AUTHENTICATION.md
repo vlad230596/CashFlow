@@ -1,8 +1,8 @@
 # Authentication
 
 CashFlow uses server-side bearer sessions. The client receives a random token after login,
-while PostgreSQL stores only its SHA-256 digest. Sessions last 30 days by default
-(`CASHFLOW_SESSION_TTL_HOURS=720`); the allowed range is 1–8760 hours.
+while PostgreSQL stores only its SHA-256 digest. Sessions last one year by default
+(`CASHFLOW_SESSION_TTL_HOURS=8760`); the allowed range is 1–8760 hours.
 
 Expiration is sliding: when less than half of the configured lifetime remains, an
 authenticated request extends the session by the full lifetime. The server exposes the
@@ -10,9 +10,10 @@ current value in `X-CashFlow-Session-Expires-At` so clients can persist the corr
 expiration.
 
 The Flutter client stores the token, verified identity, and expiration in platform secure
-storage (Keychain, Keystore, or the platform equivalent). A locally unexpired, previously
-verified session can open from cached data while the server is temporarily unreachable.
-An explicit server `401` clears all saved authentication data immediately.
+storage (Keychain, Keystore, or the platform equivalent). A previously verified
+session can open from cached data while the server is temporarily unreachable,
+even if the device clock says its last known expiration has passed. Only an
+explicit server `401` clears saved authentication data.
 
 Accounts are separate from card owners. Registration is closed. Roles are hierarchical:
 

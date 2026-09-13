@@ -10,6 +10,7 @@ import '../models/card_model.dart';
 import '../models/bank_model.dart';
 import '../models/user_model.dart';
 import '../models/cashback_category_model.dart';
+import '../models/mcc_rule_model.dart';
 
 class CashbackImportResult {
   const CashbackImportResult({
@@ -69,7 +70,8 @@ class _AuthenticatedClient extends http.BaseClient {
   final http.Client _inner;
   final String? Function() _token;
   final Future<void> Function(String? token) _onUnauthorized;
-  final Future<void> Function(String expiresAt) _onSessionExpiration;
+  final Future<void> Function(String? token, String expiresAt)
+      _onSessionExpiration;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
@@ -89,7 +91,7 @@ class _AuthenticatedClient extends http.BaseClient {
           .map((header) => header.value)
           .firstOrNull;
       if (expiresAt != null) {
-        await _onSessionExpiration(expiresAt);
+        await _onSessionExpiration(token, expiresAt);
       }
     }
     return response;
@@ -140,10 +142,9 @@ class DataProvider with ChangeNotifier {
   bool authReady = true;
   String? authError;
 
-  bool get isAuthenticated =>
-      _accessToken != null &&
-      currentAuthUser != null &&
-      (_sessionExpiresAt == null || _sessionExpiresAt!.isAfter(DateTime.now()));
+  // Only the server can revoke a session. Device time and a cached expiration
+  // must not send a previously verified user back to login while offline.
+  bool get isAuthenticated => _accessToken != null && currentAuthUser != null;
   bool get canEdit =>
       currentAuthUser?.role == 'editor' || currentAuthUser?.role == 'admin';
   bool get isAdmin => currentAuthUser?.role == 'admin';
@@ -196,9 +197,15 @@ class DataProvider with ChangeNotifier {
     ]);
   }
 
-  Future<void> _saveSessionExpiration(String value) async {
+  Future<void> _saveSessionExpiration(String? token, String value) async {
     final parsed = DateTime.tryParse(value);
-    if (parsed == null || parsed == _sessionExpiresAt) return;
+    // Ignore late responses from an older login and out-of-order responses.
+    if (token == null ||
+        token != _accessToken ||
+        parsed == null ||
+        (_sessionExpiresAt != null && !parsed.isAfter(_sessionExpiresAt!))) {
+      return;
+    }
     _sessionExpiresAt = parsed;
     try {
       await _secureStorage.write(
@@ -230,22 +237,16 @@ class DataProvider with ChangeNotifier {
       _sessionExpiresAt = DateTime.tryParse(stored[2] ?? '');
 
       final response = await _client.get(_apiUri('auth/me'));
-      if (response.statusCode != 200) {
-        return false;
-      }
+      if (response.statusCode != 200) return isAuthenticated;
       currentAuthUser = AuthIdentity.fromJson(
         json.decode(response.body) as Map<String, dynamic>,
       );
       await _persistAuthentication();
       return true;
     } catch (_) {
-      // Allow a previously verified session to open from cached data while
-      // offline. A later 401 still clears it immediately.
-      if (currentAuthUser != null &&
-          (_sessionExpiresAt == null ||
-              _sessionExpiresAt!.isAfter(DateTime.now()))) {
-        return true;
-      }
+      // Keep a previously verified session available from cached data when
+      // validation is unavailable. A server 401 still clears it immediately.
+      if (isAuthenticated) return true;
       _accessToken = null;
       _sessionExpiresAt = null;
       currentAuthUser = null;
@@ -349,6 +350,76 @@ class DataProvider with ChangeNotifier {
         .map((item) => fromJson(item))
         .toList();
     return result;
+  }
+
+  String _responseError(http.Response response, String fallback) {
+    try {
+      final payload = json.decode(response.body) as Map<String, dynamic>;
+      return payload['error'] as String? ?? fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  Future<List<MccRuleRevisionModel>> fetchMccRuleRevisions(int bankId) async {
+    final response = await _client.get(
+      _apiUri('admin/mcc-rule-revisions?bank_id=$bankId'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Не удалось загрузить правила MCC'),
+      );
+    }
+    return (json.decode(response.body) as List)
+        .map(
+          (item) => MccRuleRevisionModel.fromJson(
+            item as Map<String, dynamic>,
+          ),
+        )
+        .toList();
+  }
+
+  Future<MccRuleRevisionModel> createMccRuleSnapshot(
+    Map<String, dynamic> document,
+  ) async {
+    final response = await _client.post(
+      _apiUri('admin/mcc-rule-snapshots'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'document': document}),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(
+        _responseError(response, 'Не удалось сохранить правила MCC'),
+      );
+    }
+    return MccRuleRevisionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<MccRuleRevisionModel> publishMccRuleRevision(int revisionId) async {
+    final response = await _client.post(
+      _apiUri('admin/mcc-rule-revisions/$revisionId/publish'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Не удалось опубликовать правила MCC'),
+      );
+    }
+    return MccRuleRevisionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<void> autoImportMccRules(int bankId) async {
+    final response = await _client.post(
+      _apiUri('admin/banks/$bankId/mcc-rules/auto-import'),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(
+        _responseError(response, 'Автоматическая загрузка пока недоступна'),
+      );
+    }
   }
 
   Future<void> initialize() async {

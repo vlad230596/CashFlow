@@ -6,6 +6,7 @@
 
 Связанные документы:
 
+- [mcc-phase-0.md](mcc-phase-0.md) — историческая база MCC и банковских правил до внедрения рекомендаций;
 - [cashback-selection-pipeline.md](cashback-selection-pipeline.md) — получение фактического состояния, формирование и применение плана;
 - [multi-bank-import-mvp.md](multi-bank-import-mvp.md) — текущее состояние импорта из банков;
 - [bank-cashback-parsing.md](bank-cashback-parsing.md) — особенности извлечения категорий, условий и MCC;
