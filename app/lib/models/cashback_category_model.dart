@@ -46,7 +46,12 @@ class CashbackCategoryModel {
       description: json['description'] as String?,
       categoryType: json['category_type'] as String? ?? 'standard',
       isSelectionLocked: json['is_selection_locked'] as bool? ?? false,
-      isBankConfirmed: json['is_bank_confirmed'] as bool? ?? false,
+      // Before migration 0004 the server had no separate confirmation field:
+      // is_selected was the authoritative active state. Keep that contract
+      // only when the field is absent; once present, false remains strict.
+      isBankConfirmed: json.containsKey('is_bank_confirmed')
+          ? json['is_bank_confirmed'] as bool? ?? false
+          : json['is_selected'] == true,
       maxCashbackAmount: (json['max_cashback_amount'] as num?)?.toDouble(),
       minPurchaseAmount: (json['min_purchase_amount'] as num?)?.toDouble(),
     );

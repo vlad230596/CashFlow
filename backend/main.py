@@ -11,7 +11,7 @@ import click
 from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
@@ -368,6 +368,242 @@ class AuthLoginAttempt(db.Model):
     blocked_until = db.Column(db.DateTime(timezone=True))
 
 
+class PartnerMerchant(db.Model):
+    __tablename__ = 'partner_merchant'
+
+    id = db.Column(db.Integer, primary_key=True)
+    canonical_key = db.Column(db.String(255), unique=True, nullable=False)
+    display_name = db.Column(db.String(255), nullable=False)
+    domain = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class PartnerMerchantAlias(db.Model):
+    __tablename__ = 'partner_merchant_alias'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'bank_id',
+            'source_key',
+            name='uq_partner_merchant_alias_bank_source',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    merchant_id = db.Column(
+        db.Integer,
+        db.ForeignKey('partner_merchant.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    bank_id = db.Column(db.Integer, db.ForeignKey('bank.id'), nullable=False)
+    source_key = db.Column(db.String(255), nullable=False)
+    source_name = db.Column(db.String(255))
+
+
+class PartnerOffer(db.Model):
+    __tablename__ = 'partner_offer'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'bank_id',
+            'card_user_id',
+            'source_key',
+            name='uq_partner_offer_profile_source',
+        ),
+        db.Index('ix_partner_offer_profile_available', 'card_user_id', 'is_available'),
+        db.Index('ix_partner_offer_bank_available', 'bank_id', 'is_available'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    bank_id = db.Column(db.Integer, db.ForeignKey('bank.id'), nullable=False)
+    card_user_id = db.Column(db.Integer, db.ForeignKey('card_user.id'), nullable=False)
+    merchant_id = db.Column(db.Integer, db.ForeignKey('partner_merchant.id'))
+    source_key = db.Column(db.String(255), nullable=False)
+    source_external_id = db.Column(db.String(255))
+    # Kept as an application-managed reference so the same migration works on
+    # PostgreSQL and SQLite despite the offer/snapshot creation cycle.
+    current_snapshot_id = db.Column(db.Integer)
+    first_seen_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    last_seen_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    is_available = db.Column(db.Boolean, nullable=False, default=True)
+    unavailable_at = db.Column(db.DateTime(timezone=True))
+
+
+class PartnerOfferSnapshot(db.Model):
+    __tablename__ = 'partner_offer_snapshot'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'offer_id',
+            'content_hash',
+            name='uq_partner_offer_snapshot_content',
+        ),
+        db.CheckConstraint(
+            "benefit_kind IN ('cashback', 'discount', 'other')",
+            name='ck_partner_offer_snapshot_benefit_kind',
+        ),
+        db.CheckConstraint(
+            "rate_qualifier IN ('exact', 'up_to', 'from', 'unknown')",
+            name='ck_partner_offer_snapshot_rate_qualifier',
+        ),
+        db.CheckConstraint(
+            "details_status IN ('complete', 'preview_only', 'error')",
+            name='ck_partner_offer_snapshot_details_status',
+        ),
+        db.Index('ix_partner_offer_snapshot_ends_at', 'ends_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    offer_id = db.Column(
+        db.Integer,
+        db.ForeignKey('partner_offer.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    collected_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    details_collected_at = db.Column(db.DateTime(timezone=True))
+    title = db.Column(db.String(500), nullable=False)
+    description = db.Column(db.Text)
+    benefit_kind = db.Column(db.String(16), nullable=False)
+    rate_value = db.Column(db.Numeric(12, 4))
+    rate_qualifier = db.Column(db.String(16), nullable=False)
+    rate_label = db.Column(db.String(255))
+    starts_at = db.Column(db.DateTime(timezone=True))
+    ends_at = db.Column(db.DateTime(timezone=True))
+    validity_label = db.Column(db.String(255))
+    validity_precision = db.Column(db.String(16), nullable=False, default='unknown')
+    preview_text = db.Column(db.Text)
+    conditions = db.Column(db.Text)
+    steps_json = db.Column(db.Text, nullable=False, default='[]')
+    links_json = db.Column(db.Text, nullable=False, default='[]')
+    requirements_json = db.Column(db.Text, nullable=False, default='[]')
+    details_status = db.Column(db.String(16), nullable=False)
+    details_error = db.Column(db.Text)
+    source_url = db.Column(db.Text)
+    icon_url = db.Column(db.Text)
+    artwork_url = db.Column(db.Text)
+    raw_json = db.Column(db.Text, nullable=False)
+    content_hash = db.Column(db.String(64), nullable=False)
+
+
+class PartnerOfferLimit(db.Model):
+    __tablename__ = 'partner_offer_limit'
+    __table_args__ = (
+        db.CheckConstraint(
+            "unit IN ('RUB', 'bonus', 'points', 'unknown')",
+            name='ck_partner_offer_limit_unit',
+        ),
+        db.CheckConstraint(
+            "scope IN ('purchase', 'month', 'campaign', 'unknown')",
+            name='ck_partner_offer_limit_scope',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_id = db.Column(
+        db.Integer,
+        db.ForeignKey('partner_offer_snapshot.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    limit_type = db.Column(db.String(32), nullable=False)
+    value = db.Column(db.Numeric(14, 4))
+    unit = db.Column(db.String(16), nullable=False)
+    scope = db.Column(db.String(16), nullable=False)
+    original_text = db.Column(db.Text, nullable=False)
+
+
+class PartnerOfferPreference(db.Model):
+    __tablename__ = 'partner_offer_preference'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'auth_user_id',
+            'offer_id',
+            name='uq_partner_offer_preference_user_offer',
+        ),
+        db.CheckConstraint(
+            "rating IN ('interesting', 'undecided', 'hidden')",
+            name='ck_partner_offer_preference_rating',
+        ),
+        db.Index('ix_partner_offer_preference_user_rating', 'auth_user_id', 'rating'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    auth_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('auth_user.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    offer_id = db.Column(
+        db.Integer,
+        db.ForeignKey('partner_offer.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    rating = db.Column(db.String(16), nullable=False, default='undecided')
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class PartnerOfferHideRule(db.Model):
+    __tablename__ = 'partner_offer_hide_rule'
+    __table_args__ = (
+        db.CheckConstraint(
+            "scope IN ('offer', 'campaign', 'merchant_bank', 'merchant_all_banks')",
+            name='ck_partner_offer_hide_rule_scope',
+        ),
+        db.Index('ix_partner_offer_hide_rule_user_active', 'auth_user_id', 'revoked_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    auth_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('auth_user.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    scope = db.Column(db.String(32), nullable=False)
+    offer_id = db.Column(db.Integer, db.ForeignKey('partner_offer.id', ondelete='CASCADE'))
+    merchant_id = db.Column(db.Integer, db.ForeignKey('partner_merchant.id'))
+    bank_id = db.Column(db.Integer, db.ForeignKey('bank.id'))
+    campaign_key = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    revoked_at = db.Column(db.DateTime(timezone=True))
+
+
+class PartnerOfferAsset(db.Model):
+    __tablename__ = 'partner_offer_asset'
+
+    id = db.Column(db.Integer, primary_key=True)
+    content_hash = db.Column(db.String(64), unique=True, nullable=False)
+    mime_type = db.Column(db.String(127), nullable=False)
+    storage_path = db.Column(db.Text, nullable=False)
+    source_url = db.Column(db.Text)
+    status = db.Column(db.String(32), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class PartnerOfferImportRun(db.Model):
+    __tablename__ = 'partner_offer_import_run'
+    __table_args__ = (
+        db.CheckConstraint(
+            "completeness IN ('complete', 'partial', 'unknown')",
+            name='ck_partner_offer_import_run_completeness',
+        ),
+        db.Index(
+            'ix_partner_offer_import_run_profile_collected',
+            'card_user_id',
+            'collected_at',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    bank_id = db.Column(db.Integer, db.ForeignKey('bank.id'), nullable=False)
+    card_user_id = db.Column(db.Integer, db.ForeignKey('card_user.id'), nullable=False)
+    imported_by_id = db.Column(db.Integer, db.ForeignKey('auth_user.id'), nullable=False)
+    collected_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    imported_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    preview_count = db.Column(db.Integer, nullable=False, default=0)
+    details_count = db.Column(db.Integer, nullable=False, default=0)
+    completeness = db.Column(db.String(16), nullable=False)
+    errors_json = db.Column(db.Text, nullable=False, default='[]')
+    collector_version = db.Column(db.String(64))
+    source_hash = db.Column(db.String(64), nullable=False)
+
+
 ROLE_LEVELS = {'viewer': 10, 'editor': 20, 'admin': 30}
 PUBLIC_ENDPOINTS = {'health', 'ready', 'version', 'login'}
 AUTH_TOKEN_BYTES = 32
@@ -447,6 +683,11 @@ def _required_role():
     if request.path.startswith(('/api/auth/users', '/api/admin/')):
         return 'admin'
     if request.path in ('/api/auth/me', '/api/auth/logout'):
+        return 'viewer'
+    if request.path.startswith('/api/partner-offers/') and (
+        request.path.endswith('/preference')
+        or request.path.startswith('/api/partner-offers/hide-rules')
+    ):
         return 'viewer'
     if request.method in ('GET', 'HEAD'):
         return 'viewer'
@@ -1946,6 +2187,529 @@ def get_active_cashback():
         })
 
     return jsonify(list(result.values()))
+
+
+PARTNER_RATINGS = {'interesting', 'undecided', 'hidden'}
+PARTNER_BENEFIT_KINDS = {'cashback', 'discount', 'other'}
+PARTNER_DETAIL_STATUSES = {'complete', 'preview_only', 'error'}
+
+
+def _parse_partner_datetime(value, field_name, required=False):
+    if value in (None, ''):
+        if required:
+            raise ValueError(f'{field_name} is required')
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f'{field_name} must be an ISO date')
+    try:
+        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError as error:
+        raise ValueError(f'{field_name} must be an ISO date') from error
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _json_array(value):
+    return value if isinstance(value, list) else []
+
+
+def _partner_rate_qualifier(rate_label, percent):
+    normalized = str(rate_label or '').strip().lower()
+    if re.search(r'\bдо\b', normalized):
+        return 'up_to'
+    if re.search(r'\bот\b', normalized):
+        return 'from'
+    if isinstance(percent, (int, float)) and not isinstance(percent, bool):
+        return 'exact'
+    return 'unknown'
+
+
+def _partner_benefit_kind(raw):
+    value = raw.get('offerKind') or raw.get('benefitKind')
+    if value in PARTNER_BENEFIT_KINDS:
+        return value
+    label = str(raw.get('rateLabel') or '').lower()
+    if 'скид' in label:
+        return 'discount'
+    if 'кэшб' in label or 'кешб' in label or raw.get('percent') is not None:
+        return 'cashback'
+    return 'other'
+
+
+def _partner_details_status(raw):
+    value = raw.get('detailsStatus')
+    if value in PARTNER_DETAIL_STATUSES:
+        return value
+    return 'complete' if raw.get('conditions') else 'preview_only'
+
+
+def _partner_content(raw):
+    content = dict(raw)
+    # Collection timestamps describe evidence freshness, not offer contents.
+    content.pop('detailCollectedAt', None)
+    content.pop('collectedAt', None)
+    content.pop('conditionsCollectedAt', None)
+    return content
+
+
+def _partner_limit_from_text(original):
+    normalized = original.lower().replace('\u00a0', ' ').replace('\u202f', ' ')
+    amount_match = re.search(r'(\d[\d\s]*(?:[.,]\d+)?)', normalized)
+    value = None
+    if amount_match:
+        value = float(amount_match.group(1).replace(' ', '').replace(',', '.'))
+    if re.search(r'₽|руб', normalized):
+        unit = 'RUB'
+    elif re.search(r'бонус', normalized):
+        unit = 'bonus'
+    elif re.search(r'балл', normalized):
+        unit = 'points'
+    else:
+        unit = 'unknown'
+    if re.search(r'покупк|заказ|чек', normalized):
+        scope = 'purchase'
+    elif re.search(r'месяц', normalized):
+        scope = 'month'
+    elif re.search(r'акци', normalized):
+        scope = 'campaign'
+    else:
+        scope = 'unknown'
+    limit_type = 'minimum_purchase' if re.search(
+        r'минимальн|(?:^|\s)от\s+\d',
+        normalized,
+    ) else 'max_cashback'
+    return limit_type, value, unit, scope
+
+
+def _add_partner_limits(snapshot, raw):
+    imported_types = set()
+    for original in _json_array(raw.get('limits')):
+        if not isinstance(original, str) or not original.strip():
+            continue
+        limit_type, value, unit, scope = _partner_limit_from_text(original)
+        db.session.add(PartnerOfferLimit(
+            snapshot_id=snapshot.id,
+            limit_type=limit_type,
+            value=value,
+            unit=unit,
+            scope=scope,
+            original_text=original.strip(),
+        ))
+        imported_types.add(limit_type)
+
+    structured = (
+        ('max_cashback', raw.get('maxCashbackAmount')),
+        ('minimum_purchase', raw.get('minPurchaseAmount')),
+    )
+    for limit_type, value in structured:
+        if limit_type in imported_types:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        db.session.add(PartnerOfferLimit(
+            snapshot_id=snapshot.id,
+            limit_type=limit_type,
+            value=value,
+            # The extension contract does not prove whether the amount means
+            # rubles, bonuses, or points, so importing it as RUB would lie.
+            unit='unknown',
+            scope='purchase' if limit_type == 'minimum_purchase' else 'unknown',
+            original_text=f'{limit_type}: {value}',
+        ))
+
+
+def _partner_snapshot_to_dict(snapshot):
+    limits = PartnerOfferLimit.query.filter_by(snapshot_id=snapshot.id).order_by(
+        PartnerOfferLimit.id
+    ).all()
+    return {
+        'id': snapshot.id,
+        'collected_at': _as_utc(snapshot.collected_at).isoformat(),
+        'details_collected_at': (
+            _as_utc(snapshot.details_collected_at).isoformat()
+            if snapshot.details_collected_at else None
+        ),
+        'title': snapshot.title,
+        'description': snapshot.description,
+        'benefit_kind': snapshot.benefit_kind,
+        'rate_value': float(snapshot.rate_value) if snapshot.rate_value is not None else None,
+        'rate_qualifier': snapshot.rate_qualifier,
+        'rate_label': snapshot.rate_label,
+        'starts_at': _as_utc(snapshot.starts_at).isoformat() if snapshot.starts_at else None,
+        'ends_at': _as_utc(snapshot.ends_at).isoformat() if snapshot.ends_at else None,
+        'validity_label': snapshot.validity_label,
+        'validity_precision': snapshot.validity_precision,
+        'preview_text': snapshot.preview_text,
+        'conditions': snapshot.conditions,
+        'steps': json.loads(snapshot.steps_json),
+        'links': json.loads(snapshot.links_json),
+        'requirements': json.loads(snapshot.requirements_json),
+        'details_status': snapshot.details_status,
+        'details_error': snapshot.details_error,
+        'source_url': snapshot.source_url,
+        'icon_url': snapshot.icon_url,
+        'artwork_url': snapshot.artwork_url,
+        'limits': [
+            {
+                'type': limit.limit_type,
+                'value': float(limit.value) if limit.value is not None else None,
+                'unit': limit.unit,
+                'scope': limit.scope,
+                'original_text': limit.original_text,
+            }
+            for limit in limits
+        ],
+    }
+
+
+def _partner_preference(offer_id, auth_user_id):
+    return PartnerOfferPreference.query.filter_by(
+        offer_id=offer_id,
+        auth_user_id=auth_user_id,
+    ).first()
+
+
+def _partner_offer_to_dict(offer, snapshot, auth_user_id, include_details=False):
+    preference = _partner_preference(offer.id, auth_user_id)
+    bank = db.session.get(Bank, offer.bank_id)
+    data = {
+        'id': offer.id,
+        'bank_id': offer.bank_id,
+        'bank_name': bank.name if bank else None,
+        'card_user_id': offer.card_user_id,
+        'merchant_id': offer.merchant_id,
+        'source_key': offer.source_key,
+        'is_available': offer.is_available,
+        'first_seen_at': _as_utc(offer.first_seen_at).isoformat(),
+        'last_seen_at': _as_utc(offer.last_seen_at).isoformat(),
+        'preference': preference.rating if preference else 'undecided',
+        'snapshot': _partner_snapshot_to_dict(snapshot),
+    }
+    if not include_details:
+        data['snapshot'].pop('conditions')
+        data['snapshot'].pop('steps')
+        data['snapshot'].pop('links')
+        data['snapshot'].pop('requirements')
+    return data
+
+
+@app.post('/api/partner-offers/import')
+def import_partner_offers():
+    payload = request.get_json(silent=True) or {}
+    document = payload.get('document')
+    card_user_id = payload.get('card_user_id')
+    if not isinstance(document, dict) or document.get('schemaVersion') != 1:
+        return jsonify({'error': 'A schemaVersion 1 import document is required'}), 400
+    if not isinstance(document.get('banks'), list):
+        return jsonify({'error': 'The import document must contain banks'}), 400
+    if not isinstance(card_user_id, int) or db.session.get(CardUser, card_user_id) is None:
+        return jsonify({'error': 'A valid card_user_id is required'}), 400
+
+    complete_bank_ids = payload.get('complete_bank_ids') or []
+    if not isinstance(complete_bank_ids, list):
+        return jsonify({'error': 'complete_bank_ids must be a list'}), 400
+    complete_bank_ids = set(complete_bank_ids)
+    counters = {
+        'created_offers': 0,
+        'updated_offers': 0,
+        'created_snapshots': 0,
+        'reused_snapshots': 0,
+    }
+    runs = []
+    skipped = []
+
+    try:
+        document_collected_at = _parse_partner_datetime(
+            document.get('generatedAt'),
+            'generatedAt',
+            required=True,
+        )
+        for bank_result in document['banks']:
+            if not isinstance(bank_result, dict):
+                skipped.append({'bank_id': None, 'reason': 'Invalid bank result'})
+                continue
+            source_bank_id = bank_result.get('bankId')
+            bank_name = BANK_IMPORT_NAMES.get(source_bank_id)
+            offers = bank_result.get('extendedOffers')
+            if bank_name is None:
+                skipped.append({'bank_id': source_bank_id, 'reason': 'Unsupported bank'})
+                continue
+            bank = Bank.query.filter_by(name=bank_name).first()
+            if bank is None:
+                skipped.append({'bank_id': source_bank_id, 'reason': 'Bank is not configured'})
+                continue
+            if not isinstance(offers, list):
+                skipped.append({'bank_id': source_bank_id, 'reason': 'extendedOffers are missing'})
+                continue
+
+            summary = bank_result.get('extendedSummary') or {}
+            collected_at = _parse_partner_datetime(
+                summary.get('collectedAt') or bank_result.get('collectedAt'),
+                f'{source_bank_id}.collectedAt',
+            ) or document_collected_at
+            completeness = 'complete' if source_bank_id in complete_bank_ids else (
+                'partial' if summary.get('errors') else 'unknown'
+            )
+            seen_offer_ids = set()
+            details_count = 0
+
+            for raw in offers:
+                if not isinstance(raw, dict):
+                    continue
+                source_key = str(raw.get('id') or '').strip()
+                title = str(raw.get('name') or '').strip()
+                if not source_key or not title:
+                    continue
+                offer = PartnerOffer.query.filter_by(
+                    bank_id=bank.id,
+                    card_user_id=card_user_id,
+                    source_key=source_key,
+                ).first()
+                if offer is None:
+                    offer = PartnerOffer(
+                        bank_id=bank.id,
+                        card_user_id=card_user_id,
+                        source_key=source_key,
+                        source_external_id=source_key,
+                        first_seen_at=collected_at,
+                        last_seen_at=collected_at,
+                        is_available=True,
+                    )
+                    db.session.add(offer)
+                    db.session.flush()
+                    counters['created_offers'] += 1
+                else:
+                    offer.last_seen_at = max(_as_utc(offer.last_seen_at), collected_at)
+                    offer.is_available = True
+                    offer.unavailable_at = None
+                    counters['updated_offers'] += 1
+
+                seen_offer_ids.add(offer.id)
+                raw_content = _canonical_json(raw)
+                content_hash = _sha256_json(_partner_content(raw))
+                snapshot = PartnerOfferSnapshot.query.filter_by(
+                    offer_id=offer.id,
+                    content_hash=content_hash,
+                ).first()
+                if snapshot is None:
+                    percent = raw.get('percent')
+                    if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+                        percent = None
+                    starts_at = _parse_partner_datetime(raw.get('startDate'), 'startDate')
+                    ends_at = _parse_partner_datetime(raw.get('endDate'), 'endDate')
+                    details_collected_at = _parse_partner_datetime(
+                        raw.get('detailCollectedAt') or raw.get('conditionsCollectedAt'),
+                        'detailCollectedAt',
+                    )
+                    details_status = _partner_details_status(raw)
+                    snapshot = PartnerOfferSnapshot(
+                        offer_id=offer.id,
+                        collected_at=collected_at,
+                        details_collected_at=details_collected_at,
+                        title=title,
+                        description=raw.get('description'),
+                        benefit_kind=_partner_benefit_kind(raw),
+                        rate_value=percent,
+                        rate_qualifier=_partner_rate_qualifier(raw.get('rateLabel'), percent),
+                        rate_label=raw.get('rateLabel'),
+                        starts_at=starts_at,
+                        ends_at=ends_at,
+                        validity_label=(
+                            raw.get('validityLabel') or raw.get('expirationLabel')
+                        ),
+                        validity_precision='exact' if starts_at or ends_at else 'unknown',
+                        preview_text=raw.get('previewText'),
+                        conditions=raw.get('conditions'),
+                        steps_json=_canonical_json(_json_array(raw.get('steps'))),
+                        links_json=_canonical_json(_json_array(raw.get('links'))),
+                        requirements_json=_canonical_json(_json_array(raw.get('requirements'))),
+                        details_status=details_status,
+                        details_error=raw.get('detailsError'),
+                        source_url=raw.get('sourceUrl'),
+                        icon_url=raw.get('iconUrl'),
+                        artwork_url=raw.get('artworkUrl'),
+                        raw_json=raw_content,
+                        content_hash=content_hash,
+                    )
+                    db.session.add(snapshot)
+                    db.session.flush()
+                    _add_partner_limits(snapshot, raw)
+                    counters['created_snapshots'] += 1
+                else:
+                    snapshot.collected_at = max(
+                        _as_utc(snapshot.collected_at),
+                        collected_at,
+                    )
+                    repeated_details_at = _parse_partner_datetime(
+                        raw.get('detailCollectedAt') or raw.get('conditionsCollectedAt'),
+                        'detailCollectedAt',
+                    )
+                    if repeated_details_at is not None:
+                        snapshot.details_collected_at = max(
+                            _as_utc(snapshot.details_collected_at)
+                            if snapshot.details_collected_at else repeated_details_at,
+                            repeated_details_at,
+                        )
+                    counters['reused_snapshots'] += 1
+                if snapshot.details_status == 'complete':
+                    details_count += 1
+                offer.current_snapshot_id = snapshot.id
+
+            if completeness == 'complete':
+                missing_query = PartnerOffer.query.filter_by(
+                    bank_id=bank.id,
+                    card_user_id=card_user_id,
+                    is_available=True,
+                )
+                if seen_offer_ids:
+                    missing_query = missing_query.filter(
+                        ~PartnerOffer.id.in_(seen_offer_ids)
+                    )
+                for missing in missing_query:
+                    missing.is_available = False
+                    missing.unavailable_at = collected_at
+
+            errors = summary.get('errors') if isinstance(summary.get('errors'), list) else []
+            run = PartnerOfferImportRun(
+                bank_id=bank.id,
+                card_user_id=card_user_id,
+                imported_by_id=g.auth_user.id,
+                collected_at=collected_at,
+                imported_at=_utc_now(),
+                preview_count=len(offers),
+                details_count=details_count,
+                completeness=completeness,
+                errors_json=_canonical_json(errors),
+                collector_version=payload.get('collector_version'),
+                source_hash=_sha256_json(bank_result),
+            )
+            db.session.add(run)
+            db.session.flush()
+            runs.append({
+                'id': run.id,
+                'bank_id': source_bank_id,
+                'completeness': completeness,
+                'offers': len(seen_offer_ids),
+            })
+
+        db.session.commit()
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
+    except Exception:
+        db.session.rollback()
+        raise
+
+    return jsonify({**counters, 'runs': runs, 'skipped': skipped})
+
+
+@app.get('/api/partner-offers')
+def list_partner_offers():
+    rating = request.args.get('rating')
+    if rating not in (None, 'all', *PARTNER_RATINGS):
+        return jsonify({'error': 'Invalid rating'}), 400
+    try:
+        limit = min(max(int(request.args.get('limit', 50)), 1), 100)
+        offset = max(int(request.args.get('offset', 0)), 0)
+    except ValueError:
+        return jsonify({'error': 'limit and offset must be integers'}), 400
+
+    query = (
+        db.session.query(PartnerOffer, PartnerOfferSnapshot)
+        .join(PartnerOfferSnapshot, PartnerOffer.current_snapshot_id == PartnerOfferSnapshot.id)
+        .outerjoin(
+            PartnerOfferPreference,
+            (PartnerOfferPreference.offer_id == PartnerOffer.id)
+            & (PartnerOfferPreference.auth_user_id == g.auth_user.id),
+        )
+    )
+    if request.args.get('include_unavailable') != 'true':
+        query = query.filter(PartnerOffer.is_available == True)
+    if request.args.get('bank_id'):
+        query = query.filter(PartnerOffer.bank_id == request.args['bank_id'])
+    if request.args.get('card_user_id'):
+        query = query.filter(PartnerOffer.card_user_id == request.args['card_user_id'])
+    if rating == 'hidden':
+        query = query.filter(PartnerOfferPreference.rating == 'hidden')
+    elif rating in ('interesting', 'undecided'):
+        if rating == 'undecided':
+            query = query.filter(or_(
+                PartnerOfferPreference.rating == 'undecided',
+                PartnerOfferPreference.id.is_(None),
+            ))
+        else:
+            query = query.filter(PartnerOfferPreference.rating == rating)
+    elif rating != 'all':
+        query = query.filter(or_(
+            PartnerOfferPreference.rating != 'hidden',
+            PartnerOfferPreference.id.is_(None),
+        ))
+
+    query = query.order_by(
+        db.case((PartnerOfferPreference.rating == 'interesting', 0), else_=1),
+        PartnerOffer.last_seen_at.desc(),
+        PartnerOffer.id,
+    )
+    total = query.count()
+    rows = query.offset(offset).limit(limit).all()
+    return jsonify({
+        'items': [
+            _partner_offer_to_dict(offer, snapshot, g.auth_user.id)
+            for offer, snapshot in rows
+        ],
+        'total': total,
+        'limit': limit,
+        'offset': offset,
+    })
+
+
+@app.get('/api/partner-offers/<int:offer_id>')
+def get_partner_offer(offer_id):
+    offer = db.session.get(PartnerOffer, offer_id)
+    if offer is None or offer.current_snapshot_id is None:
+        return jsonify({'error': 'Partner offer not found'}), 404
+    snapshot = db.session.get(PartnerOfferSnapshot, offer.current_snapshot_id)
+    if snapshot is None:
+        return jsonify({'error': 'Partner offer snapshot not found'}), 404
+    return jsonify(_partner_offer_to_dict(
+        offer,
+        snapshot,
+        g.auth_user.id,
+        include_details=True,
+    ))
+
+
+@app.put('/api/partner-offers/<int:offer_id>/preference')
+def update_partner_offer_preference(offer_id):
+    offer = db.session.get(PartnerOffer, offer_id)
+    if offer is None:
+        return jsonify({'error': 'Partner offer not found'}), 404
+    payload = request.get_json(silent=True) or {}
+    rating = payload.get('rating')
+    if rating not in PARTNER_RATINGS:
+        return jsonify({'error': 'Invalid rating'}), 400
+
+    now = _utc_now()
+    preference = _partner_preference(offer.id, g.auth_user.id)
+    if preference is None:
+        preference = PartnerOfferPreference(
+            auth_user_id=g.auth_user.id,
+            offer_id=offer.id,
+            rating=rating,
+            created_at=now,
+            updated_at=now,
+        )
+        db.session.add(preference)
+    else:
+        preference.rating = rating
+        preference.updated_at = now
+    db.session.commit()
+    return jsonify({
+        'offer_id': offer.id,
+        'rating': preference.rating,
+        'updated_at': _as_utc(preference.updated_at).isoformat(),
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

@@ -138,6 +138,9 @@ class HomeScreen extends StatelessWidget {
           content: Text(
             'Импортировано банков: ${result.importedBanks}; '
             'создано: ${result.created}, обновлено: ${result.updated}'
+            '; партнёрских предложений создано: '
+            '${result.createdPartnerOffers}, обновлено: '
+            '${result.updatedPartnerOffers}'
             '${result.skippedBanks == 0 ? '' : ', пропущено банков: ${result.skippedBanks}'}.',
           ),
         ),

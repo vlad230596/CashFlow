@@ -29,6 +29,7 @@ void main() {
       'description': 'Дополнительно к обычному кэшбэку',
       'category_type': 'stackable_bonus',
       'is_selection_locked': true,
+      'is_bank_confirmed': false,
       'max_cashback_amount': 2000,
       'min_purchase_amount': 5000,
     });
@@ -56,6 +57,33 @@ void main() {
       CashbackCategoryModel.toJson(category)['min_purchase_amount'],
       5000,
     );
+  });
+
+  test('keeps selected categories active for a pre-confirmation backend', () {
+    final legacy = CashbackCategoryModel.fromJson({
+      'id': 9,
+      'name': 'Legacy selected category',
+      'start_date': '2026-09-01T00:00:00',
+      'end_date': '2026-10-01T00:00:00',
+      'is_selected': true,
+      'cashback_percent': 5,
+      'card_id': 1,
+    });
+    final explicitPending = CashbackCategoryModel.fromJson({
+      'id': 10,
+      'name': 'Pending bank confirmation',
+      'start_date': '2026-09-01T00:00:00',
+      'end_date': '2026-10-01T00:00:00',
+      'is_selected': true,
+      'is_bank_confirmed': false,
+      'cashback_percent': 5,
+      'card_id': 1,
+    });
+
+    expect(legacy.isBankConfirmed, isTrue);
+    expect(legacy.isActive, isTrue);
+    expect(explicitPending.isBankConfirmed, isFalse);
+    expect(explicitPending.isActive, isFalse);
   });
 
   test('task bonus category is not selectable', () {
@@ -353,5 +381,61 @@ void main() {
 
     await expectLater(update, throwsException);
     expect(provider.cashbackCategories.single.isSelected, isFalse);
+  });
+
+  test('loads partner offers and persists a personal preference', () async {
+    SharedPreferences.setMockInitialValues({});
+    String? preferenceBody;
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((request) async {
+        if (request.method == 'PUT') {
+          preferenceBody = request.body;
+          return http.Response(
+            json.encode({'offer_id': 1, 'rating': 'hidden'}),
+            200,
+          );
+        }
+        return http.Response(
+          json.encode({
+            'items': [
+              {
+                'id': 1,
+                'bank_id': 2,
+                'bank_name': 'Test bank',
+                'card_user_id': 3,
+                'preference': 'undecided',
+                'is_available': true,
+                'first_seen_at': '2026-09-16T08:00:00Z',
+                'last_seen_at': '2026-09-16T08:00:00Z',
+                'snapshot': {
+                  'title': 'Test shop',
+                  'description': '',
+                  'collected_at': '2026-09-16T08:00:00Z',
+                  'limits': [],
+                },
+              },
+            ],
+            'total': 1,
+          }),
+          200,
+        );
+      }),
+    )..currentAuthUser = const AuthIdentity(
+        id: 7,
+        username: 'viewer',
+        role: 'viewer',
+      );
+
+    expect(await provider.fetchPartnerOffers(), isTrue);
+    expect(provider.partnerOffers.single.name, 'Test shop');
+    expect(
+      (await SharedPreferences.getInstance()).getString('partnerOffers:7'),
+      isNotNull,
+    );
+
+    await provider.updatePartnerOfferPreference(1, 'hidden');
+    expect(provider.partnerOffers.single.preference, 'hidden');
+    expect(json.decode(preferenceBody!), {'rating': 'hidden'});
   });
 }

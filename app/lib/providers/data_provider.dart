@@ -11,6 +11,7 @@ import '../models/bank_model.dart';
 import '../models/user_model.dart';
 import '../models/cashback_category_model.dart';
 import '../models/mcc_rule_model.dart';
+import '../models/partner_offer_model.dart';
 
 class CashbackImportResult {
   const CashbackImportResult({
@@ -18,12 +19,16 @@ class CashbackImportResult {
     required this.updated,
     required this.importedBanks,
     required this.skippedBanks,
+    this.createdPartnerOffers = 0,
+    this.updatedPartnerOffers = 0,
   });
 
   final int created;
   final int updated;
   final int importedBanks;
   final int skippedBanks;
+  final int createdPartnerOffers;
+  final int updatedPartnerOffers;
 
   factory CashbackImportResult.fromJson(Map<String, dynamic> json) {
     return CashbackImportResult(
@@ -31,6 +36,8 @@ class CashbackImportResult {
       updated: json['updated'] as int? ?? 0,
       importedBanks: (json['imported_banks'] as List?)?.length ?? 0,
       skippedBanks: (json['skipped'] as List?)?.length ?? 0,
+      createdPartnerOffers: json['created_partner_offers'] as int? ?? 0,
+      updatedPartnerOffers: json['updated_partner_offers'] as int? ?? 0,
     );
   }
 }
@@ -155,6 +162,10 @@ class DataProvider with ChangeNotifier {
   List<CardModel> cards = [];
   List<CashbackCategoryModel> cashbackCategories = [];
   List<CashbackCategoryModel> activeCashbackCategories = [];
+  List<PartnerOffer> partnerOffers = [];
+  bool partnerOffersLoading = false;
+  String? partnerOffersError;
+  String? _partnerOffersRating;
   String? lastUpdated;
   DateTime? _cashbackDateOverride;
 
@@ -168,6 +179,8 @@ class DataProvider with ChangeNotifier {
     _accessToken = null;
     _sessionExpiresAt = null;
     currentAuthUser = null;
+    partnerOffers = [];
+    partnerOffersError = null;
     try {
       await Future.wait([
         _secureStorage.delete(key: _accessTokenKey),
@@ -276,6 +289,7 @@ class DataProvider with ChangeNotifier {
         payload['user'] as Map<String, dynamic>,
       );
       await _persistAuthentication();
+      await _loadPartnerOffersCache();
       notifyListeners();
       await fetchAllData();
       return true;
@@ -426,6 +440,7 @@ class DataProvider with ChangeNotifier {
     authReady = false;
     await loadLocalData();
     final restored = await _restoreAuthentication();
+    if (restored) await _loadPartnerOffersCache();
     authReady = true;
     notifyListeners();
     if (restored) {
@@ -519,6 +534,7 @@ class DataProvider with ChangeNotifier {
       cashbackCategories = fetchedCashbackCategories;
       lastUpdated = DateTime.now().toString();
       await _saveDataLocally();
+      await fetchPartnerOffers();
       notifyListeners();
       return true;
     } catch (e) {
@@ -639,6 +655,118 @@ class DataProvider with ChangeNotifier {
             .map((cashbackCategory) =>
                 CashbackCategoryModel.toJson(cashbackCategory))
             .toList()));
+  }
+
+  String? get _partnerOffersCacheKey {
+    final authUserId = currentAuthUser?.id;
+    return authUserId == null ? null : 'partnerOffers:$authUserId';
+  }
+
+  Future<void> _loadPartnerOffersCache() async {
+    final key = _partnerOffersCacheKey;
+    if (key == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString(key);
+    if (cached == null) return;
+    try {
+      partnerOffers = (json.decode(cached) as List)
+          .map((item) => PartnerOffer.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (error) {
+      debugPrint('Error loading cached partner offers: $error');
+    }
+  }
+
+  Future<void> _savePartnerOffersCache() async {
+    final key = _partnerOffersCacheKey;
+    if (key == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      key,
+      json.encode(partnerOffers.map((offer) => offer.toJson()).toList()),
+    );
+  }
+
+  Future<bool> fetchPartnerOffers({String? rating}) async {
+    partnerOffersLoading = true;
+    partnerOffersError = null;
+    notifyListeners();
+    try {
+      final query = rating == null ? '' : '?rating=$rating';
+      final response = await _client.get(_apiUri('partner-offers$query'));
+      if (response.statusCode != 200) {
+        throw Exception(
+          _responseError(response, 'Не удалось загрузить предложения'),
+        );
+      }
+      final payload = json.decode(response.body) as Map<String, dynamic>;
+      partnerOffers = (payload['items'] as List)
+          .map((item) => PartnerOffer.fromJson(item as Map<String, dynamic>))
+          .toList();
+      _partnerOffersRating = rating;
+      if (rating == null) await _savePartnerOffersCache();
+      return true;
+    } catch (error) {
+      partnerOffersError = 'Не удалось обновить предложения';
+      debugPrint('Error fetching partner offers: $error');
+      if (rating == null) {
+        await _loadPartnerOffersCache();
+        _partnerOffersRating = null;
+      }
+      return false;
+    } finally {
+      partnerOffersLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<PartnerOffer> fetchPartnerOfferDetails(int offerId) async {
+    final response = await _client.get(_apiUri('partner-offers/$offerId'));
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Не удалось загрузить условия'),
+      );
+    }
+    return PartnerOffer.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<void> updatePartnerOfferPreference(
+    int offerId,
+    String rating,
+  ) async {
+    const allowed = {'interesting', 'undecided', 'hidden'};
+    if (!allowed.contains(rating)) {
+      throw ArgumentError.value(rating, 'rating');
+    }
+    final index = partnerOffers.indexWhere((offer) => offer.id == offerId);
+    final original = index == -1 ? null : partnerOffers[index];
+    if (original != null) {
+      partnerOffers[index] = original.copyWith(preference: rating);
+      notifyListeners();
+    }
+    try {
+      final response = await _client.put(
+        _apiUri('partner-offers/$offerId/preference'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'rating': rating}),
+      );
+      if (response.statusCode != 200) {
+        throw Exception(
+          _responseError(response, 'Не удалось сохранить оценку'),
+        );
+      }
+      if (_partnerOffersRating == null) await _savePartnerOffersCache();
+    } catch (_) {
+      if (original != null) {
+        final rollback =
+            partnerOffers.indexWhere((offer) => offer.id == offerId);
+        if (rollback != -1) partnerOffers[rollback] = original;
+        notifyListeners();
+      }
+      rethrow;
+    }
   }
 
   Future<void> addBank(String name, String description) async {
@@ -964,11 +1092,36 @@ class DataProvider with ChangeNotifier {
     final result = CashbackImportResult.fromJson(
       responseData as Map<String, dynamic>,
     );
+    final partnerResponse = await _client.post(
+      _apiUri('partner-offers/import'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'document': decoded,
+        'card_user_id': userId,
+      }),
+    );
+    final partnerData = json.decode(partnerResponse.body);
+    if (partnerResponse.statusCode != 200) {
+      final message =
+          partnerData is Map<String, dynamic> ? partnerData['error'] : null;
+      throw Exception(
+        'Категории импортированы, но предложения сохранить не удалось: '
+        '${message ?? partnerResponse.statusCode}',
+      );
+    }
+    final partnerResult = partnerData as Map<String, dynamic>;
     final refreshed = await fetchAllData();
     if (!refreshed) {
       throw Exception('Импорт выполнен, но обновить данные не удалось');
     }
-    return result;
+    return CashbackImportResult(
+      created: result.created,
+      updated: result.updated,
+      importedBanks: result.importedBanks,
+      skippedBanks: result.skippedBanks,
+      createdPartnerOffers: partnerResult['created_offers'] as int? ?? 0,
+      updatedPartnerOffers: partnerResult['updated_offers'] as int? ?? 0,
+    );
   }
 
   Future<void> updateCashbackCategory(
