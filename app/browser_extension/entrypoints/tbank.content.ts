@@ -14,11 +14,11 @@ export default defineContentScript({
   runAt: 'document_idle',
   main() {
     browser.runtime.onMessage.addListener(
-      async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
+      (message: PageProbeRequest): Promise<PageProbe> | undefined => {
         if (message.type !== 'cashflow:probe-page') return undefined;
+        return (async () => {
 
         const domCategories = extractTbankCashbackCategories();
-        if (domCategories.length) return buildPageProbe('tbank', domCategories);
 
         if (window.location.pathname.includes('/high-cashback/offer/')) {
           window.location.assign('/mybank/bonuses/');
@@ -26,12 +26,13 @@ export default defineContentScript({
         }
 
         const apiResult = await fetchTbankCashbackFromPage();
-        const probe = buildPageProbe('tbank', apiResult?.categories ?? []);
+        const probe = buildPageProbe('tbank', apiResult?.categories ?? domCategories);
         if (apiResult) {
           probe.selection.maxSelectable = apiResult.maxSelectable;
           probe.selection.totalOptions = apiResult.totalOptions;
         }
         return probe;
+        })();
       },
     );
   },

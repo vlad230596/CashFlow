@@ -59,11 +59,13 @@ describe('extractTbankCashbackFromBonusesResponse', () => {
     expect(result?.categories[0]).toMatchObject({
       name: 'Все покупки',
       selected: true,
+      confirmed: true,
       description: 'Описание',
       iconUrl: 'https://example.test/icon.png',
       iconBackgroundColor: '#725DD6',
     });
     expect(result?.categories[1]?.subtitle).toBe('MCC: 5912');
+    expect(result?.categories[1]?.confirmed).toBe(false);
   });
 
   it('chooses the full monthly group when a promotional group comes first', () => {

@@ -9,6 +9,7 @@ class CashbackCategoryModel {
   final String? description;
   final String categoryType;
   final bool isSelectionLocked;
+  final bool isBankConfirmed;
   final double? maxCashbackAmount;
   final double? minPurchaseAmount;
 
@@ -23,6 +24,7 @@ class CashbackCategoryModel {
     this.description,
     this.categoryType = 'standard',
     this.isSelectionLocked = false,
+    this.isBankConfirmed = false,
     this.maxCashbackAmount,
     this.minPurchaseAmount,
   });
@@ -30,6 +32,7 @@ class CashbackCategoryModel {
   bool get isStackableBonus => categoryType == 'stackable_bonus';
   bool get isTaskBonus => categoryType == 'task_bonus';
   bool get isSelectable => categoryType == 'standard';
+  bool get isActive => isSelected && isBankConfirmed;
 
   factory CashbackCategoryModel.fromJson(Map<String, dynamic> json) {
     return CashbackCategoryModel(
@@ -43,6 +46,7 @@ class CashbackCategoryModel {
       description: json['description'] as String?,
       categoryType: json['category_type'] as String? ?? 'standard',
       isSelectionLocked: json['is_selection_locked'] as bool? ?? false,
+      isBankConfirmed: json['is_bank_confirmed'] as bool? ?? false,
       maxCashbackAmount: (json['max_cashback_amount'] as num?)?.toDouble(),
       minPurchaseAmount: (json['min_purchase_amount'] as num?)?.toDouble(),
     );
@@ -60,6 +64,7 @@ class CashbackCategoryModel {
       'description': model.description,
       'category_type': model.categoryType,
       'is_selection_locked': model.isSelectionLocked,
+      'is_bank_confirmed': model.isBankConfirmed,
       'max_cashback_amount': model.maxCashbackAmount,
       'min_purchase_amount': model.minPurchaseAmount,
     };
@@ -76,6 +81,7 @@ class CashbackCategoryModel {
     String? description,
     String? categoryType,
     bool? isSelectionLocked,
+    bool? isBankConfirmed,
     double? maxCashbackAmount,
     double? minPurchaseAmount,
     bool clearMaxCashbackAmount = false,
@@ -92,6 +98,7 @@ class CashbackCategoryModel {
       description: description ?? this.description,
       categoryType: categoryType ?? this.categoryType,
       isSelectionLocked: isSelectionLocked ?? this.isSelectionLocked,
+      isBankConfirmed: isBankConfirmed ?? this.isBankConfirmed,
       maxCashbackAmount: clearMaxCashbackAmount
           ? null
           : maxCashbackAmount ?? this.maxCashbackAmount,

@@ -933,6 +933,18 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                         ],
                       ],
                     ),
+                    if (offer.isSelected)
+                      Text(
+                        offer.isBankConfirmed
+                            ? 'Подтверждено банком'
+                            : 'Ожидает подтверждения банка',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: offer.isBankConfirmed
+                              ? Colors.green
+                              : Colors.orange,
+                        ),
+                      ),
                     if (originalNameDiffers)
                       Text(
                         offer.name,

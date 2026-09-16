@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { parseYandexCashbackCardText, parseYandexPercent } from './cashback';
 
 describe('parseYandexPercent', () => {
+  it('does not promise a discount as cashback', () => {
+    expect(parseYandexPercent('−50%')).toEqual({ percent: null, percentLabel: null });
+    expect(parseYandexPercent('-50%')).toEqual({ percent: null, percentLabel: null });
+  });
   it('parses a selected monthly cashback percentage', () => {
     expect(parseYandexPercent(' 3% ')).toEqual({
       percent: 3,

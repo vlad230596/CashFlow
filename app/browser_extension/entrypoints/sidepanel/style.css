@@ -11,6 +11,7 @@ button { padding: 9px 10px; border: 0; border-radius: 9px; color: white; backgro
 button:disabled { cursor: default; opacity: .55; }
 button.secondary { color: #24405f; background: #e1e8f2; }
 button.icons { grid-column: 1 / -1; color: #24405f; background: #dbeafe; }
+button.extended-action { grid-column: 1 / -1; background: #6d28d9; }
 button.success { grid-column: 1 / -1; background: #14804a; }
 .export-message { margin: -6px 0 12px; color: #526174; font-size: 11px; }
 .selection-plan { margin: 0 0 14px; padding: 12px; border: 1px solid #93c5fd; border-radius: 12px; background: #eff6ff; }

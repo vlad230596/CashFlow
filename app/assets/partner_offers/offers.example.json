@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "sources": [],
+  "offers": [
+    {
+      "id": "demo:store",
+      "bankId": "demo",
+      "bankName": "Демонстрационный банк",
+      "name": "Пример магазина",
+      "description": "Демонстрационные данные. Это не действующее банковское предложение.",
+      "rateLabel": "до 10%",
+      "validityLabel": "Демонстрационный срок",
+      "limits": ["Максимум — 400 рублей за акцию"],
+      "requirements": ["Только для новых клиентов"],
+      "conditions": "Демонстрационные условия: только для новых клиентов. Не использовать для реальных покупок.",
+      "conditionsFromHistory": false,
+      "iconAsset": null,
+      "iconUrl": null,
+      "collectedAt": null
+    }
+  ]
+}

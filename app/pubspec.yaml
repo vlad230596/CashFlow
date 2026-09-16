@@ -60,6 +60,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/partner_offers/
+    - assets/partner_offers/icons/
 
   # Keep production web builds independent from third-party font CDNs. The
   # variable Roboto files are distributed under the SIL Open Font License in

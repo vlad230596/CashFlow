@@ -9,6 +9,8 @@ export type CashbackCategory = {
   iconUrl: string | null;
   iconBackgroundColor: string | null;
   selected: boolean;
+  /** True only when a bank response proves the category is active. */
+  confirmed?: boolean;
   group: string | null;
   expiresInLabel: string | null;
   maxCashbackAmount?: number | null;
@@ -54,6 +56,9 @@ export type CashbackImportBankResult = {
   authenticationStatus: AuthenticationStatus;
   selection: CashbackSelection;
   categories: CashbackCategory[];
+  extendedOffers?: import('./extended/types').ExtendedOffer[];
+  extendedSummary?: Pick<import('./extended/types').ExtendedBankResult,
+    'collectedAt' | 'previewCount' | 'reusedCount' | 'openedCount' | 'previewOnlyCount' | 'errors'>;
   message: string | null;
 };
 

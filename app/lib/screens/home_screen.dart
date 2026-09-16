@@ -6,6 +6,7 @@ import '../services/cashback_import_launcher.dart';
 import 'cashback_screen.dart';
 import 'cards_screen.dart';
 import 'monthly_cashback_screen.dart';
+import 'partner_offers_screen.dart';
 import 'settings/banks_settings.dart';
 import 'settings/users_settings.dart';
 import 'widgets/versioned_app_bar_title.dart';
@@ -177,15 +178,17 @@ class HomeScreen extends StatelessWidget {
     final currentSessionType = sessionType ?? detectAppSessionType();
 
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const VersionedAppBarTitle(title: 'CashFlow'),
           bottom: TabBar(
+            isScrollable: true,
             tabs: [
               Tab(text: 'Cashback'),
               Tab(text: 'Cards'),
               Tab(text: 'MonthCashback'),
+              Tab(text: 'Кешбэк партнёров'),
             ],
           ),
           actions: [
@@ -387,6 +390,7 @@ class HomeScreen extends StatelessWidget {
             CashbackScreen(),
             CardsScreen(),
             MonthlyCashbackScreen(),
+            const PartnerOffersScreen(),
           ],
         ),
       ),

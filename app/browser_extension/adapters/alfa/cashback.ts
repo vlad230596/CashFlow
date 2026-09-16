@@ -1,4 +1,5 @@
 import type { CashbackCategory } from '../types';
+import { showsCurrentCashbackMonth } from '../monthly-confirmation';
 
 export type AlfaCashbackCategory = CashbackCategory;
 
@@ -119,6 +120,7 @@ function selectionCategoryFromInput(input: HTMLInputElement): AlfaCashbackCatego
     ...category,
     type: taskBonus ? 'task_bonus' : 'standard',
     selected: taskBonus ? false : input.checked,
+    confirmed: false,
     group: taskBonus ? 'За задания' : 'Доступные категории',
   };
 }
@@ -140,6 +142,15 @@ function stackableCategoryFromSubtitle(subtitle: HTMLElement): AlfaCashbackCateg
     }
   }
   if (!card || !percentText) return null;
+  // The saved bonus belongs to the program summary, above the monthly
+  // selector. Its heading alone omits the saved category icon in the footer.
+  const program = subtitle.closest<HTMLElement>('[data-test-id="cashback-programs-item"]');
+  if (program) card = program;
+  const confirmed = Boolean(program && showsCurrentCashbackMonth(subtitleText) &&
+    program.querySelector('[data-test-id="icon-view-group-item-wrapper"]') &&
+    !program.querySelector('input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"]') &&
+    ![...program.querySelectorAll<HTMLElement>('button, [role="button"], a')]
+      .some(element => /выбрать|подключить|активировать|подтвердить/i.test(normalizeText(element.textContent))));
 
   const parsed = parseAlfaCategoryTitle(`${percentText} ${subtitleText}`);
   if (!parsed) return null;
@@ -151,6 +162,7 @@ function stackableCategoryFromSubtitle(subtitle: HTMLElement): AlfaCashbackCateg
     iconUrl: iconUrlFromItem(card),
     iconBackgroundColor: null,
     selected: true,
+    confirmed,
     group: 'Суммирующаяся категория',
     expiresInLabel: null,
   };
@@ -170,7 +182,10 @@ export function extractAlfaCashbackCategories(
     '[data-test-id="chosen-category-item"]',
   )) {
     const category = categoryFromItem(item);
-    if (category) categories.set(`standard\u0000${category.percentLabel}\u0000${category.name}`, category);
+    if (category) categories.set(`standard\u0000${category.percentLabel}\u0000${category.name}`, {
+      ...category,
+      confirmed: true,
+    });
   }
   for (const subtitle of root.querySelectorAll<HTMLElement>(
     '[data-test-id="cashback-program-card-subtitle"]',

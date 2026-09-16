@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { strToU8, zipSync } from 'fflate';
 import type { BankId, CashbackCategory, CashbackImportBankResult, CashbackImportDocument, CashbackSelectionPlanCategory, CashbackSelectionPlanDocument, CollectionStatus, PageProbe } from '../../adapters/types';
 import { DEFAULT_BANK_IDS, findBank } from '../../banks/registry';
+import { collectExtendedBank } from '../../adapters/extended/collect';
+import type { ExtendedBankResult } from '../../adapters/extended/types';
 import './style.css';
 
 type BankViewStatus = CollectionStatus;
@@ -142,15 +144,19 @@ function App() {
   const [iconsBusy, setIconsBusy] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [selectionPlan, setSelectionPlan] = useState<CashbackSelectionPlanDocument | null>(null);
+  const [extended, setExtended] = useState<Partial<Record<BankId, ExtendedBankResult>>>({});
+  const [extendedBusy, setExtendedBusy] = useState(false);
+  const [extendedProgress, setExtendedProgress] = useState<string | null>(null);
   const viewsRef = useRef(views);
   const collectingRef = useRef(false);
+  const extendedCollectingRef = useRef(false);
 
   useEffect(() => {
     viewsRef.current = views;
   }, [views]);
 
   const collect = useCallback(async (onlyPending = false, showBusy = true) => {
-    if (collectingRef.current) return;
+    if (collectingRef.current || extendedCollectingRef.current) return;
     const ids = onlyPending
       ? bankIds.filter((id) => viewsRef.current[id]?.status !== 'ready')
       : bankIds;
@@ -227,6 +233,44 @@ function App() {
     await browser.tabs.create({ url: bank.startUrl, active: true });
   }
 
+  useEffect(() => {
+    void (async () => {
+      const keys = DEFAULT_BANK_IDS.map((id) => `cashflowExtendedHistory:${id}`);
+      const stored = await browser.storage.local.get(keys);
+      setExtended(Object.fromEntries(DEFAULT_BANK_IDS.flatMap((id) => {
+        const value = stored[`cashflowExtendedHistory:${id}`] as ExtendedBankResult | undefined;
+        return value?.bankId === id ? [[id, value]] : [];
+      })));
+    })();
+  }, []);
+
+  async function collectExtended() {
+    if (extendedBusy) return;
+    extendedCollectingRef.current = true;
+    setExtendedBusy(true);
+    const failures: string[] = [];
+    try {
+      await openTabs();
+      for (const id of bankIds) {
+        setExtendedProgress(`${findBank(id).name}: читаю каталог`);
+        try {
+          const result = await collectExtendedBank(id, (partial) => {
+            setExtended((current) => ({ ...current, [id]: partial }));
+            setExtendedProgress(`${findBank(id).name}: ${partial.offers.length}/${partial.previewCount}`);
+          });
+          setExtended((current) => ({ ...current, [id]: result }));
+        } catch (error) {
+          failures.push(`${findBank(id).name}: ${String(error)}`);
+          setExtendedProgress(failures.at(-1)!);
+        }
+      }
+      setExtendedProgress(failures.length ? `Сбор завершён с ошибками: ${failures.join('; ')}` : 'Сбор расширенных предложений завершён');
+    } finally {
+      extendedCollectingRef.current = false;
+      setExtendedBusy(false);
+    }
+  }
+
   const output = useMemo<CashbackImportDocument>(() => ({
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -234,8 +278,7 @@ function App() {
     banks: bankIds.map((id): CashbackImportBankResult => {
       const bank = findBank(id);
       const view = views[id] ?? emptyBankView();
-      if (view.result) return view.result;
-      return {
+      const base: CashbackImportBankResult = view.result ?? {
         bankId: id,
         bankName: bank.name,
         collectionStatus: view.status,
@@ -255,8 +298,21 @@ function App() {
         categories: [],
         message: view.message,
       };
+      const extra = extended[id];
+      return extra ? {
+        ...base,
+        extendedOffers: extra.offers,
+        extendedSummary: {
+          collectedAt: extra.collectedAt,
+          previewCount: extra.previewCount,
+          reusedCount: extra.reusedCount,
+          openedCount: extra.openedCount,
+          previewOnlyCount: extra.previewOnlyCount,
+          errors: extra.errors,
+        },
+      } : base;
     }),
-  }), [bankIds, views]);
+  }), [bankIds, views, extended]);
 
   const readyCount = output.banks.filter((bank) => bank.collectionStatus === 'ready').length;
 
@@ -291,6 +347,18 @@ function App() {
           fileName,
           url: category.iconUrl,
         });
+      }
+      for (const offer of bank.extendedOffers ?? []) {
+        for (const [role, url] of [['icon', offer.iconUrl], ['artwork', offer.artworkUrl]] as const) {
+          if (!url) continue;
+          const id = `${bank.bankId}-offer-${offer.id}-${role}`;
+          if (icons.has(id)) continue;
+          icons.set(id, {
+            id, bankId: bank.bankId, category: offer.name,
+            fileName: `${id.replace(/[^a-z0-9_-]/gi, '_')}.${iconExtension(url)}`,
+            url,
+          });
+        }
       }
     }
     if (!icons.size) {
@@ -356,12 +424,18 @@ function App() {
     <div className="actions">
       <button type="button" className="secondary" onClick={openTabs}>Открыть вкладки</button>
       <button type="button" onClick={() => void collect(false)} disabled={busy}>{busy ? 'Собираю…' : 'Собрать все'}</button>
+      <button type="button" className="extended-action" onClick={() => void collectExtended()} disabled={extendedBusy}>
+        {extendedBusy ? 'Собираю расширенные…' : 'Собрать расширенные предложения'}
+      </button>
       <button type="button" className="icons" onClick={() => void downloadIcons()} disabled={iconsBusy}>{iconsBusy ? 'Собираю ZIP…' : 'Скачать значки ZIP'}</button>
       <button type="button" className="success" onClick={downloadJson}>Скачать JSON</button>
     </div>
     {exportMessage && <p className="export-message">{exportMessage}</p>}
+    {extendedProgress && <p className="export-message">{extendedProgress}</p>}
     {selectionPlan && <section className="selection-plan">
       <div className="plan-heading"><div><h2>План на сегодня</h2><p>{selectionPlan.effectiveDate}</p></div><span>Только подсказка</span></div>
+      <p>После сохранения категорий в банке проверьте результат и экспортируйте новый JSON в CashFlow. До подтверждения категории не учитываются в активном кешбэке.</p>
+      <button type="button" onClick={() => void collect(false)} disabled={busy}>Проверить подтверждение в банках</button>
       {selectionPlan.banks.map((planBank) => {
         const view = views[planBank.bankId];
         const ready = view?.status === 'ready';
@@ -377,11 +451,12 @@ function App() {
           <ul>
             {desired.map((item, index) => {
               const match = actual.find((category) => categoryMatches(category, item));
-              const state = !ready ? 'pending' : !match ? 'missing' : match.selected ? 'done' : 'select';
+              const confirmed = match?.selected && (match.confirmed === true || view?.result?.selection.isLocked === true);
+              const state = !ready ? 'pending' : !match ? 'missing' : confirmed ? 'done' : match.selected ? 'pending' : 'select';
               return <li className={`plan-${state}`} key={`${item.name}-${index}`}>
                 <span>{state === 'pending' ? '…' : state === 'done' ? '✓' : state === 'select' ? '+' : '!'}</span>
                 <b>{item.percent != null ? `${item.percent}% ` : ''}{item.name}</b>
-                <small>{state === 'pending' ? 'ожидаем страницу банка' : state === 'done' ? 'уже выбрано' : state === 'select' ? 'нужно выбрать' : 'не найдено на странице'}</small>
+                <small>{state === 'pending' ? 'ожидает подтверждения банка' : state === 'done' ? 'подтверждено банком' : state === 'select' ? 'нужно выбрать' : 'не найдено на странице'}</small>
               </li>;
             })}
             {removals.map((category, index) => <li className="plan-remove" key={`remove-${category.name}-${index}`}>
@@ -402,10 +477,24 @@ function App() {
           {view.status === 'ready' && 'Готово'}{view.status === 'auth' && 'Нужен вход'}{view.status === 'collecting' && 'Сбор…'}{view.status === 'waiting' && 'Ожидание'}{view.status === 'error' && 'Ошибка'}
         </span></div><button type="button" className="link-button" onClick={() => void openBank(id)}>Открыть</button></div>
         {view.message && <p className="message">{view.message}</p>}
+        {extended[id] && <details><summary>Расширенные предложения ({extended[id]!.offers.length})</summary>
+          <p className="summary">Собрано: {new Date(extended[id]!.collectedAt).toLocaleString('ru-RU')} · Из истории: {extended[id]!.reusedCount} · Открыто: {extended[id]!.openedCount} · Только превью: {extended[id]!.previewOnlyCount}</p>
+          {extended[id]!.errors.length > 0 && <p className="message">Ошибок: {extended[id]!.errors.length}</p>}
+          <ul className="categories">{extended[id]!.offers.map((offer) => <li key={offer.id}>
+            <CategoryIcon name={offer.name} url={offer.iconUrl} backgroundColor={null} />
+            <span><strong>{offer.rateLabel} {offer.name}</strong>
+              {offer.offerKind !== 'cashback' && <small>{offer.offerKind === 'discount' ? 'Скидка' : 'Другое предложение'}</small>}
+              {offer.group && <small>{offer.group}</small>}
+              {offer.expirationLabel && <small>{offer.expirationLabel}</small>}
+              {offer.previewConditions && <small>{offer.previewConditions}</small>}
+              {offer.conditions && <small className="details-copy">{offer.conditions}</small>}
+              {offer.detailsStatus !== 'complete' && <small>{offer.detailsError || 'Только превью'}</small>}
+            </span>
+          </li>)}</ul></details>}
         {result && <><p className="summary">Выбрано: {result.selection.selectedCount}{result.selection.maxSelectable != null && ` из ${result.selection.maxSelectable}`} · Найдено: {result.selection.visibleCount}{result.selection.totalOptions != null && ` / ${result.selection.totalOptions}`}</p>
           <details><summary>Все категории ({result.categories.length})</summary><ul className="categories">{result.categories.map((category, index) => <li className={category.selected ? 'category-selected' : 'category-unselected'} key={`${category.name}-${category.percentLabel}-${index}`}>
             <CategoryIcon name={category.name} url={category.iconUrl} backgroundColor={category.iconBackgroundColor} /><span><strong>{category.percentLabel} {category.name}</strong>
-              <small className={`selection-label ${category.selected ? 'selection-selected' : 'selection-unselected'}`}>{category.type === 'task_bonus' ? 'За задание' : category.selected ? '✓ Выбрано' : 'Не выбрано'}</small>
+              <small className={`selection-label ${category.selected && (category.confirmed === true || result.selection.isLocked === true) ? 'selection-selected' : 'selection-unselected'}`}>{category.type === 'task_bonus' ? 'За задание' : category.selected && (category.confirmed === true || result.selection.isLocked === true) ? '✓ Подтверждено банком' : category.selected ? 'Ожидает подтверждения банка' : 'Не выбрано'}</small>
               {category.expiresInLabel && <small>{category.expiresInLabel}</small>}{category.group && <small>{category.group}</small>}
               {category.subtitle && category.subtitle !== category.expiresInLabel && <small>{category.subtitle}</small>}{category.description && <small className="details-copy">{category.description}</small>}
             </span></li>)}</ul></details></>}

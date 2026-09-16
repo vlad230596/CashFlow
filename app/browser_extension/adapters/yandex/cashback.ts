@@ -12,6 +12,9 @@ export function parseYandexPercent(rawValue: string): Pick<
   'percent' | 'percentLabel'
 > {
   const value = rawValue.replace(/\s+/g, ' ').trim();
+  if (/[−-]\s*\d+(?:[.,]\d+)?\s*%/.test(value)) {
+    return { percent: null, percentLabel: null };
+  }
   const match = value.match(/(\d+(?:[.,]\d+)?)\s*%/);
 
   if (!match) return { percent: null, percentLabel: null };
@@ -54,14 +57,14 @@ function extractFullYandexCashbackCategories(root: ParentNode): YandexCashbackCa
   const categories = new Map<string, YandexCashbackCategory>();
 
   for (const item of root.querySelectorAll<HTMLElement>(
-    'li[class*="SelectorListItem_block"]',
+    'li[class*="SelectorListItem_block"], li[class*="SelectorListItem-module__"][class*="__block"]',
   )) {
     const name = item
-      .querySelector<HTMLElement>('[class*="SelectorListItem_title"]')
+      .querySelector<HTMLElement>('[class*="SelectorListItem_title"], [class*="SelectorListItem-module__"][class*="__title"]')
       ?.textContent?.replace(/\s+/g, ' ')
       .trim();
     const percentText = item
-      .querySelector<HTMLElement>('[class*="PlusCashback_percent"]')
+      .querySelector<HTMLElement>('[class*="PlusCashback_percent"], [class*="PlusCashback-module__"][class*="__percent"]')
       ?.textContent?.trim();
     if (!name || !percentText) continue;
 
@@ -70,19 +73,19 @@ function extractFullYandexCashbackCategories(root: ParentNode): YandexCashbackCa
 
     const expiresInLabel =
       item
-        .querySelector<HTMLElement>('[class*="SelectorListItem_endSlotLabel"]')
+        .querySelector<HTMLElement>('[class*="SelectorListItem_endSlotLabel"], [class*="SelectorListItem-module__"][class*="__endSlotLabel"]')
         ?.textContent?.replace(/\s+/g, ' ')
         .trim() || null;
     const description =
       item
-        .querySelector<HTMLElement>('[class*="SelectorListItem_subtitle"]')
+        .querySelector<HTMLElement>('[class*="SelectorListItem_subtitle"], [class*="SelectorListItem-module__"][class*="__subtitle"]')
         ?.textContent?.replace(/\s+/g, ' ')
         .trim() || null;
 
-    const list = item.closest<HTMLUListElement>('ul[class*="List_block"]');
+    const list = item.closest<HTMLUListElement>('ul');
     const group = list?.previousElementSibling?.textContent?.replace(/\s+/g, ' ').trim() || null;
     const image = item.querySelector<HTMLImageElement>('img');
-    const icon = image?.closest<HTMLElement>('[class*="CashbackIcon_listItemIcon"]');
+    const icon = image?.closest<HTMLElement>('[class*="CashbackIcon_listItemIcon"], [class*="CashbackIcon-module__"][class*="__listItemIcon"]');
     const category: YandexCashbackCategory = {
       type: 'standard',
       name,
@@ -93,6 +96,8 @@ function extractFullYandexCashbackCategories(root: ParentNode): YandexCashbackCa
       iconUrl: image?.currentSrc || image?.src || null,
       iconBackgroundColor: icon ? getComputedStyle(icon).backgroundColor : null,
       selected: true,
+      confirmed: typeof location !== 'undefined' && location.pathname === '/cashback/current' &&
+        !item.querySelector('input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"]'),
       group,
     };
 

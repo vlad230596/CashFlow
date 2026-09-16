@@ -49,13 +49,13 @@ class CashbackImportDatesTest(unittest.TestCase):
         }
         self.assertFalse(_selection_is_locked(bank, [{'selected': True}]))
 
-    def test_full_selection_is_inferred_as_locked_for_legacy_json(self):
+    def test_full_selection_does_not_prove_confirmation(self):
         bank = {'selection': {'selectedCount': 4, 'maxSelectable': 4}}
-        self.assertTrue(_selection_is_locked(bank, [{'selected': True}]))
+        self.assertFalse(_selection_is_locked(bank, [{'selected': True}]))
 
-    def test_all_active_automatic_categories_are_inferred_as_locked(self):
+    def test_all_selected_categories_do_not_prove_confirmation(self):
         bank = {'selection': {'selectedCount': 2, 'maxSelectable': None}}
-        self.assertTrue(
+        self.assertFalse(
             _selection_is_locked(
                 bank,
                 [{'selected': True}, {'selected': True}],

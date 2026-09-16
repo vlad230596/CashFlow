@@ -30,6 +30,9 @@ const response = await new Promise((resolve, reject) => {
     method: 'Runtime.evaluate',
     params: {
       expression: `(async () => {
+        for (let attempt = 0; attempt < 50 && !globalThis.chrome?.windows; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
         const currentWindow = await chrome.windows.getCurrent();
         await chrome.sidePanel.setOptions({ path: 'sidepanel.html', enabled: true });
         await chrome.sidePanel.open({ windowId: currentWindow.id });

@@ -67,6 +67,7 @@ export function extractTbankCashbackFromBonusesResponse(
       iconUrl: essence.logo || null,
       iconBackgroundColor: essence.baseColor ? `#${essence.baseColor.replace(/^#/, '')}` : null,
       selected: Boolean(essence.isActive),
+      confirmed: essence.isActive === true,
       group: 'Повышенный кэшбэк',
       expiresInLabel: null,
     }];

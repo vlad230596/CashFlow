@@ -11,8 +11,9 @@ export default defineContentScript({
   runAt: 'document_idle',
   main() {
     browser.runtime.onMessage.addListener(
-      async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
+      (message: PageProbeRequest): Promise<PageProbe> | undefined => {
         if (message.type !== 'cashflow:probe-page') return undefined;
+        return (async () => {
 
         const categories = await extractOzonCashbackCategoriesWithDetails();
         if (categories.length) return buildPageProbe('ozon', categories);
@@ -22,6 +23,7 @@ export default defineContentScript({
         );
         cashbackButton?.click();
         return buildPageProbe('ozon', []);
+        })();
       },
     );
   },

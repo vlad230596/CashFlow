@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { parseVtbCategoryTitle } from './cashback';
 
 describe('parseVtbCategoryTitle', () => {
+  it('preserves a rate range without promising its maximum', () => {
+    expect(parseVtbCategoryTitle('5-10% Сервисы Яндекса')).toEqual({
+      name: 'Сервисы Яндекса', percent: 5, percentLabel: '5-10%',
+    });
+  });
   it('parses a VTB category title', () => {
     expect(parseVtbCategoryTitle('15% Авито Путешествия')).toEqual({
       name: 'Авито Путешествия',

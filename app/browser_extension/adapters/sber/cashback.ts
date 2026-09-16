@@ -1,4 +1,5 @@
 import type { CashbackCategory } from '../types';
+import { showsCurrentCashbackMonth } from '../monthly-confirmation';
 
 export type SberCashbackCategory = CashbackCategory;
 
@@ -98,6 +99,10 @@ export function extractSberCashbackCategories(
   if (categories.size || checkboxes.length) return [...categories.values()];
 
   const selectedGroup = findMonthLabel(root, false);
+  const pageText = normalizeText((root as Document).body?.innerText ||
+    ((root as Document).documentElement?.textContent ?? root.textContent));
+  const saved = typeof location !== 'undefined' && location.pathname === '/app/loyalty/main/categories' &&
+    /Мои категории/i.test(pageText) && showsCurrentCashbackMonth(pageText);
   for (const titleElement of root.querySelectorAll<HTMLElement>('p, h2, h3, h4, span')) {
     const parsedTitle = parseSberCategoryTitle(titleElement.textContent ?? '');
     if (!parsedTitle) continue;
@@ -115,7 +120,9 @@ export function extractSberCashbackCategories(
 
     if (!item) continue;
     const category = categoryFromItem(item, true, selectedGroup);
-    if (category) categories.set(`${category.name}\u0000${category.percentLabel}`, category);
+    if (category) categories.set(`${category.name}\u0000${category.percentLabel}`, {
+      ...category, confirmed: saved,
+    });
   }
 
   return [...categories.values()];

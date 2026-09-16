@@ -69,3 +69,8 @@ app.*.map.json
 /browser_extension/.output/
 /browser_extension/.wxt/
 /browser_extension/web-ext.config.ts
+
+# Generated preview from authenticated bank accounts; keep it local.
+/assets/partner_offers/offers.json
+/assets/partner_offers/icons/*
+!/assets/partner_offers/icons/README.md

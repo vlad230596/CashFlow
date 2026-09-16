@@ -117,6 +117,7 @@ class CashbackCategory(db.Model):
     description = db.Column(db.Text)
     category_type = db.Column(db.String(32), nullable=False, default='standard')
     is_selection_locked = db.Column(db.Boolean, nullable=False, default=False)
+    is_bank_confirmed = db.Column(db.Boolean, nullable=False, default=False)
     max_cashback_amount = db.Column(db.Float)
     min_purchase_amount = db.Column(db.Float)
 
@@ -134,6 +135,7 @@ class CashbackCategory(db.Model):
             'description': self.description,
             'category_type': self.category_type,
             'is_selection_locked': self.is_selection_locked,
+            'is_bank_confirmed': self.is_bank_confirmed,
             'max_cashback_amount': self.max_cashback_amount,
             'min_purchase_amount': self.min_purchase_amount,
             'card_id': self.card_id
@@ -929,6 +931,11 @@ def cashback_category_detail(category_id):
 
     elif request.method == 'PUT':
         data = request.json
+        # Editing the offer cannot preserve proof for different bank terms.
+        if any(key in data and data[key] != category.to_dict().get(key) for key in (
+            'name', 'start_date', 'end_date', 'cashback_percent', 'card_id', 'category_type',
+        )):
+            category.is_bank_confirmed = False
 
         if 'name' in data:
             category.name = data['name']
@@ -949,6 +956,8 @@ def cashback_category_detail(category_id):
             category.cashback_percent = data['cashback_percent']
 
         if 'is_selected' in data:
+            if category.is_selected != data['is_selected']:
+                category.is_bank_confirmed = False
             category.is_selected = data['is_selected']
 
         if 'description' in data:
@@ -1674,19 +1683,7 @@ def _selection_is_locked(bank_result, categories):
     if isinstance(explicit_value, bool):
         return explicit_value
 
-    max_selectable = selection.get('maxSelectable')
-    selected_count = selection.get('selectedCount')
-    if (
-        isinstance(max_selectable, int)
-        and max_selectable > 0
-        and isinstance(selected_count, int)
-        and selected_count >= max_selectable
-    ):
-        return True
-
-    return bool(categories) and all(
-        bool(category.get('selected', False)) for category in categories
-    )
+    return False
 
 
 def _normalize_import_category_type(value):
@@ -1812,6 +1809,14 @@ def import_cashback():
 
             bank_count = 0
             selected_standard_count = 0
+            period_start, _ = _category_period(generated_at, None)
+            # A fresh successful snapshot supersedes previous bank evidence,
+            # including categories absent from the new result.
+            for existing in CashbackCategory.query.filter(
+                CashbackCategory.card_id == card.id,
+                CashbackCategory.start_date == period_start,
+            ):
+                existing.is_bank_confirmed = False
             for imported in categories:
                 name = str(imported.get('name') or '').strip()
                 percent = imported.get('percent')
@@ -1843,7 +1848,12 @@ def import_cashback():
 
                 category.end_date = end_date
                 category.cashback_percent = float(percent)
-                category.is_selected = bool(imported.get('selected', False))
+                bank_selected = imported.get('selected') is True
+                category.is_bank_confirmed = bank_selected and (
+                    imported.get('confirmed') is True or selection_locked
+                )
+                # Preserve the desired selection until the bank confirms it.
+                category.is_selected = bank_selected or bool(category.is_selected)
                 category.description = _clean_category_description(
                     bank_id,
                     imported.get('description'),
@@ -1888,6 +1898,7 @@ def get_active_cashback():
 
     categories = CashbackCategory.query.where(
         CashbackCategory.is_selected == True,
+        CashbackCategory.is_bank_confirmed == True,
         CashbackCategory.start_date <= today,
         CashbackCategory.end_date > today
 

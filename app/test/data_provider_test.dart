@@ -36,6 +36,8 @@ void main() {
     expect(category.description, 'Дополнительно к обычному кэшбэку');
     expect(category.isStackableBonus, isTrue);
     expect(category.isSelectionLocked, isTrue);
+    expect(category.isBankConfirmed, isFalse);
+    expect(category.isActive, isFalse);
     expect(category.maxCashbackAmount, 2000);
     expect(category.minPurchaseAmount, 5000);
     expect(
@@ -85,6 +87,7 @@ void main() {
           startDate: DateTime(2026, 4),
           endDate: DateTime(2026, 5),
           isSelected: true,
+          isBankConfirmed: true,
           cashbackPercent: 5,
           cardId: 1,
         ),
@@ -94,6 +97,7 @@ void main() {
           startDate: DateTime(2026, 3),
           endDate: DateTime(2026, 4),
           isSelected: true,
+          isBankConfirmed: true,
           cashbackPercent: 10,
           cardId: 1,
         ),
@@ -104,6 +108,15 @@ void main() {
           endDate: DateTime(2026, 5),
           isSelected: false,
           cashbackPercent: 15,
+          cardId: 1,
+        ),
+        CashbackCategoryModel(
+          id: 4,
+          name: 'Pending',
+          startDate: DateTime(2026, 4),
+          endDate: DateTime(2026, 5),
+          isSelected: true,
+          cashbackPercent: 20,
           cardId: 1,
         ),
       ];
@@ -128,6 +141,7 @@ void main() {
           startDate: DateTime(2026, 4),
           endDate: DateTime(2026, 5),
           isSelected: true,
+          isBankConfirmed: true,
           cashbackPercent: 5,
           cardId: 1,
         ),
@@ -306,6 +320,9 @@ void main() {
     final update = provider.toggleCategorySelection(10, true);
 
     expect(provider.cashbackCategories.single.isSelected, isTrue);
+    expect(provider.cashbackCategories.single.isBankConfirmed, isFalse);
+    expect(provider.effectiveActiveCashbackCategories, isEmpty);
+    expect(provider.activeCashbackCategories, isEmpty);
     response.complete(http.Response('{}', 200));
     await update;
   });
@@ -330,6 +347,9 @@ void main() {
 
     final update = provider.toggleCategorySelection(10, true);
     expect(provider.cashbackCategories.single.isSelected, isTrue);
+    expect(provider.cashbackCategories.single.isBankConfirmed, isFalse);
+    expect(provider.effectiveActiveCashbackCategories, isEmpty);
+    expect(provider.activeCashbackCategories, isEmpty);
 
     await expectLater(update, throwsException);
     expect(provider.cashbackCategories.single.isSelected, isFalse);

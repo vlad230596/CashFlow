@@ -11,8 +11,9 @@ export default defineContentScript({
   runAt: 'document_idle',
   main() {
     browser.runtime.onMessage.addListener(
-      async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
+      (message: PageProbeRequest): Promise<PageProbe> | undefined => {
         if (message.type !== 'cashflow:probe-page') return undefined;
+        return (async () => {
 
         // Probes run repeatedly while the side panel is open. Reading the category
         // cards is deliberately passive: opening every "Подробнее" modal here made
@@ -35,6 +36,7 @@ export default defineContentScript({
         }
 
         return buildPageProbe('vtb', []);
+        })();
       },
     );
   },

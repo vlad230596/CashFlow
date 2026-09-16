@@ -311,7 +311,7 @@ class DataProvider with ChangeNotifier {
       final startDate = _dateOnly(category.startDate);
       final endDate = _dateOnly(category.endDate);
 
-      return category.isSelected &&
+      return category.isActive &&
           !effectiveDate.isBefore(startDate) &&
           effectiveDate.isBefore(endDate);
     }).toList();
@@ -995,12 +995,12 @@ class DataProvider with ChangeNotifier {
         final activeIndex = activeCashbackCategories
             .indexWhere((c) => c.id == updatedCategory.id);
         if (activeIndex != -1) {
-          if (updatedCategory.isSelected) {
+          if (updatedCategory.isActive) {
             activeCashbackCategories[activeIndex] = updatedCategory;
           } else {
             activeCashbackCategories.removeAt(activeIndex);
           }
-        } else if (updatedCategory.isSelected) {
+        } else if (updatedCategory.isActive) {
           activeCashbackCategories.add(updatedCategory);
         }
 
@@ -1022,7 +1022,11 @@ class DataProvider with ChangeNotifier {
     }
 
     final original = cashbackCategories[index];
-    final optimistic = original.copyWith(isSelected: isSelected);
+    final optimistic = original.copyWith(
+      isSelected: isSelected,
+      isBankConfirmed:
+          original.isSelected == isSelected && original.isBankConfirmed,
+    );
     final version = (_selectionMutationVersions[categoryId] ?? 0) + 1;
     _selectionMutationVersions[categoryId] = version;
     cashbackCategories[index] = optimistic;
@@ -1056,7 +1060,7 @@ class DataProvider with ChangeNotifier {
   void _syncActiveCategory(CashbackCategoryModel category) {
     final activeIndex =
         activeCashbackCategories.indexWhere((item) => item.id == category.id);
-    if (category.isSelected) {
+    if (category.isActive) {
       if (activeIndex == -1) {
         activeCashbackCategories.add(category);
       } else {

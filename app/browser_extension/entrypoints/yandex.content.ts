@@ -11,8 +11,9 @@ export default defineContentScript({
   runAt: 'document_idle',
   main() {
     browser.runtime.onMessage.addListener(
-      async (message: PageProbeRequest): Promise<PageProbe | undefined> => {
+      (message: PageProbeRequest): Promise<PageProbe> | undefined => {
         if (message.type !== 'cashflow:probe-page') return undefined;
+        return (async () => {
 
         const categories = extractYandexCashbackCategories();
         if (categories.length) return buildPageProbe('yandex', categories);
@@ -23,6 +24,7 @@ export default defineContentScript({
           more?.click();
         }
         return buildPageProbe('yandex', []);
+        })();
       },
     );
   },

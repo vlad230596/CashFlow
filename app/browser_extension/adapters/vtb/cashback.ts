@@ -13,14 +13,14 @@ function normalizeText(value: string | null | undefined): string {
 
 export function parseVtbCategoryTitle(rawTitle: string): ParsedVtbCategoryTitle | null {
   const title = normalizeText(rawTitle);
-  const match = title.match(/^(\d+(?:[.,]\d+)?)\s*%\s+(.+)$/);
+  const match = title.match(/^(\d+(?:[.,]\d+)?)(?:\s*[-–]\s*(\d+(?:[.,]\d+)?))?\s*%\s+(.+)$/);
   if (!match) return null;
 
   const percent = match[1]!;
   return {
-    name: match[2]!,
+    name: match[3]!,
     percent: Number(percent.replace(',', '.')),
-    percentLabel: `${percent}%`,
+    percentLabel: match[2] ? `${percent}-${match[2]}%` : `${percent}%`,
   };
 }
 
@@ -102,6 +102,31 @@ export function extractVtbCashbackCategories(
   )) {
     const category = categoryFromInput(input);
     if (category) categories.push(category);
+  }
+  if (categories.length || root.querySelector('input[type="checkbox"]')) return categories;
+  if (typeof location === 'undefined' || location.pathname !== '/bonus/categories/months') return categories;
+  const month = normalizeText(root.querySelector('[role="radiogroup"] [aria-checked="true"]')?.textContent);
+  const currentMonth = new Date().toLocaleString('ru-RU', { month: 'long' });
+  // Do not import a past or next month's saved list as this month's cashback.
+  if (month.toLowerCase() !== currentMonth.toLowerCase()) return categories;
+  for (const item of root.querySelectorAll<HTMLElement>('[role="button"][aria-label]')) {
+    if (!/\d+(?:[.,]\d+)?%\s+в категории/i.test(item.getAttribute('aria-label') ?? '')) continue;
+    const title = [...item.querySelectorAll<HTMLElement>('p')]
+      .map(element => normalizeText(element.textContent))
+      .find(text => parseVtbCategoryTitle(text) != null);
+    const parsed = parseVtbCategoryTitle(title ?? '');
+    if (!parsed) continue;
+    const details = [...item.querySelectorAll<HTMLElement>('p')]
+      .map(element => normalizeText(element.textContent))
+      .filter(text => text && text !== title && text !== 'Подробнее');
+    categories.push({
+      type: 'standard', ...parsed,
+      selected: true, confirmed: true,
+      group: `Кешбэк в ${month.toLowerCase()}`,
+      subtitle: details[0] ?? null,
+      description: details.join('\n') || null,
+      iconUrl: svgToDataUrl(item), iconBackgroundColor: null, expiresInLabel: null,
+    });
   }
   return categories;
 }

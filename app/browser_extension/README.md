@@ -11,6 +11,30 @@ The multi-bank user flow, JSON contract, current integration status, and known
 limitations are captured in
 [docs/multi-bank-import-mvp.md](docs/multi-bank-import-mvp.md).
 
+The side panel also has a **Собрать расширенные предложения** button. It reads
+partner and promotional offers from the authenticated bank tabs and adds them as
+`banks[].extendedOffers` to the existing schema-version-1 JSON export. Each offer
+has a stable bank-local ID, full preview fields, icon and artwork URLs, detailed
+conditions, steps, links, monetary limits when stated explicitly, and a
+`detailsStatus` (`complete`, `preview_only`, or `error`). The original monthly
+`categories` import remains compatible with the backend; the backend currently
+ignores `extendedOffers`.
+
+The extension saves progress in its local storage per bank. On the next run it
+reuses complete details only when the ID, rate, visible dates, conditions, text,
+category group, URLs, icon, and selection state match the previous preview.
+Changed previews are read again. Ozon Bank automatically connects an inactive
+promotion when its card is opened. This behavior is enabled: collecting extended
+offers opens new or changed inactive promotions and connects them. `selected`
+records the preview state before opening; the next scan reads the updated state.
+The ZIP image export includes
+extended-offer icons and artwork. A bank's own interface may still omit some fields, in
+which case the corresponding normalized value is `null` and the original text
+is retained in `conditions` or `previewText`.
+
+The current implementation snapshot and next application-integration stage are
+documented in [docs/extended-offers-state.md](docs/extended-offers-state.md).
+
 ## Prerequisites
 
 - Node.js 24 LTS installed at `C:\Program Files\nodejs`.

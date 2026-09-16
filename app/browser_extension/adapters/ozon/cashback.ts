@@ -1,4 +1,5 @@
 import type { CashbackCategory } from '../types';
+import { showsCurrentCashbackMonth } from '../monthly-confirmation';
 
 export type OzonCashbackCategory = CashbackCategory;
 
@@ -46,6 +47,11 @@ function extractOzonFavoriteCategories(root: ParentNode): OzonCashbackCategory[]
   const list = root.querySelector<HTMLElement>('[data-testid="favorite-category-list"]');
   if (!list) return [];
 
+  const heading = normalizeText(root.querySelector('[data-testid="selection-title"]')?.textContent);
+  const saved = /^Ваши категории в\s+/i.test(heading) &&
+    showsCurrentCashbackMonth(heading) &&
+    !list.querySelector('input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"]');
+
   const categories = new Map<string, OzonCashbackCategory>();
   const leaves = [...list.querySelectorAll<HTMLElement>('div, span, p')]
     .filter((element) => element.children.length === 0);
@@ -65,7 +71,7 @@ function extractOzonFavoriteCategories(root: ParentNode): OzonCashbackCategory[]
 
     const image = item.querySelector<HTMLImageElement>('img');
     const input = item.querySelector<HTMLInputElement>('input[type="checkbox"], input[type="radio"]');
-    const selected = input?.checked ?? item.getAttribute('aria-checked') === 'true';
+    const selected = saved || (input?.checked ?? item.getAttribute('aria-checked') === 'true');
     const description = [...item.querySelectorAll<HTMLElement>('div, span, p')]
       .filter((element) => element.children.length === 0)
       .map((element) => normalizeText(element.textContent))
@@ -78,7 +84,8 @@ function extractOzonFavoriteCategories(root: ParentNode): OzonCashbackCategory[]
       iconUrl: image?.currentSrc || image?.src || null,
       iconBackgroundColor: null,
       selected,
-      group: 'Доступные категории',
+      confirmed: saved,
+      group: saved ? heading : 'Доступные категории',
       expiresInLabel: null,
     };
     categories.set(`${category.name}\u0000${category.percentLabel}`, category);
