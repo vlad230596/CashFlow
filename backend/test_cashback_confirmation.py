@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from main import CashbackCategory, app, db
 from test_auth import client as authenticated_client
 from test_auth import login
 
@@ -27,6 +28,18 @@ def test_selection_requires_bank_confirmation(client):
     })
     assert category['is_bank_confirmed'] is False
     assert client.get('/api/active_cashback', headers=headers).get_json() == []
+
+    with app.app_context():
+        db.session.add(CashbackCategory(
+            name='Stale overlapping selection',
+            start_date=now - timedelta(days=45),
+            end_date=now + timedelta(days=45),
+            cashback_percent=5,
+            card_id=card['id'],
+            is_selected=True,
+            is_bank_confirmed=True,
+        ))
+        db.session.commit()
 
     imported = {'name': 'Monthly', 'percent': 10, 'selected': True}
     document = {

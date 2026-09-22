@@ -5,6 +5,7 @@ import '../../models/bank_model.dart';
 import '../../models/mcc_rule_model.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
+import 'mcc_import_review_screen.dart';
 import 'mcc_rule_edit_screen.dart';
 
 class MccRulesSettingsScreen extends StatefulWidget {
@@ -66,6 +67,16 @@ class _MccRulesSettingsScreenState extends State<MccRulesSettingsScreen> {
       ),
     );
     if (changed == true) await _refresh();
+  }
+
+  Future<void> _openImportReview(BankModel bank) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MccImportReviewScreen(bank: bank),
+      ),
+    );
+    if (mounted) await _refresh();
   }
 
   Future<void> _publish(MccRuleRevisionModel revision) async {
@@ -175,11 +186,20 @@ class _MccRulesSettingsScreenState extends State<MccRulesSettingsScreen> {
                             icon: const Icon(Icons.cloud_download_outlined),
                             label: const Text('Подгрузить автоматически'),
                           );
+                          final importButton = OutlinedButton.icon(
+                            onPressed: bank == null
+                                ? null
+                                : () => _openImportReview(bank),
+                            icon: const Icon(Icons.upload_file_outlined),
+                            label: const Text('Проверить JSON'),
+                          );
                           if (constraints.maxWidth < 650) {
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 bankPicker(),
+                                const SizedBox(height: 8),
+                                importButton,
                                 const SizedBox(height: 8),
                                 autoButton,
                               ],
@@ -189,6 +209,8 @@ class _MccRulesSettingsScreenState extends State<MccRulesSettingsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(child: bankPicker()),
+                              const SizedBox(width: 8),
+                              importButton,
                               const SizedBox(width: 8),
                               autoButton,
                             ],

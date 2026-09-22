@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CashFlow — экран «Ещё»</title>
+  <style>
+    :root {
+      --ink:#10213f; --muted:#59677c; --subtle:#778397; --line:#dce4ee;
+      --canvas:#eef3f8; --surface:#fff; --blue:#1769e8; --blue-soft:#eaf2ff;
+      --amber:#9a5a00; --amber-soft:#fff2d8; --danger:#b3261e; --danger-soft:#fff0ee;
+      --green:#19724d; --nav:#12213b;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; width:1600px; height:1050px; overflow:hidden; color:var(--ink); background:radial-gradient(circle at 30% 0,#fff 0,transparent 42%),var(--canvas); font-family:"Segoe UI",Arial,sans-serif; }
+    button { font:inherit; color:inherit; }
+    svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+    .board { height:100%; padding:22px 44px 30px; }
+    .board-title { margin:0 0 16px; text-align:center; font-size:30px; line-height:1.15; letter-spacing:.02em; }
+    .stage { height:960px; display:grid; grid-template-columns:420px 1fr; gap:40px; align-items:center; }
+    .caption { margin:0 0 9px; color:#6c788c; font-size:13px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+
+    .phone { width:420px; height:900px; padding:10px; border:4px solid #1b2533; border-radius:50px; background:#111923; box-shadow:0 22px 55px rgba(24,41,66,.18); }
+    .phone-screen { position:relative; height:100%; overflow:hidden; border-radius:37px; background:#f7f9fc; }
+    .notch { position:absolute; z-index:2; top:8px; left:50%; width:112px; height:25px; transform:translateX(-50%); border-radius:20px; background:#0b1017; }
+    .status { height:32px; padding:4px 21px 0; display:flex; align-items:center; justify-content:space-between; color:#101827; font-size:12px; font-weight:700; }
+    .mobile-head { height:58px; padding:9px 18px 5px; display:flex; align-items:center; justify-content:space-between; }
+    .mobile-head h2 { margin:0; font-size:28px; line-height:1; }
+    .avatar { width:40px; height:40px; display:grid; place-items:center; border-radius:50%; color:#fff; background:#243b61; font-size:13px; font-weight:750; }
+    .mobile-scroll { height:720px; padding:5px 14px 94px; overflow-x:hidden; overflow-y:auto; scrollbar-width:none; }
+    .mobile-scroll::-webkit-scrollbar { display:none; }
+
+    .sync-card { padding:15px; border:1px solid #cfdcea; border-radius:17px; background:linear-gradient(135deg,#fff,#f5f9ff); box-shadow:0 3px 12px rgba(35,58,89,.06); }
+    .sync-top { display:flex; align-items:center; gap:11px; }
+    .state-dot { width:36px; height:36px; display:grid; place-items:center; flex:0 0 36px; border-radius:11px; color:var(--green); background:#e6f5ee; }
+    .state-dot svg { width:20px; height:20px; }
+    .sync-copy { min-width:0; flex:1; }
+    .sync-copy strong { display:block; font-size:14px; }
+    .sync-copy span { display:block; margin-top:2px; color:var(--muted); font-size:12px; }
+    .refresh { min-width:91px; height:40px; padding:0 13px; display:flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:11px; color:#fff; background:var(--blue); font-size:13px; font-weight:700; }
+    .refresh svg { width:17px; height:17px; }
+
+    .section-label { margin:17px 5px 7px; color:#68768a; font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+    .group { overflow:hidden; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+    .row { min-height:58px; padding:9px 12px; display:grid; grid-template-columns:38px minmax(0,1fr) auto; align-items:center; column-gap:10px; border:0; border-bottom:1px solid #e8edf3; background:#fff; text-align:left; }
+    .row:last-child { border-bottom:0; }
+    .row-icon { width:36px; height:36px; display:grid; place-items:center; border-radius:11px; color:#345277; background:#edf2f7; }
+    .row-icon svg { width:20px; height:20px; }
+    .row-copy { min-width:0; }
+    .row-copy strong { display:block; overflow:hidden; font-size:13px; line-height:18px; text-overflow:ellipsis; white-space:nowrap; }
+    .row-copy span { display:block; overflow:hidden; margin-top:1px; color:var(--muted); font-size:11px; line-height:16px; text-overflow:ellipsis; white-space:nowrap; }
+    .meta { padding-left:8px; color:#5f6f84; font-size:12px; font-weight:650; white-space:nowrap; }
+    .chev { width:18px; height:18px; margin-left:5px; color:#8793a4; }
+    .tag { padding:3px 7px; border-radius:7px; color:var(--amber); background:var(--amber-soft); font-size:10px; font-weight:750; }
+    .future { margin-top:14px; padding:11px 13px; display:flex; gap:10px; border:1px dashed #b9c6d6; border-radius:14px; color:#526176; background:#f5f7fa; }
+    .future svg { flex:0 0 20px; width:20px; height:20px; }
+    .future strong { display:block; color:#35455d; font-size:12px; }
+    .future span { display:block; margin-top:2px; font-size:11px; line-height:1.35; }
+    .mobile-nav { position:absolute; right:0; bottom:0; left:0; height:76px; padding:7px 8px 10px; display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--line); background:rgba(255,255,255,.98); }
+    .nav-item { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:#5d6a7c; font-size:11px; font-weight:650; }
+    .nav-item svg { width:21px; height:21px; }
+    .nav-item.active { color:var(--blue); }
+
+    .desktop-shell { height:820px; display:grid; grid-template-columns:220px 1fr; overflow:hidden; border:1px solid #dae3ed; border-radius:26px; background:#f6f8fb; box-shadow:0 18px 48px rgba(25,43,69,.13); }
+    .side { padding:25px 16px 20px; color:#d9e3f1; background:var(--nav); }
+    .brand { padding:0 12px 25px; color:#fff; font-size:22px; font-weight:800; letter-spacing:.01em; }
+    .side-nav { display:grid; gap:6px; }
+    .side-item { height:48px; padding:0 12px; display:flex; align-items:center; gap:11px; border-radius:12px; font-size:14px; font-weight:650; }
+    .side-item.active { color:#fff; background:#284c7c; }
+    .side-item svg { width:21px; height:21px; }
+    .side-foot { position:absolute; bottom:20px; }
+    .side { position:relative; }
+    .side-user { padding:12px; display:grid; grid-template-columns:34px 1fr; gap:10px; align-items:center; border-top:1px solid #30415d; font-size:12px; }
+    .side-user .avatar { width:34px; height:34px; background:#496a98; font-size:11px; }
+    .side-user span { display:block; color:#9fb0c7; margin-top:2px; }
+
+    .desk-main { padding:32px 38px; overflow:hidden; }
+    .desk-top { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:22px; }
+    .desk-top h2 { margin:0; font-size:30px; }
+    .desk-top p { margin:6px 0 0; color:var(--muted); font-size:14px; }
+    .desk-version { color:#657387; font-size:12px; }
+    .desk-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
+    .column { display:grid; gap:18px; }
+    .panel { overflow:hidden; border:1px solid var(--line); border-radius:18px; background:#fff; box-shadow:0 3px 12px rgba(30,49,78,.04); }
+    .panel-head { padding:16px 18px 11px; }
+    .panel-head h3 { margin:0; font-size:16px; }
+    .panel-head p { margin:4px 0 0; color:var(--muted); font-size:12px; line-height:1.4; }
+    .panel .sync-card { margin:0 16px 16px; }
+    .panel .row { min-height:61px; padding:10px 16px; }
+    .desktop-shell .row-copy strong { font-size:14px; }
+    .desktop-shell .row-copy span { font-size:12px; }
+    .account-card { padding:4px 16px 14px; }
+    .fact { padding:11px 0; display:flex; justify-content:space-between; gap:20px; border-bottom:1px solid #e8edf3; font-size:13px; }
+    .fact span:first-child { color:var(--muted); }
+    .fact strong { text-align:right; }
+    .logout { width:100%; height:44px; margin-top:14px; display:flex; align-items:center; justify-content:center; gap:8px; border:1px solid #edc4c0; border-radius:12px; color:var(--danger); background:var(--danger-soft); font-weight:750; }
+    .logout svg { width:19px; height:19px; }
+    .desktop-future { margin:0 16px 16px; }
+    .windows { color:var(--amber); background:var(--amber-soft); }
+    .mcc { color:#6a43b7; background:#f1eafe; }
+    .calc { color:#1661c6; background:#e9f1ff; }
+
+    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <h1 class="board-title">«ЕЩЁ» — СЛУЖЕБНЫЙ ХАБ CASHFLOW</h1>
+    <div class="stage">
+      <section aria-label="Компактный макет">
+        <p class="caption">Compact · телефон</p>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="notch"></div>
+            <div class="status"><span>9:41</span><span>● ●●</span></div>
+            <header class="mobile-head"><h2>Ещё</h2><div class="avatar" aria-label="Аккаунт Анна">АИ</div></header>
+            <div class="mobile-scroll">
+              <section class="sync-card" aria-label="Состояние данных">
+                <div class="sync-top">
+                  <div class="state-dot"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+                  <div class="sync-copy"><strong>Данные обновлены</strong><span>сегодня в 09:38</span></div>
+                  <button class="refresh"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5M20 4v7h-7"/></svg>Обновить</button>
+                </div>
+              </section>
+
+              <div class="section-label">Данные</div>
+              <div class="group">
+                <button class="row">
+                  <span class="row-icon windows"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span>
+                  <span class="row-copy"><strong>Запросить кешбэк</strong><span>Открыть банки в локальном Chrome</span></span><span class="tag">Windows</span>
+                </button>
+                <button class="row">
+                  <span class="row-icon windows"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16h16V8Z"/><path d="M14 2v6h6M8 14h8M8 18h5"/></svg></span>
+                  <span class="row-copy"><strong>Импортировать JSON</strong><span>Категории и партнёрские акции</span></span><span class="tag">Windows</span>
+                </button>
+              </div>
+
+              <div class="section-label">Управление</div>
+              <div class="group">
+                <button class="row"><span class="row-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6m3-3h-6"/></svg></span><span class="row-copy"><strong>Владельцы карт</strong><span>Кому принадлежат карты</span></span><span class="meta">2 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+                <button class="row"><span class="row-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span><span class="row-copy"><strong>Карты</strong><span>Банк и владелец</span></span><span class="meta">7 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+                <button class="row"><span class="row-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 21h18M5 21V10h14v11M12 3 3 8h18Z"/><path d="M9 14h6"/></svg></span><span class="row-copy"><strong>Банки</strong><span>Справочник банков</span></span><span class="meta">6 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+                <button class="row"><span class="row-icon mcc"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 8h3v3H8zM14 8h2M14 11h2M8 15h8"/></svg></span><span class="row-copy"><strong>Правила MCC</strong><span>Ревизии и публикация</span></span><svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div>
+
+              <div class="section-label">Параметры</div>
+              <div class="group">
+                <button class="row"><span class="row-icon calc"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span><span class="row-copy"><strong>Расчётная дата кешбэка</strong><span>Сейчас используется сегодня</span></span><span class="meta">21.09.2026 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+              </div>
+
+              <aside class="future"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg><div><strong>Семейное пространство · позже</strong><span>Приглашения и семейные роли ещё не реализованы.</span></div></aside>
+
+              <div class="section-label">Аккаунт и приложение</div>
+              <div class="group">
+                <div class="row"><span class="row-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="row-copy"><strong>anna · Администратор</strong><span>cash-flow-app.duckdns.org:8443</span></span><span class="meta">local</span></div>
+              </div>
+              <button class="logout"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M15 3h5v18h-5"/></svg>Выйти из аккаунта</button>
+            </div>
+            <nav class="mobile-nav" aria-label="Основная навигация">
+              <div class="nav-item"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h18M12 3v18M5 5l14 14M19 5 5 19"/></svg><span>Выгода</span></div>
+              <div class="nav-item"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16M6 16l4-5 3 3 5-7"/></svg><span>План</span></div>
+              <div class="nav-item"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 12v7H4V5h7M15 3h6v6M10 14 21 3"/></svg><span>Акции</span></div>
+              <div class="nav-item active"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span>Ещё</span></div>
+            </nav>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Расширенный макет">
+        <p class="caption">Expanded · desktop / широкий планшет</p>
+        <div class="desktop-shell">
+          <aside class="side">
+            <div class="brand">CashFlow</div>
+            <nav class="side-nav" aria-label="Основная навигация">
+              <div class="side-item"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h18M12 3v18M5 5l14 14M19 5 5 19"/></svg>Выгода</div>
+              <div class="side-item"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19h16M6 16l4-5 3 3 5-7"/></svg>План</div>
+              <div class="side-item"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 12v7H4V5h7M15 3h6v6M10 14 21 3"/></svg>Акции</div>
+              <div class="side-item active"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>Ещё</div>
+            </nav>
+            <div class="side-foot"><div class="side-user"><div class="avatar">АИ</div><div>anna<span>Администратор</span></div></div></div>
+          </aside>
+          <div class="desk-main">
+            <header class="desk-top"><div><h2>Ещё</h2><p>Данные, справочники и параметры приложения</p></div><div class="desk-version">Версия local</div></header>
+            <div class="desk-grid">
+              <div class="column">
+                <section class="panel">
+                  <div class="panel-head"><h3>Данные</h3><p>Обновление с сервера и локальные Windows-инструменты</p></div>
+                  <div class="sync-card"><div class="sync-top"><div class="state-dot"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div><div class="sync-copy"><strong>Данные обновлены</strong><span>сегодня в 09:38</span></div><button class="refresh"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5M20 4v7h-7"/></svg>Обновить</button></div></div>
+                  <button class="row"><span class="row-icon windows"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span><span class="row-copy"><strong>Запросить кешбэк</strong><span>Открыть банки в локальном Chrome</span></span><span class="tag">Windows</span></button>
+                  <button class="row"><span class="row-icon windows"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16h16V8Z"/><path d="M14 2v6h6M8 14h8M8 18h5"/></svg></span><span class="row-copy"><strong>Импортировать JSON</strong><span>Категории и партнёрские акции</span></span><span class="tag">Windows</span></button>
+                </section>
+                <section class="panel">
+                  <div class="panel-head"><h3>Параметры расчёта</h3></div>
+                  <button class="row"><span class="row-icon calc"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg></span><span class="row-copy"><strong>Расчётная дата кешбэка</strong><span>Используется текущая дата</span></span><span class="meta">21.09.2026 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+                </section>
+                <aside class="future desktop-future"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg><div><strong>Семейное пространство · позже</strong><span>Приглашения и семейные роли появятся после отдельного проектирования модели доступа.</span></div></aside>
+              </div>
+              <div class="column">
+                <section class="panel">
+                  <div class="panel-head"><h3>Управление данными</h3><p>Доступно администратору</p></div>
+                  <button class="row"><span class="row-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6m3-3h-6"/></svg></span><span class="row-copy"><strong>Владельцы карт</strong><span>Кому принадлежат карты</span></span><span class="meta">2 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+                  <button class="row"><span class="row-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span><span class="row-copy"><strong>Карты</strong><span>Банк и владелец</span></span><span class="meta">7 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+                  <button class="row"><span class="row-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 21h18M5 21V10h14v11M12 3 3 8h18Z"/><path d="M9 14h6"/></svg></span><span class="row-copy"><strong>Банки</strong><span>Справочник банков</span></span><span class="meta">6 <svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span></button>
+                  <button class="row"><span class="row-icon mcc"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 8h3v3H8zM14 8h2M14 11h2M8 15h8"/></svg></span><span class="row-copy"><strong>Правила MCC</strong><span>Ревизии и публикация</span></span><svg class="chev" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+                </section>
+                <section class="panel">
+                  <div class="panel-head"><h3>Аккаунт и приложение</h3></div>
+                  <div class="account-card">
+                    <div class="fact"><span>Пользователь</span><strong>anna · Администратор</strong></div>
+                    <div class="fact"><span>Сервер</span><strong>cash-flow-app.duckdns.org:8443</strong></div>
+                    <div class="fact"><span>Версия</span><strong>local</strong></div>
+                    <button class="logout"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M15 3h5v18h-5"/></svg>Выйти из аккаунта</button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script>
+    document.querySelectorAll('.mobile-nav .nav-item,.side-nav .side-item').forEach(item=>{item.setAttribute('role','link');item.setAttribute('tabindex','0')});
+  </script>
+</body>
+</html>

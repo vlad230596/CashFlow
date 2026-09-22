@@ -1,5 +1,6 @@
 import pytest
 
+import main as main_module
 from main import (
     AuthUser,
     Bank,
@@ -8,6 +9,7 @@ from main import (
     PartnerOfferImportRun,
     PartnerOfferPreference,
     PartnerOfferSnapshot,
+    _fetch_partner_icon,
     _hash_password,
     _partner_limit_from_text,
     _utc_now,
@@ -131,6 +133,40 @@ def test_limit_parser_preserves_unit_and_scope():
         "RUB",
         "unknown",
     )
+
+
+def test_partner_icon_uses_same_origin_proxy(client, monkeypatch):
+    admin = _login(client, "admin", "correct horse battery staple")
+    offer = _offer()
+    offer["iconUrl"] = "https://cdn1.ozone.ru/icon.webp"
+    assert _import(client, admin, [offer]).status_code == 200
+
+    payload = client.get("/api/partner-offers", headers=admin).get_json()
+    assert payload["items"][0]["snapshot"]["icon_url"] == (
+        "http://localhost/api/partner-offers/1/icon"
+    )
+
+    class FakeUpstream:
+        headers = {"Content-Type": "application/octet-stream"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return offer["iconUrl"]
+
+        def read(self, _limit):
+            return b"RIFF\x00\x00\x00\x00WEBPicon"
+
+    _fetch_partner_icon.cache_clear()
+    monkeypatch.setattr(main_module, "urlopen", lambda *_args, **_kwargs: FakeUpstream())
+    response = client.get("/api/partner-offers/1/icon")
+    assert response.status_code == 200
+    assert response.content_type == "image/webp"
+    assert response.headers["Cache-Control"].startswith("public, max-age=86400")
 
 
 def test_import_is_idempotent_and_preserves_exact_semantics(client):

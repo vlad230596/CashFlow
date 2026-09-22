@@ -59,10 +59,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Магазин А'), findsOneWidget);
-    expect(find.text('Магазин Б'), findsOneWidget);
+    expect(find.widgetWithText(Card, 'Магазин Б'), findsOneWidget);
     expect(find.text('до 10%'), findsNWidgets(2));
     expect(find.textContaining('1200 бонусов'), findsNWidgets(2));
     expect(find.textContaining('Осталось'), findsWidgets);
+
+    await tester.enterText(find.byType(TextField), 'Магазин Б');
+    await tester.pumpAndSettle();
+    expect(find.text('Магазин А'), findsNothing);
+    expect(find.widgetWithText(Card, 'Магазин Б'), findsOneWidget);
+    await tester.tap(find.byTooltip('Очистить поиск'));
+    await tester.pumpAndSettle();
 
     final bankScroller = find.byType(SingleChildScrollView).first;
     await tester.drag(bankScroller, const Offset(-260, 0));
@@ -76,7 +83,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Все (2)'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(PopupMenuButton<String>).first);
+    await tester.tap(find.byTooltip('Действия с предложением').first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Подробнее').last);
     await tester.pumpAndSettle();
@@ -87,6 +94,64 @@ void main() {
       tester.widget<SelectableText>(find.byType(SelectableText)).data,
       contains('подарочные сертификаты'),
     );
+  });
+
+  testWidgets('uses persistent master-detail layout on expanded width',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((request) async => http.Response(
+            json.encode(_offerJson(details: true)),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          )),
+    )..partnerOffers = [PartnerOffer.fromJson(_offerJson())];
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: const MaterialApp(
+          home: Scaffold(body: PartnerOffersScreen()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Открыто'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.byType(SelectableText), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('keeps compact layout usable with large text', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((request) async => http.Response('{}', 404)),
+    )..partnerOffers = [PartnerOffer.fromJson(_offerJson())];
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: MediaQuery(
+            data: const MediaQueryData(
+              size: Size(375, 812),
+              textScaler: TextScaler.linear(2),
+            ),
+            child: const Scaffold(body: PartnerOffersScreen()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Магазин А'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
 

@@ -1,6 +1,13 @@
 # CashFlow
 
-CashFlow is an open-source Flutter application designed for personal finance management. It includes features like expense tracking, cashback optimization, MCC code matching, and payment reminders.
+CashFlow is an open-source family cashback assistant. It combines cashback
+categories and partner offers across cards and banks so family members with
+shared card access can choose the most rewarding card, coordinate monthly
+category selections, and maintain MCC rules.
+
+CashFlow does not track spending or manage payment reminders. Those concerns
+belong to a separate companion application and may later integrate with
+CashFlow through an explicit API contract.
 
 Production releases publish a signed Android APK to GitHub Releases and deploy the Flask API
 and Flutter web application to `https://cash-flow-app.duckdns.org:8443`.
@@ -12,3 +19,5 @@ approved release workflow.
 
 - `app/` — Flutter client and browser extension.
 - `backend/` — HTTP API and persistent data.
+- `docs/product-design-brief.md` — product scope and redesign foundation.
+- `docs/product-design-status.md` — approved UX decisions, remaining work, and open questions.

@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CashFlow — экран «Акции»</title>
+  <style>
+    :root {
+      --navy:#102b52; --navy-2:#173865; --blue:#2168e8; --blue-soft:#eaf2ff;
+      --ink:#17243a; --muted:#64738a; --line:#dce4ed; --bg:#eef3f8;
+      --surface:#fff; --green:#157657; --green-soft:#e9f7f1; --amber:#a95c00;
+      --amber-soft:#fff2dc; --red:#b8383c; --red-soft:#fff0f0; --shadow:0 18px 50px rgba(19,42,74,.14);
+      --r-lg:22px; --r-md:15px; --focus:#0b57d0;
+    }
+    *{box-sizing:border-box}
+    html{background:#dfe8f2}
+    body{margin:0;min-width:1440px;color:var(--ink);background:linear-gradient(145deg,#f7fafc,#dfe8f2);font-family:Inter,"Segoe UI",Arial,sans-serif}
+    button,input{font:inherit}
+    button{cursor:pointer}
+    button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+    .board{width:1800px;height:1120px;margin:0 auto;padding:24px 28px 28px}
+    .board-head{height:68px;display:flex;align-items:flex-start;justify-content:space-between}
+    .board-head h1{margin:0;color:var(--navy);font-size:26px;letter-spacing:-.02em}
+    .board-head p{margin:6px 0 0;color:var(--muted);font-size:13px}
+    .demo-note{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid #d4deea;border-radius:12px;color:#4d6078;background:#f8fbfe;font-size:12px;font-weight:700}
+    .demo-note svg{width:17px;height:17px;color:var(--blue)}
+    .stage{height:1000px;display:grid;grid-template-columns:1306px 410px;gap:28px;align-items:start}
+    .desktop-shell,.phone{overflow:hidden;border:1px solid #cfdae7;background:var(--bg);box-shadow:var(--shadow)}
+    .desktop-shell{height:982px;display:grid;grid-template-columns:190px 1fr;border-radius:24px}
+    .sidebar{padding:24px 14px;color:#dce8fb;background:linear-gradient(180deg,var(--navy),#0c2343)}
+    .brand{display:flex;align-items:center;gap:10px;padding:0 10px 28px;color:#fff;font-size:20px;font-weight:850}
+    .brand-mark{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;color:#fff;background:var(--blue)}
+    .brand-mark svg{width:18px;height:18px}
+    .nav{display:flex;flex-direction:column;gap:6px}
+    .nav-item{height:46px;display:flex;align-items:center;gap:11px;padding:0 12px;border-radius:12px;color:#d2def0;font-size:13px;font-weight:700}
+    .nav-item svg{width:20px;height:20px}
+    .nav-item.active{color:#fff;background:var(--blue)}
+    .nav-item.more{margin-top:520px}
+    .desktop-main{padding:22px 24px 24px;overflow:hidden}
+    .page-head{height:70px;display:flex;justify-content:space-between;align-items:flex-start}
+    .page-head h2{margin:0;color:var(--navy);font-size:28px;letter-spacing:-.025em}
+    .page-head p{margin:5px 0 0;color:var(--muted);font-size:12px}
+    .head-actions{display:flex;align-items:center;gap:8px}
+    .icon-btn,.soft-btn,.primary-btn{height:42px;border-radius:11px;border:1px solid var(--line);background:#fff;color:#40536d;font-size:12px;font-weight:750}
+    .icon-btn{width:42px;display:grid;place-items:center}
+    .icon-btn svg{width:19px;height:19px}
+    .soft-btn{padding:0 14px}
+    .workspace{height:840px;display:grid;grid-template-columns:470px minmax(0,1fr);gap:16px}
+    .panel{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:0 4px 16px rgba(24,45,73,.045)}
+    .catalog{display:flex;flex-direction:column}
+    .catalog-view{display:none;height:100%}
+    .catalog-view.active{display:block}
+    .catalog-tools{padding:14px 14px 12px;border-bottom:1px solid #e8edf3}
+    .search{height:44px;display:flex;align-items:center;gap:9px;padding:0 11px;border:1px solid #cad6e4;border-radius:12px;background:#fff}
+    .search svg{width:18px;height:18px;color:#62738b}
+    .search input{min-width:0;flex:1;border:0;outline:0;color:var(--ink);background:transparent;font-size:13px}
+    .search input::placeholder{color:#8290a2}
+    .segments{margin-top:10px;display:flex;gap:5px;padding:4px;border-radius:11px;background:#eef2f6}
+    .segment{height:34px;flex:1;border:0;border-radius:8px;color:#607087;background:transparent;font-size:11px;font-weight:800}
+    .segment.active{color:var(--blue);background:#fff;box-shadow:0 2px 7px rgba(28,53,88,.08)}
+    .filter-row{margin-top:10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    .chip{height:31px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d8e2ed;border-radius:9px;color:#52667f;background:#f8fafc;font-size:10px;font-weight:750;white-space:nowrap}
+    .chip svg{width:13px;height:13px}
+    .chip.active{border-color:#bfd3fa;color:#1658c3;background:var(--blue-soft)}
+    .result-line{height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 15px;color:var(--muted);font-size:10px}
+    .result-line b{color:#435873}
+    .offer-list{padding:0 9px 16px;overflow:auto}
+    .offer{position:relative;margin-bottom:8px;padding:12px;border:1px solid #dfe6ef;border-radius:14px;background:#fff;transition:border-color .16s,background .16s,box-shadow .16s}
+    .offer:hover{border-color:#b8cae0;box-shadow:0 5px 15px rgba(27,56,92,.07)}
+    .offer.selected{border:2px solid var(--blue);padding:11px;background:#fbfdff;box-shadow:0 6px 18px rgba(33,104,232,.1)}
+    .offer-top{display:grid;grid-template-columns:40px minmax(0,1fr) 38px;gap:10px;align-items:start}
+    .merchant{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:#173559;background:#e7eef8;font-size:12px;font-weight:900}
+    .merchant.teal{color:#0c675b;background:#e1f5f0}.merchant.orange{color:#944b00;background:#fff0dc}
+    .offer-copy{min-width:0}
+    .offer-copy strong{display:block;overflow:hidden;color:#1b2b42;font-size:13px;text-overflow:ellipsis;white-space:nowrap}
+    .offer-copy small{display:block;margin-top:3px;color:var(--muted);font-size:10px}
+    .menu{width:38px;height:38px;border:0;border-radius:10px;color:#5b6c82;background:transparent;font-size:18px;font-weight:900}
+    .menu:hover{background:#edf2f7}
+    .badges{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+    .badge{min-height:25px;display:flex;align-items:center;padding:5px 8px;border-radius:8px;color:#476079;background:#eff3f7;font-size:9.5px;font-weight:800;line-height:1.2}
+    .badge.rate{color:#0d5c42;background:var(--green-soft)}
+    .badge.warn{color:#8f5104;background:var(--amber-soft)}
+    .offer-foot{margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .deadline{display:flex;align-items:center;gap:5px;color:#4b607a;font-size:10px;font-weight:750}
+    .deadline svg{width:13px;height:13px}.deadline.soon{color:var(--amber)}
+    .preference{display:flex;align-items:center;gap:5px;color:#176247;font-size:9px;font-weight:850}
+    .preference svg{width:13px;height:13px}
+    .details{display:flex;flex-direction:column}
+    .details-head{padding:18px 20px 14px;border-bottom:1px solid #e7edf3}
+    .detail-overline{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+    .open-marker{display:flex;align-items:center;gap:5px;color:var(--blue);text-transform:none;letter-spacing:0}
+    .open-marker svg{width:13px;height:13px}
+    .detail-identity{margin-top:14px;display:grid;grid-template-columns:54px minmax(0,1fr) auto;gap:12px;align-items:center}
+    .detail-identity .merchant{width:54px;height:54px;border-radius:15px;font-size:15px}
+    .detail-identity h3{margin:0;color:var(--navy);font-size:22px;letter-spacing:-.02em}
+    .detail-identity p{margin:5px 0 0;color:var(--muted);font-size:11px}
+    .rate-big{color:var(--green);font-size:23px;font-weight:900}
+    .detail-actions{margin-top:16px;display:flex;gap:8px}
+    .primary-btn{padding:0 16px;border-color:var(--blue);color:#fff;background:var(--blue)}
+    .primary-btn svg,.soft-btn svg{width:16px;height:16px;vertical-align:-3px;margin-right:6px}
+    .detail-scroll{padding:16px 20px 24px;overflow:auto}
+    .status-card{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .status-cell{padding:11px 12px;border-radius:11px;background:#f3f6fa}
+    .status-cell span{display:block;color:var(--muted);font-size:9px;font-weight:750}
+    .status-cell strong{display:block;margin-top:4px;color:#273a54;font-size:12px}
+    .section{padding-top:18px}
+    .section h4{margin:0 0 9px;color:var(--navy);font-size:13px}
+    .section p,.section li{color:#52647a;font-size:11px;line-height:1.55}
+    .section p{margin:0}.section ul,.section ol{margin:0;padding-left:18px}.section li+li{margin-top:6px}
+    .info-banner{margin-top:16px;padding:11px 12px;display:flex;gap:9px;border:1px solid #f0d39f;border-radius:11px;color:#72501f;background:#fff8e9;font-size:10px;line-height:1.45}
+    .info-banner svg{width:17px;height:17px;flex:none;color:var(--amber)}
+    .source{margin-top:16px;padding-top:12px;border-top:1px solid #e6ecf2;color:#718096;font-size:9.5px;line-height:1.5}
+    .phone-wrap{padding-top:28px}
+    .phone-label{height:34px;display:flex;align-items:center;justify-content:space-between;color:#4e6179;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+    .phone{position:relative;width:390px;height:900px;border:8px solid #172a45;border-radius:38px;background:#f3f6f9;box-shadow:0 24px 55px rgba(21,41,69,.22)}
+    .phone:before{content:"";position:absolute;z-index:5;top:8px;left:50%;width:104px;height:24px;transform:translateX(-50%);border-radius:18px;background:#172a45}
+    .phone-screen{height:100%;overflow:hidden;border-radius:29px;background:#f3f6f9}
+    .mobile-status{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;color:#20334e;background:#fff;font-size:10px;font-weight:800}
+    .mobile-status .signals{display:flex;gap:5px}.mobile-status svg{width:13px;height:13px}
+    .mobile-head{padding:14px 14px 10px;background:#fff}
+    .mobile-title{display:flex;align-items:center;justify-content:space-between}
+    .mobile-title h2{margin:0;color:var(--navy);font-size:24px}.mobile-title .icon-btn{height:40px;width:40px}
+    .mobile-sub{margin:3px 0 12px;color:var(--muted);font-size:10px}
+    .mobile-head .search{height:44px}
+    .mobile-head .segments{margin-top:9px}
+    .mobile-filters{padding:10px 12px 8px;display:flex;gap:6px;background:#f3f6f9}
+    .mobile-list{height:594px;padding:0 10px 100px;overflow:hidden;background:#f3f6f9}
+    .mobile-count{height:36px;display:flex;align-items:center;justify-content:space-between;color:#63738a;font-size:9px}
+    .mobile-list .offer{margin-bottom:9px;padding:12px}.mobile-list .offer-top{grid-template-columns:42px minmax(0,1fr) 38px}
+    .mobile-list .merchant{width:42px;height:42px}.mobile-list .offer-copy strong{font-size:14px}.mobile-list .offer-copy small{font-size:10px}
+    .mobile-list .badge{font-size:9px}.mobile-list .deadline{font-size:9px}
+    .bottom-nav{position:absolute;z-index:4;left:0;right:0;bottom:0;height:78px;display:grid;grid-template-columns:repeat(4,1fr);padding:8px 8px 16px;border-top:1px solid #dce4ed;background:#fff}
+    .bottom-item{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#718198;font-size:9px;font-weight:750}
+    .bottom-item svg{width:20px;height:20px}.bottom-item.active{color:var(--blue)}
+    .prototype-controls{position:fixed;z-index:50;left:50%;bottom:16px;display:flex;gap:6px;padding:6px;transform:translateX(-50%);border:1px solid #cbd7e5;border-radius:14px;background:#fff;box-shadow:0 12px 30px rgba(20,45,78,.2)}
+    .state-btn{height:35px;padding:0 11px;border:0;border-radius:9px;color:#52657e;background:#f0f4f8;font-size:10px;font-weight:800}
+    .state-btn.active{color:#fff;background:var(--blue)}
+    .state-panel{display:none;height:100%;padding:28px;place-items:center;text-align:center}
+    .state-panel.active{display:grid}
+    .state-card{max-width:420px}.state-icon{width:58px;height:58px;display:grid;place-items:center;margin:0 auto 16px;border-radius:18px;color:var(--blue);background:var(--blue-soft)}
+    .state-icon svg{width:28px;height:28px}.state-card h3{margin:0;color:var(--navy);font-size:20px}.state-card p{margin:8px 0 16px;color:var(--muted);font-size:12px;line-height:1.5}
+    .skeleton{height:112px;margin:0 10px 9px;border-radius:14px;background:linear-gradient(90deg,#edf1f5 25%,#f7f9fb 40%,#edf1f5 60%);background-size:300% 100%;animation:shimmer 1.4s infinite}
+    @keyframes shimmer{to{background-position:-300% 0}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+    @media (max-width:839px), (max-width:900px) and (max-height:500px){
+      body{min-width:0;background:#f3f6f9}
+      .board{width:100%;height:auto;margin:0;padding:0}
+      .board-head,.desktop-shell,.phone-label,.prototype-controls{display:none}
+      .stage{height:auto;display:block}
+      .phone-wrap{padding:0}
+      .phone{width:100%;height:100dvh;border:0;border-radius:0;box-shadow:none}
+      .phone:before{display:none}
+      .phone-screen{border-radius:0}
+      .mobile-list{height:calc(100dvh - 290px);overflow:auto}
+    }
+    @media (max-width:900px) and (max-height:500px){
+      .mobile-status{height:28px}
+      .mobile-head{padding:5px 14px 6px}
+      .mobile-title h2{font-size:20px}
+      .mobile-title .icon-btn{width:36px;height:36px}
+      .mobile-sub{display:none}
+      .mobile-head .search{height:38px}
+      .mobile-head .segments{margin-top:5px}
+      .mobile-head .segment{height:30px}
+      .mobile-filters{padding:6px 12px}
+      .mobile-list{height:calc(100dvh - 205px);padding-bottom:82px}
+      .mobile-count{height:30px}
+    }
+    body.capture .prototype-controls{display:none}
+    .segment,.chip,.state-btn,.bottom-item{min-height:48px}.mobile-count,.result-line{font-size:12px}.mobile-list .offer-copy small,.mobile-list .deadline,.mobile-list .badge,.preference{font-size:11px}
+    [role="link"]{cursor:pointer}[role="link"]:focus-visible{outline:3px solid #0b57d0;outline-offset:2px}
+    @media print{.prototype-controls{display:none}.board{margin:0}}
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2l1.7 5.2L19 9l-5.3 1.8L12 16l-1.7-5.2L5 9l5.3-1.8L12 2Zm6.5 12 .9 2.6L22 17.5l-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6Z" fill="currentColor"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-7 9 7v9H6a3 3 0 0 1-3-3v-6Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 20v-6h6v6" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-plan" viewBox="0 0 24 24"><path d="M7 4h13v16H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M4 4h7l9 9-7 7-9-9V4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 11a7 7 0 0 0-12-3M6 13a7 7 0 0 0 12 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 5.8a5.5 5.5 0 0 0-7.8 0L12 6.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 22l8.8-8.4a5.5 5.5 0 0 0 0-7.8Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7.5v.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4 9a12 12 0 0 1 16 0M7 12a8 8 0 0 1 10 0M10 15a4 4 0 0 1 4 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="18" r="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-empty" viewBox="0 0 24 24"><path d="M4 7h16v13H4V7Zm3-3h10v3H7V4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  </defs></svg>
+
+  <main class="board">
+    <header class="board-head">
+      <div><h1>«Акции» — быстрый разбор персональных предложений</h1><p>Compact: каталог и быстрые фильтры · Expanded: master-detail без потери позиции списка</p></div>
+      <div class="demo-note"><svg><use href="#i-info"/></svg>Все названия, проценты, сроки и лимиты — демонстрационные</div>
+    </header>
+    <section class="stage">
+      <div class="desktop-shell">
+        <aside class="sidebar">
+          <div class="brand"><span class="brand-mark"><svg><use href="#i-spark"/></svg></span>CashFlow</div>
+          <nav class="nav" aria-label="Основная навигация">
+            <div class="nav-item"><svg><use href="#i-home"/></svg>Выгода</div>
+            <div class="nav-item"><svg><use href="#i-plan"/></svg>План</div>
+            <div class="nav-item active"><svg><use href="#i-tag"/></svg>Акции</div>
+            <div class="nav-item more"><svg><use href="#i-more"/></svg>Ещё</div>
+          </nav>
+        </aside>
+        <section class="desktop-main">
+          <header class="page-head">
+            <div><h2>Акции</h2><p>Персональные предложения банков · демонстрационный каталог</p></div>
+            <div class="head-actions"><button class="soft-btn"><svg><use href="#i-refresh"/></svg>Обновлено сегодня, 10:42</button><button class="icon-btn" aria-label="Дополнительные действия"><svg><use href="#i-more"/></svg></button></div>
+          </header>
+          <div class="workspace">
+            <section class="panel catalog">
+              <div class="catalog-view active" data-state-view="catalog">
+                <div class="catalog-tools">
+                  <label class="search"><svg><use href="#i-search"/></svg><input aria-label="Поиск предложений" placeholder="Магазин или название акции"></label>
+                  <div class="segments" role="tablist" aria-label="Оценка предложений"><button class="segment active">Все · 24</button><button class="segment">Интересные · 5</button><button class="segment">Отложенные · 19</button></div>
+                  <div class="filter-row"><button class="chip active"><svg><use href="#i-filter"/></svg>Север Банк</button><button class="chip">Все владельцы</button><button class="chip">Скоро завершатся</button></div>
+                </div>
+                <div class="result-line"><span><b>8 предложений</b> после фильтров</span><span>Сначала интересные</span></div>
+                <div class="offer-list">
+                  <article class="offer selected" tabindex="0">
+                    <div class="offer-top"><div class="merchant teal">ЛС</div><div class="offer-copy"><strong>Лавка у дома</strong><small>Север Банк · профиль Анны</small></div><button class="menu" aria-label="Действия с предложением">•••</button></div>
+                    <div class="badges"><span class="badge rate">до 12%</span><span class="badge">500 ₽ / акция</span><span class="badge warn">от 1 500 ₽</span></div>
+                    <div class="offer-foot"><span class="deadline soon"><svg><use href="#i-clock"/></svg>Осталось 3 дня · до 24 сентября</span><span class="preference"><svg><use href="#i-heart"/></svg>Интересно</span></div>
+                  </article>
+                  <article class="offer" tabindex="0">
+                    <div class="offer-top"><div class="merchant orange">РМ</div><div class="offer-copy"><strong>Рядом Маркет</strong><small>Север Банк · профиль Анны</small></div><button class="menu" aria-label="Действия с предложением">•••</button></div>
+                    <div class="badges"><span class="badge rate">7%</span><span class="badge">700 ₽ / месяц</span></div>
+                    <div class="offer-foot"><span class="deadline"><svg><use href="#i-clock"/></svg>Осталось 14 дней</span><span class="preference" style="color:#64738a">Отложено</span></div>
+                  </article>
+                  <article class="offer" tabindex="0">
+                    <div class="offer-top"><div class="merchant">ДС</div><div class="offer-copy"><strong>Дом и свет</strong><small>Север Банк · профиль Влада</small></div><button class="menu" aria-label="Действия с предложением">•••</button></div>
+                    <div class="badges"><span class="badge rate">1 000 бонусов</span><span class="badge warn">только онлайн</span></div>
+                    <div class="offer-foot"><span class="deadline"><svg><use href="#i-clock"/></svg>Срок не указан в источнике</span><span class="preference" style="color:#64738a">Отложено</span></div>
+                  </article>
+                  <article class="offer" tabindex="0">
+                    <div class="offer-top"><div class="merchant teal">ПТ</div><div class="offer-copy"><strong>Путь</strong><small>Север Банк · профиль Влада</small></div><button class="menu" aria-label="Действия с предложением">•••</button></div>
+                    <div class="badges"><span class="badge rate">5%</span><span class="badge">300 ₽ / покупка</span></div>
+                    <div class="offer-foot"><span class="deadline"><svg><use href="#i-clock"/></svg>Начнётся через 2 дня</span><span class="preference" style="color:#64738a">Отложено</span></div>
+                  </article>
+                </div>
+              </div>
+              <div class="catalog-view" data-state-view="loading"><div style="padding:16px;color:#50647d;font-size:11px;font-weight:800">Загружаем предложения…</div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+              <div class="state-panel" data-state-view="error"><div class="state-card"><div class="state-icon" style="color:var(--red);background:var(--red-soft)"><svg><use href="#i-refresh"/></svg></div><h3>Не удалось обновить каталог</h3><p>Показан сохранённый список от 20 сентября, 18:30. Оценки можно просматривать; результат синхронизации изменений будет показан отдельно.</p><button class="primary-btn">Повторить</button></div></div>
+              <div class="state-panel" data-state-view="empty"><div class="state-card"><div class="state-icon"><svg><use href="#i-search"/></svg></div><h3>Ничего не найдено</h3><p>Нет предложений, которые одновременно подходят запросу и выбранным фильтрам.</p><button class="primary-btn">Сбросить фильтры</button></div></div>
+              <div class="state-panel" data-state-view="hidden"><div class="state-card"><div class="state-icon"><svg><use href="#i-empty"/></svg></div><h3>Чёрный список пуст</h3><p>Скрытые предложения появятся здесь. Их можно восстановить в любой момент.</p><button class="soft-btn">Вернуться к акциям</button></div></div>
+            </section>
+            <aside class="panel details">
+              <header class="details-head">
+                <div class="detail-overline"><span>Подробности предложения</span><span class="open-marker"><svg><use href="#i-check"/></svg>Открыто</span></div>
+                <div class="detail-identity"><div class="merchant teal">ЛС</div><div><h3>Лавка у дома</h3><p>Север Банк · профиль Анны</p></div><div class="rate-big">до 12%</div></div>
+                <div class="detail-actions"><button class="primary-btn"><svg><use href="#i-heart"/></svg>Интересно</button><button class="soft-btn">Отложить</button><button class="icon-btn" aria-label="Другие действия"><svg><use href="#i-more"/></svg></button></div>
+              </header>
+              <div class="detail-scroll">
+                <div class="status-card"><div class="status-cell"><span>Срок</span><strong>До 24 сентября · 3 дня</strong></div><div class="status-cell"><span>Доступность</span><strong>По данным банка доступно</strong></div><div class="status-cell"><span>Максимум возврата</span><strong>500 ₽ за акцию</strong></div><div class="status-cell"><span>Минимальная покупка</span><strong>1 500 ₽</strong></div></div>
+                <section class="section"><h4>Требования и ограничения</h4><ul><li>Оплата картой, указанной в банковском предложении.</li><li>Некоторые товары могут не участвовать — проверьте полные условия.</li></ul></section>
+                <section class="section"><h4>Как получить</h4><ol><li>Откройте предложение в приложении банка.</li><li>Подключите его, если банк требует активацию.</li><li>Совершите подходящую покупку до окончания срока.</li></ol></section>
+                <div class="info-banner"><svg><use href="#i-info"/></svg><div><strong>CashFlow не подключает акцию автоматически.</strong><br>Статус подключения в банковском приложении для этого предложения неизвестен.</div></div>
+                <section class="section"><h4>Полные условия</h4><p>В прототипе условия сокращены. В продукте здесь отображается исходный текст и ссылки на документы банка без ложного упрощения.</p></section>
+                <div class="source">Демонстрационные данные · снимок получен 21 сентября в 10:42. Названия и условия не относятся к реальным банкам или магазинам.</div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </div>
+
+      <div class="phone-wrap">
+        <div class="phone-label"><span>Compact · 390 px</span><span>основной список</span></div>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="mobile-status"><span>10:42</span><span class="signals"><svg><use href="#i-wifi"/></svg><span>86%</span></span></div>
+            <header class="mobile-head">
+              <div class="mobile-title"><h2>Акции</h2><button class="icon-btn" aria-label="Обновить"><svg><use href="#i-refresh"/></svg></button></div>
+              <p class="mobile-sub">Демонстрационный каталог · обновлено сегодня</p>
+              <label class="search"><svg><use href="#i-search"/></svg><input aria-label="Поиск предложений" placeholder="Магазин или акция"></label>
+              <div class="segments"><button class="segment active">Все · 24</button><button class="segment">Интересные · 5</button><button class="segment">Отложенные</button></div>
+            </header>
+            <div class="mobile-filters"><button class="chip active"><svg><use href="#i-filter"/></svg>Север Банк</button><button class="chip">Срок</button><button class="chip">Ещё 1</button></div>
+            <div class="mobile-list">
+              <div class="mobile-count"><b>8 предложений</b><span>Сначала интересные</span></div>
+              <article class="offer">
+                <div class="offer-top"><div class="merchant teal">ЛС</div><div class="offer-copy"><strong>Лавка у дома</strong><small>Север Банк · Анна</small></div><button class="menu" aria-label="Действия с предложением">•••</button></div>
+                <div class="badges"><span class="badge rate">до 12%</span><span class="badge">500 ₽ / акция</span><span class="badge warn">от 1 500 ₽</span></div>
+                <div class="offer-foot"><span class="deadline soon"><svg><use href="#i-clock"/></svg>Осталось 3 дня</span><span class="preference"><svg><use href="#i-heart"/></svg>Интересно</span></div>
+              </article>
+              <article class="offer">
+                <div class="offer-top"><div class="merchant orange">РМ</div><div class="offer-copy"><strong>Рядом Маркет</strong><small>Север Банк · Анна</small></div><button class="menu" aria-label="Действия с предложением">•••</button></div>
+                <div class="badges"><span class="badge rate">7%</span><span class="badge">700 ₽ / месяц</span></div>
+                <div class="offer-foot"><span class="deadline"><svg><use href="#i-clock"/></svg>Осталось 14 дней</span><span class="preference" style="color:#64738a">Отложено</span></div>
+              </article>
+              <article class="offer">
+                <div class="offer-top"><div class="merchant">ДС</div><div class="offer-copy"><strong>Дом и свет</strong><small>Север Банк · Влад</small></div><button class="menu" aria-label="Действия с предложением">•••</button></div>
+                <div class="badges"><span class="badge rate">1 000 бонусов</span><span class="badge warn">только онлайн</span></div>
+                <div class="offer-foot"><span class="deadline"><svg><use href="#i-clock"/></svg>Срок не указан</span><span class="preference" style="color:#64738a">Отложено</span></div>
+              </article>
+            </div>
+            <nav class="bottom-nav" aria-label="Основная навигация"><div class="bottom-item"><svg><use href="#i-home"/></svg>Выгода</div><div class="bottom-item"><svg><use href="#i-plan"/></svg>План</div><div class="bottom-item active"><svg><use href="#i-tag"/></svg>Акции</div><div class="bottom-item"><svg><use href="#i-more"/></svg>Ещё</div></nav>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="prototype-controls" role="group" aria-label="Состояние прототипа">
+    <button class="state-btn active" data-state="catalog">Каталог</button><button class="state-btn" data-state="loading">Загрузка</button><button class="state-btn" data-state="error">Ошибка + кеш</button><button class="state-btn" data-state="empty">Нет результатов</button><button class="state-btn" data-state="hidden">Чёрный список</button>
+  </div>
+  <script>
+    if(location.hash==='#capture') document.body.classList.add('capture');
+    const buttons=[...document.querySelectorAll('.state-btn')];
+    const views=[...document.querySelectorAll('[data-state-view]')];
+    buttons.forEach(button=>button.addEventListener('click',()=>{
+      buttons.forEach(item=>item.classList.toggle('active',item===button));
+      views.forEach(view=>view.classList.toggle('active',view.dataset.stateView===button.dataset.state));
+    }));
+</script>
+<script>
+  document.querySelectorAll('.nav .nav-item,.bottom-nav .bottom-item').forEach(item=>{item.setAttribute('role','link');item.setAttribute('tabindex','0')});
+</script>
+</body>
+</html>

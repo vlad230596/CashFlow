@@ -40,7 +40,6 @@ class _BrowserLoginFormState extends State<BrowserLoginForm> {
       ..name = 'username'
       ..type = 'text'
       ..autocomplete = 'username'
-      ..placeholder = 'Логин'
       ..required = true
       ..autocapitalize = 'none'
       ..spellcheck = false
@@ -51,7 +50,6 @@ class _BrowserLoginFormState extends State<BrowserLoginForm> {
       ..name = 'password'
       ..type = 'password'
       ..autocomplete = 'current-password'
-      ..placeholder = 'Пароль'
       ..required = true
       ..className = 'cashflow-native-input cashflow-password-input'
       ..setAttribute('aria-label', 'Пароль');
@@ -64,11 +62,19 @@ class _BrowserLoginFormState extends State<BrowserLoginForm> {
       ..type = 'submit'
       ..className = 'cashflow-native-submit';
 
+    final usernameLabel = web.HTMLLabelElement()
+      ..htmlFor = 'cashflow-username'
+      ..textContent = 'Логин';
+    final passwordLabel = web.HTMLLabelElement()
+      ..htmlFor = 'cashflow-password'
+      ..textContent = 'Пароль';
     final passwordContainer = web.HTMLDivElement()
       ..className = 'cashflow-password-container';
     passwordContainer.append(_password);
     passwordContainer.append(_passwordVisibility);
+    _form.append(usernameLabel);
     _form.append(_username);
+    _form.append(passwordLabel);
     _form.append(passwordContainer);
     _form.append(_submitButton);
 
@@ -101,11 +107,9 @@ class _BrowserLoginFormState extends State<BrowserLoginForm> {
   }
 
   void _updateSubmittingState() {
-    _username.disabled = widget.submitting;
-    _password.disabled = widget.submitting;
-    _passwordVisibility.disabled = widget.submitting;
     _submitButton.disabled = widget.submitting;
     _submitButton.textContent = widget.submitting ? 'Вход…' : 'Войти';
+    _form.setAttribute('aria-busy', widget.submitting ? 'true' : 'false');
   }
 
   @override
@@ -118,7 +122,7 @@ class _BrowserLoginFormState extends State<BrowserLoginForm> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 184,
+      height: 232,
       child: HtmlElementView.fromTagName(
         tagName: 'div',
         onElementCreated: (element) {
@@ -136,10 +140,16 @@ class _BrowserLoginFormState extends State<BrowserLoginForm> {
 
 const _styles = '''
 .cashflow-native-login {
+  color-scheme: light dark;
   display: grid;
-  gap: 16px;
+  gap: 8px;
   width: 100%;
   font-family: Roboto, Arial, sans-serif;
+}
+.cashflow-native-login label {
+  color: #49454f;
+  font-size: 14px;
+  font-weight: 500;
 }
 .cashflow-native-input {
   box-sizing: border-box;
@@ -173,6 +183,7 @@ const _styles = '''
   cursor: pointer;
 }
 .cashflow-native-submit {
+  margin-top: 8px;
   width: 100%;
   height: 48px;
   border: 0;
@@ -184,10 +195,20 @@ const _styles = '''
   cursor: pointer;
 }
 .cashflow-native-submit:hover { background: #5b4594; }
-.cashflow-native-submit:disabled,
-.cashflow-native-input:disabled,
-.cashflow-password-visibility:disabled {
+.cashflow-native-submit:disabled {
   cursor: default;
   opacity: .6;
+}
+@media (prefers-color-scheme: dark) {
+  .cashflow-native-login label,
+  .cashflow-password-visibility { color: #cac4d0; }
+  .cashflow-native-input {
+    border-color: #938f99;
+    color: #e6e0e9;
+  }
+  .cashflow-native-input:hover { border-color: #e6e0e9; }
+  .cashflow-native-input:focus { border-color: #d0bcff; }
+  .cashflow-native-submit { background: #d0bcff; color: #381e72; }
+  .cashflow-native-submit:hover { background: #c4aff5; }
 }
 ''';

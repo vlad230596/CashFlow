@@ -6,7 +6,11 @@ from pathlib import Path
 
 
 CSP = (
-    "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
+    "default-src 'self'; connect-src 'self'; img-src 'self' data: blob: "
+    "https://imgproxy.cdn-tinkoff.ru https://cdnweb.sberbank.ru "
+    "https://cdn1.ozone.ru https://h2.sbpvtb.ru "
+    "https://storage-vtb.seller-hub.ru https://alfaonline.servicecdn.ru "
+    "https://avatars.mds.yandex.net https://fintech-frontend.s3.yandex.net; "
     "font-src 'self' data:; style-src 'self' 'unsafe-inline'; "
     "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; "
     "manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; "

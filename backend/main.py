@@ -6,9 +6,12 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 import click
-from flask import Flask, g, jsonify, request
+from flask import Flask, Response, g, jsonify, request, url_for
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_, select, text
@@ -605,10 +608,21 @@ class PartnerOfferImportRun(db.Model):
 
 
 ROLE_LEVELS = {'viewer': 10, 'editor': 20, 'admin': 30}
-PUBLIC_ENDPOINTS = {'health', 'ready', 'version', 'login'}
+PUBLIC_ENDPOINTS = {'health', 'ready', 'version', 'login', 'partner_offer_icon'}
 AUTH_TOKEN_BYTES = 32
 LOGIN_WINDOW = timedelta(minutes=15)
 LOGIN_MAX_FAILURES = 5
+PARTNER_ICON_HOSTS = {
+    'alfaonline.servicecdn.ru',
+    'avatars.mds.yandex.net',
+    'cdn1.ozone.ru',
+    'cdnweb.sberbank.ru',
+    'fintech-frontend.s3.yandex.net',
+    'h2.sbpvtb.ru',
+    'imgproxy.cdn-tinkoff.ru',
+    'storage-vtb.seller-hub.ru',
+}
+PARTNER_ICON_MAX_BYTES = 5 * 1024 * 1024
 USERNAME_PATTERN = re.compile(r'^[a-z0-9][a-z0-9._-]{2,63}$')
 
 
@@ -2050,12 +2064,12 @@ def import_cashback():
 
             bank_count = 0
             selected_standard_count = 0
-            period_start, _ = _category_period(generated_at, None)
             # A fresh successful snapshot supersedes previous bank evidence,
             # including categories absent from the new result.
             for existing in CashbackCategory.query.filter(
                 CashbackCategory.card_id == card.id,
-                CashbackCategory.start_date == period_start,
+                CashbackCategory.start_date <= generated_at,
+                CashbackCategory.end_date > generated_at,
             ):
                 existing.is_bank_confirmed = False
             for imported in categories:
@@ -2363,6 +2377,49 @@ def _partner_snapshot_to_dict(snapshot):
     }
 
 
+def _partner_icon_mime_type(content, content_type):
+    declared = (content_type or '').partition(';')[0].strip().lower()
+    if declared.startswith('image/'):
+        return declared
+    if content.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if content.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if content.startswith((b'GIF87a', b'GIF89a')):
+        return 'image/gif'
+    if content.startswith(b'RIFF') and content[8:12] == b'WEBP':
+        return 'image/webp'
+    if content.lstrip().startswith(b'<svg'):
+        return 'image/svg+xml'
+    raise ValueError('The partner icon response is not an image')
+
+
+@lru_cache(maxsize=512)
+def _fetch_partner_icon(source_url):
+    parsed = urlparse(source_url)
+    if parsed.scheme != 'https' or parsed.hostname not in PARTNER_ICON_HOSTS:
+        raise ValueError('The partner icon host is not allowed')
+    upstream_request = Request(
+        source_url,
+        headers={
+            'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8',
+            'User-Agent': 'CashFlow partner icon proxy/1.0',
+        },
+    )
+    with urlopen(upstream_request, timeout=10) as upstream:
+        final_url = urlparse(upstream.geturl())
+        if final_url.scheme != 'https' or final_url.hostname not in PARTNER_ICON_HOSTS:
+            raise ValueError('The partner icon redirect host is not allowed')
+        content = upstream.read(PARTNER_ICON_MAX_BYTES + 1)
+        if len(content) > PARTNER_ICON_MAX_BYTES:
+            raise ValueError('The partner icon is too large')
+        mime_type = _partner_icon_mime_type(
+            content,
+            upstream.headers.get('Content-Type'),
+        )
+    return content, mime_type
+
+
 def _partner_preference(offer_id, auth_user_id):
     return PartnerOfferPreference.query.filter_by(
         offer_id=offer_id,
@@ -2386,6 +2443,12 @@ def _partner_offer_to_dict(offer, snapshot, auth_user_id, include_details=False)
         'preference': preference.rating if preference else 'undecided',
         'snapshot': _partner_snapshot_to_dict(snapshot),
     }
+    if snapshot.icon_url:
+        data['snapshot']['icon_url'] = url_for(
+            'partner_offer_icon',
+            offer_id=offer.id,
+            _external=True,
+        )
     if not include_details:
         data['snapshot'].pop('conditions')
         data['snapshot'].pop('steps')
@@ -2678,6 +2741,30 @@ def get_partner_offer(offer_id):
         g.auth_user.id,
         include_details=True,
     ))
+
+
+@app.get('/api/partner-offers/<int:offer_id>/icon')
+def partner_offer_icon(offer_id):
+    offer = db.session.get(PartnerOffer, offer_id)
+    if offer is None or offer.current_snapshot_id is None:
+        return jsonify({'error': 'Partner offer icon not found'}), 404
+    snapshot = db.session.get(PartnerOfferSnapshot, offer.current_snapshot_id)
+    if snapshot is None or not snapshot.icon_url:
+        return jsonify({'error': 'Partner offer icon not found'}), 404
+    try:
+        content, mime_type = _fetch_partner_icon(snapshot.icon_url)
+    except Exception:
+        app.logger.warning(
+            'Unable to load partner offer icon for offer %s',
+            offer_id,
+            exc_info=True,
+        )
+        return jsonify({'error': 'Partner offer icon is unavailable'}), 502
+    return Response(
+        content,
+        mimetype=mime_type,
+        headers={'Cache-Control': 'public, max-age=86400, stale-if-error=604800'},
+    )
 
 
 @app.put('/api/partner-offers/<int:offer_id>/preference')

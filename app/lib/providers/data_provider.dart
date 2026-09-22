@@ -13,6 +13,8 @@ import '../models/cashback_category_model.dart';
 import '../models/mcc_rule_model.dart';
 import '../models/partner_offer_model.dart';
 
+enum PrimaryDataPhase { initialLoading, ready, refreshing, failed }
+
 class CashbackImportResult {
   const CashbackImportResult({
     required this.created,
@@ -163,11 +165,22 @@ class DataProvider with ChangeNotifier {
   List<CashbackCategoryModel> cashbackCategories = [];
   List<CashbackCategoryModel> activeCashbackCategories = [];
   List<PartnerOffer> partnerOffers = [];
+  PrimaryDataPhase primaryDataPhase = PrimaryDataPhase.initialLoading;
+  String? primaryDataError;
+  DateTime? dataSnapshotUpdatedAt;
   bool partnerOffersLoading = false;
   String? partnerOffersError;
   String? _partnerOffersRating;
   String? lastUpdated;
   DateTime? _cashbackDateOverride;
+
+  bool get hasUsableDataSnapshot =>
+      dataSnapshotUpdatedAt != null ||
+      banks.isNotEmpty ||
+      users.isNotEmpty ||
+      cards.isNotEmpty ||
+      cashbackCategories.isNotEmpty ||
+      activeCashbackCategories.isNotEmpty;
 
   Uri _apiUri(String path) => Uri.parse(
         '${apiBaseUrl.replaceFirst(RegExp(r'/$'), '')}/api/$path',
@@ -514,6 +527,11 @@ class DataProvider with ChangeNotifier {
   }
 
   Future<bool> fetchAllData() async {
+    primaryDataPhase = hasUsableDataSnapshot
+        ? PrimaryDataPhase.refreshing
+        : PrimaryDataPhase.initialLoading;
+    primaryDataError = null;
+    notifyListeners();
     try {
       final fetchedBanks = await receiveFromServer("banks", BankModel.fromJson);
       final fetchedUsers = await receiveFromServer("users", UserModel.fromJson);
@@ -532,7 +550,9 @@ class DataProvider with ChangeNotifier {
       cards = fetchedCards;
       activeCashbackCategories = fetchedActiveCashbackCategories;
       cashbackCategories = fetchedCashbackCategories;
-      lastUpdated = DateTime.now().toString();
+      dataSnapshotUpdatedAt = DateTime.now();
+      lastUpdated = dataSnapshotUpdatedAt.toString();
+      primaryDataPhase = PrimaryDataPhase.ready;
       await _saveDataLocally();
       await fetchPartnerOffers();
       notifyListeners();
@@ -540,6 +560,9 @@ class DataProvider with ChangeNotifier {
     } catch (e) {
       // Handle errors
       debugPrint('Error fetching data: $e');
+      primaryDataPhase = PrimaryDataPhase.failed;
+      primaryDataError = 'Не удалось обновить данные';
+      notifyListeners();
       return false;
     }
   }
@@ -595,6 +618,13 @@ class DataProvider with ChangeNotifier {
           prefs.getString('activeCashbackCategories');
       final cachedCashbackEffectiveDate =
           prefs.getString('cashbackEffectiveDate');
+      final cachedDataSnapshotUpdatedAt =
+          prefs.getString('dataSnapshotUpdatedAt');
+
+      if (cachedDataSnapshotUpdatedAt != null) {
+        dataSnapshotUpdatedAt = DateTime.tryParse(cachedDataSnapshotUpdatedAt);
+        lastUpdated = dataSnapshotUpdatedAt?.toString();
+      }
 
       if (cachedCashbackEffectiveDate != null) {
         _cashbackDateOverride =
@@ -629,6 +659,9 @@ class DataProvider with ChangeNotifier {
                 CashbackCategoryModel.fromJson(item as Map<String, dynamic>))
             .toList();
       }
+      if (hasUsableDataSnapshot) {
+        primaryDataPhase = PrimaryDataPhase.ready;
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('Error loadLocalData: $e');
@@ -655,6 +688,12 @@ class DataProvider with ChangeNotifier {
             .map((cashbackCategory) =>
                 CashbackCategoryModel.toJson(cashbackCategory))
             .toList()));
+    if (dataSnapshotUpdatedAt != null) {
+      prefs.setString(
+        'dataSnapshotUpdatedAt',
+        dataSnapshotUpdatedAt!.toIso8601String(),
+      );
+    }
   }
 
   String? get _partnerOffersCacheKey {
@@ -692,17 +731,35 @@ class DataProvider with ChangeNotifier {
     partnerOffersError = null;
     notifyListeners();
     try {
-      final query = rating == null ? '' : '?rating=$rating';
-      final response = await _client.get(_apiUri('partner-offers$query'));
-      if (response.statusCode != 200) {
-        throw Exception(
-          _responseError(response, 'Не удалось загрузить предложения'),
+      const pageSize = 100;
+      var offset = 0;
+      var total = 0;
+      final fetched = <PartnerOffer>[];
+      do {
+        final parameters = <String, String>{
+          'limit': '$pageSize',
+          'offset': '$offset',
+          if (rating != null) 'rating': rating,
+        };
+        final uri = _apiUri('partner-offers').replace(
+          queryParameters: parameters,
         );
-      }
-      final payload = json.decode(response.body) as Map<String, dynamic>;
-      partnerOffers = (payload['items'] as List)
-          .map((item) => PartnerOffer.fromJson(item as Map<String, dynamic>))
-          .toList();
+        final response = await _client.get(uri);
+        if (response.statusCode != 200) {
+          throw Exception(
+            _responseError(response, 'Не удалось загрузить предложения'),
+          );
+        }
+        final payload = json.decode(response.body) as Map<String, dynamic>;
+        final page = (payload['items'] as List)
+            .map((item) => PartnerOffer.fromJson(item as Map<String, dynamic>))
+            .toList();
+        fetched.addAll(page);
+        total = payload['total'] as int? ?? fetched.length;
+        offset += page.length;
+        if (page.isEmpty) break;
+      } while (offset < total);
+      partnerOffers = fetched;
       _partnerOffersRating = rating;
       if (rating == null) await _savePartnerOffersCache();
       return true;

@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CashFlow — гибрид 2+3</title>
+  <style>
+    :root {
+      --ink: #10213f;
+      --muted: #68758a;
+      --line: #dfe6ef;
+      --surface: #ffffff;
+      --canvas: #f3f6fa;
+      --blue: #156cf3;
+      --blue-soft: #eaf2ff;
+      --amber: #ec8300;
+      --amber-soft: #fff1d6;
+      --info: #edf2f8;
+      --green: #147d52;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      width: 1600px;
+      height: 1000px;
+      overflow: hidden;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 30% 10%, #ffffff 0, transparent 38%),
+        var(--canvas);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .board {
+      width: 100%;
+      height: 100%;
+      padding: 24px 68px 38px;
+    }
+
+    h1 {
+      margin: 0 0 20px;
+      text-align: center;
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: .02em;
+    }
+
+    .layout {
+      height: 900px;
+      display: grid;
+      grid-template-columns: 430px 1fr;
+      gap: 58px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .phone {
+      width: 430px;
+      height: 884px;
+      padding: 11px;
+      border: 4px solid #1c2532;
+      border-radius: 52px;
+      background: #111923;
+      box-shadow: 0 24px 60px rgba(25, 40, 65, .18);
+    }
+
+    .screen {
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      border-radius: 39px;
+      background: #f8fafc;
+    }
+
+    .status {
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 22px 0;
+      color: #111827;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .notch {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      width: 112px;
+      height: 25px;
+      transform: translateX(-50%);
+      border-radius: 18px;
+      background: #0a0e14;
+    }
+
+    .topbar {
+      height: 48px;
+      padding: 5px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .family {
+      height: 38px;
+      padding: 0 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: white;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .people {
+      width: 21px;
+      height: 21px;
+      color: var(--blue);
+    }
+
+    .bell {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 12px;
+      color: var(--ink);
+      background: transparent;
+    }
+
+    .head {
+      padding: 0 18px 8px;
+    }
+
+    .head h2 {
+      margin: 2px 0 10px;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .search {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      color: #718096;
+      background: var(--surface);
+      font-size: 14px;
+    }
+
+    .cards {
+      height: 602px;
+      padding: 1px 14px 86px;
+      overflow: hidden;
+    }
+
+    .category-card {
+      min-height: 82px;
+      margin-bottom: 7px;
+      padding: 9px 10px;
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      grid-template-rows: 23px 21px 20px;
+      column-gap: 10px;
+      border: 1px solid #e1e7f0;
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: 0 2px 8px rgba(24, 46, 78, .045);
+    }
+
+    .category-card.multi {
+      min-height: 120px;
+      grid-template-rows: 23px repeat(4, 20px);
+    }
+
+    .cat-icon {
+      grid-column: 1;
+      grid-row: 1 / 4;
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      align-self: center;
+      border-radius: 12px;
+      background: var(--icon-bg);
+      color: var(--icon);
+    }
+
+    .cat-icon svg { width: 23px; height: 23px; }
+
+    .cat-name {
+      grid-column: 2;
+      grid-row: 1;
+      min-width: 0;
+      overflow: hidden;
+      font-size: 14px;
+      font-weight: 750;
+      line-height: 22px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .rate {
+      grid-column: 3;
+      grid-row: 1;
+      min-width: 40px;
+      color: var(--amber);
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 22px;
+      text-align: right;
+    }
+
+    .best {
+      grid-column: 2 / 4;
+      grid-row: 2;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      overflow: hidden;
+      font-size: 12px;
+      line-height: 20px;
+      white-space: nowrap;
+    }
+
+    .bank {
+      min-width: 0;
+      overflow: hidden;
+      color: #44516a;
+      text-overflow: ellipsis;
+    }
+
+    .limit {
+      flex: 0 1 auto;
+      min-width: 0;
+      padding: 2px 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      overflow: hidden;
+      border-radius: 7px;
+      color: #52647d;
+      background: var(--info);
+      font-size: 11px;
+      font-weight: 650;
+      line-height: 17px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .limit svg {
+      width: 12px;
+      height: 12px;
+      flex: 0 0 12px;
+    }
+
+    .alternative {
+      grid-column: 2 / 4;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 19px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .alt-bank {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .alt-limit {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      color: #52647d;
+      font-weight: 650;
+    }
+
+    .alt-limit svg { width: 11px; height: 11px; }
+
+    .category-card.multi .cat-icon { grid-row: 1 / 3; }
+
+    .nav {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 75px;
+      padding: 8px 10px 10px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-top: 1px solid var(--line);
+      background: rgba(255,255,255,.98);
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: #536176;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .nav-item svg { width: 22px; height: 22px; }
+    .nav-item.selected { color: var(--blue); }
+
+    .spec {
+      height: 760px;
+      padding: 42px 48px;
+      border: 1px solid #e1e7ef;
+      border-radius: 28px;
+      background: rgba(255,255,255,.84);
+      box-shadow: 0 18px 50px rgba(30, 45, 70, .1);
+    }
+
+    .spec h2 {
+      margin: 0;
+      font-size: 30px;
+    }
+
+    .spec > p {
+      max-width: 720px;
+      margin: 9px 0 30px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .zoom-card {
+      position: relative;
+      width: 720px;
+      min-height: 250px;
+      padding: 26px 30px;
+      display: grid;
+      grid-template-columns: 64px minmax(0,1fr) auto;
+      grid-template-rows: 42px 42px repeat(3, 36px);
+      column-gap: 18px;
+      border: 2px solid #dbe4ef;
+      border-radius: 22px;
+      background: white;
+      box-shadow: 0 12px 26px rgba(28,47,77,.08);
+    }
+
+    .zoom-card .cat-icon {
+      width: 60px;
+      height: 60px;
+      border-radius: 18px;
+    }
+
+    .zoom-card .cat-icon svg { width: 32px; height: 32px; }
+    .zoom-card .cat-name { font-size: 21px; line-height: 36px; }
+    .zoom-card .rate { font-size: 30px; line-height: 36px; }
+    .zoom-card .best { gap: 12px; font-size: 16px; line-height: 34px; }
+    .zoom-card .limit { padding: 4px 10px; font-size: 14px; line-height: 24px; }
+    .zoom-card .alternative { font-size: 15px; line-height: 30px; }
+    .zoom-card .alt-limit svg { width: 15px; height: 15px; }
+
+    .legend {
+      margin-top: 34px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+    }
+
+    .legend-item {
+      min-height: 154px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: white;
+    }
+
+    .legend-item .num {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 12px;
+      border-radius: 50%;
+      color: white;
+      background: var(--blue);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .legend-item h3 {
+      margin: 0 0 7px;
+      font-size: 16px;
+    }
+
+    .legend-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.42;
+    }
+
+    .decision {
+      margin-top: 24px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-left: 4px solid var(--blue);
+      border-radius: 10px;
+      color: #253650;
+      background: var(--blue-soft);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <h1>ГИБРИД 2+3 — «ВЫГОДА»</h1>
+    <div class="layout">
+      <section class="phone" aria-label="Мобильный макет экрана Выгода">
+        <div class="screen">
+          <div class="notch"></div>
+          <div class="status"><span>9:41</span><span>● ●●</span></div>
+          <div class="topbar">
+            <div class="family">
+              <svg class="people" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Семья Ивановых</span><span>⌄</span>
+            </div>
+            <button class="bell" aria-label="Уведомления"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>
+          </div>
+          <div class="head">
+            <h2>Выгода</h2>
+            <div class="search"><svg viewBox="0 0 24 24" width="19" height="19"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Категория, банк или карта</div>
+          </div>
+
+          <div class="cards">
+            <article class="category-card multi" style="--icon:#148348;--icon-bg:#e5f7eb">
+              <div class="cat-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="19" cy="20" r="1"/><path d="M3 4h2l2.7 11.2a2 2 0 0 0 2 1.5h7.8a2 2 0 0 0 2-1.6L21 8H6"/></svg></div>
+              <div class="cat-name">Супермаркеты</div><div class="rate">5%</div>
+              <div class="best"><span class="bank">Альфа-Банк • 1234</span><span class="limit" aria-label="Максимальный кешбэк 1 000 рублей в месяц" title="Максимальный кешбэк: 1 000 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>1 000 ₽/мес.</span></div>
+              <div class="alternative"><span class="alt-bank">Т-Банк • 5678 — 3%</span><span class="alt-limit" aria-label="Максимальный кешбэк 500 рублей в месяц" title="Максимальный кешбэк: 500 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>500 ₽/мес.</span></div>
+              <div class="alternative"><span class="alt-bank">ВТБ • 3456 — 2%</span><span class="alt-limit" aria-label="Минимальная сумма покупки 700 рублей" title="Минимальная сумма покупки: 700 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2Z"/><path d="M9 7h6M9 11h6"/></svg>от 700 ₽</span></div>
+              <div class="alternative"><span class="alt-bank">Газпромбанк • 9012 — 1,5%</span><span class="alt-limit" aria-label="Максимальный кешбэк 2 000 рублей в месяц" title="Максимальный кешбэк: 2 000 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>2 000 ₽/мес.</span></div>
+            </article>
+
+            <article class="category-card" style="--icon:#6c43d9;--icon-bg:#f0eaff">
+              <div class="cat-icon"><svg viewBox="0 0 24 24"><path d="M3 22V8l3-5h8l3 5v14"/><path d="M7 8h8M17 11h3l1 3v8h-4M7 13h4"/></svg></div>
+              <div class="cat-name">АЗС</div><div class="rate">7%</div>
+              <div class="best"><span class="bank">Т-Банк • 5678</span><span class="limit" aria-label="Минимальная сумма покупки 500 рублей" title="Минимальная сумма покупки: 500 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2Z"/><path d="M9 7h6M9 11h6"/></svg>от 500 ₽</span></div>
+              <div class="alternative"><span class="alt-bank">ВТБ • 3456 — 4%</span><span class="alt-limit" aria-label="Максимальный кешбэк 1 500 рублей в месяц" title="Максимальный кешбэк: 1 500 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>1 500 ₽/мес.</span></div>
+            </article>
+
+            <article class="category-card" style="--icon:#136fd1;--icon-bg:#e5f2ff">
+              <div class="cat-icon"><svg viewBox="0 0 24 24"><path d="M22 2 9 15M22 2l-7 20-4-9-9-4Z"/></svg></div>
+              <div class="cat-name">Путешествия</div><div class="rate">8%</div>
+              <div class="best"><span class="bank">ВТБ • 3456</span><span class="limit" aria-label="Максимальный кешбэк 3 000 рублей" title="Максимальный кешбэк: 3 000 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>3 000 ₽</span></div>
+              <div class="alternative"><span class="alt-bank">Альфа-Банк • 1234 — 5%</span><span class="alt-limit" aria-label="Максимальный кешбэк 1 200 рублей" title="Максимальный кешбэк: 1 200 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>1 200 ₽</span></div>
+            </article>
+
+            <article class="category-card" style="--icon:#c7378a;--icon-bg:#fde8f5">
+              <div class="cat-icon"><svg viewBox="0 0 24 24"><path d="M12 22c4-3 7-6 7-11-3 0-5 1-7 4-2-3-4-4-7-4 0 5 3 8 7 11Z"/><path d="M12 15c0-6 2-9 6-12 1 5-1 9-6 12ZM12 15C12 9 10 6 6 3 5 8 7 12 12 15Z"/></svg></div>
+              <div class="cat-name">Красота</div><div class="rate">4%</div>
+              <div class="best"><span class="bank">Альфа-Банк • 1234</span></div>
+              <div class="alternative"><span class="alt-bank">Т-Банк • 5678 — 3%</span><span class="alt-limit" aria-label="Минимальная сумма покупки 1 000 рублей" title="Минимальная сумма покупки: 1 000 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2Z"/><path d="M9 7h6M9 11h6"/></svg>от 1 000 ₽</span></div>
+            </article>
+
+            <article class="category-card" style="--icon:#c65c12;--icon-bg:#fff0df">
+              <div class="cat-icon"><svg viewBox="0 0 24 24"><path d="M4 3v18M8 3v7a4 4 0 0 1-4 4M18 3v18M14 3c0 5 4 6 4 6"/></svg></div>
+              <div class="cat-name">Кафе и рестораны</div><div class="rate">5%</div>
+              <div class="best"><span class="bank">Т-Банк • 5678</span><span class="limit" aria-label="Максимальный кешбэк 2 000 рублей в месяц" title="Максимальный кешбэк: 2 000 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>2 000 ₽/мес.</span></div>
+              <div class="alternative"><span class="alt-bank">ВТБ • 3456 — 4%</span><span class="alt-limit" aria-label="Максимальный кешбэк 1 000 рублей в месяц" title="Максимальный кешбэк: 1 000 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>1 000 ₽/мес.</span></div>
+            </article>
+
+            <article class="category-card" style="--icon:#2168d6;--icon-bg:#e8f0ff">
+              <div class="cat-icon"><svg viewBox="0 0 24 24"><path d="m16 3 5 4-4 5-3-2v11H6V10l-3 2-2-5 5-4c1 2 3 3 5 3s4-1 5-3Z"/></svg></div>
+              <div class="cat-name">Одежда и обувь</div><div class="rate">6%</div>
+              <div class="best"><span class="bank">ВТБ • 3456</span><span class="limit" aria-label="Минимальная сумма покупки 1 000 рублей" title="Минимальная сумма покупки: 1 000 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2Z"/><path d="M9 7h6M9 11h6"/></svg>от 1 000 ₽</span></div>
+              <div class="alternative"><span class="alt-bank">Альфа-Банк • 1234 — 4%</span><span class="alt-limit" aria-label="Максимальный кешбэк 1 500 рублей" title="Максимальный кешбэк: 1 500 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>1 500 ₽</span></div>
+            </article>
+          </div>
+
+          <nav class="nav">
+            <div class="nav-item selected"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9h.01M15 15h.01"/></svg><span>Выгода</span></div>
+            <div class="nav-item"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg><span>План</span></div>
+            <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7ZM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7Z"/></svg><span>Акции</span></div>
+            <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span>Ещё</span></div>
+          </nav>
+        </div>
+      </section>
+
+      <section class="spec">
+        <h2>Карточка с 4 вариантами</h2>
+        <p>Все доступные карты сравниваются прямо в списке. Лучшая остаётся первой, а остальные получают собственный процент и ограничение.</p>
+
+        <div class="zoom-card" style="--icon:#148348;--icon-bg:#e5f7eb">
+          <div class="cat-icon"><svg viewBox="0 0 24 24"><circle cx="9" cy="20" r="1"/><circle cx="19" cy="20" r="1"/><path d="M3 4h2l2.7 11.2a2 2 0 0 0 2 1.5h7.8a2 2 0 0 0 2-1.6L21 8H6"/></svg></div>
+          <div class="cat-name">Супермаркеты</div><div class="rate">5%</div>
+          <div class="best"><span class="bank">Альфа-Банк • 1234</span><span class="limit" aria-label="Максимальный кешбэк 1 000 рублей в месяц" title="Максимальный кешбэк: 1 000 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>1 000 ₽/мес.</span></div>
+          <div class="alternative"><span class="alt-bank">Т-Банк • 5678 — 3%</span><span class="alt-limit" aria-label="Максимальный кешбэк 500 рублей в месяц" title="Максимальный кешбэк: 500 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>500 ₽/мес.</span></div>
+          <div class="alternative"><span class="alt-bank">ВТБ • 3456 — 2%</span><span class="alt-limit" aria-label="Минимальная сумма покупки 700 рублей" title="Минимальная сумма покупки: 700 ₽"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2Z"/><path d="M9 7h6M9 11h6"/></svg>от 700 ₽</span></div>
+          <div class="alternative"><span class="alt-bank">Газпромбанк • 9012 — 1,5%</span><span class="alt-limit" aria-label="Максимальный кешбэк 2 000 рублей в месяц" title="Максимальный кешбэк: 2 000 ₽ в месяц"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h15a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/></svg>2 000 ₽/мес.</span></div>
+        </div>
+
+        <div class="legend">
+          <article class="legend-item"><div class="num">1</div><h3>Лучшая карта</h3><p>Банк, последние цифры и процент образуют основное решение перед покупкой.</p></article>
+          <article class="legend-item"><div class="num">2</div><h3>Ограничение</h3><p>Кошелёк означает максимум кешбэка, чек — минимальную покупку. Полный смысл доступен в подсказке.</p></article>
+          <article class="legend-item"><div class="num">3</div><h3>До 4 вариантов</h3><p>Карты идут по выгоде сверху вниз; каждая получает собственный процент и ограничение.</p></article>
+        </div>
+
+        <div class="decision"><strong>Плотность:</strong> без лишнего переключателя на экране 390 × 844 полностью видны шесть категорий, включая одну карточку с четырьмя вариантами.</div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

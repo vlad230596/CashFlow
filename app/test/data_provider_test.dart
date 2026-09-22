@@ -438,4 +438,45 @@ void main() {
     expect(provider.partnerOffers.single.preference, 'hidden');
     expect(json.decode(preferenceBody!), {'rating': 'hidden'});
   });
+
+  test('loads every partner offer page', () async {
+    SharedPreferences.setMockInitialValues({});
+    final requestedOffsets = <int>[];
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((request) async {
+        final offset = int.parse(request.url.queryParameters['offset']!);
+        requestedOffsets.add(offset);
+        final end = (offset + 100).clamp(0, 205);
+        return http.Response(
+          json.encode({
+            'items': [
+              for (var id = offset; id < end; id++)
+                {
+                  'id': id,
+                  'bank_id': 2,
+                  'bank_name': 'Test bank',
+                  'card_user_id': 3,
+                  'preference': 'undecided',
+                  'is_available': true,
+                  'first_seen_at': '2026-09-16T08:00:00Z',
+                  'last_seen_at': '2026-09-16T08:00:00Z',
+                  'snapshot': {
+                    'title': 'Offer $id',
+                    'collected_at': '2026-09-16T08:00:00Z',
+                    'limits': [],
+                  },
+                },
+            ],
+            'total': 205,
+          }),
+          200,
+        );
+      }),
+    );
+
+    expect(await provider.fetchPartnerOffers(), isTrue);
+    expect(provider.partnerOffers, hasLength(205));
+    expect(requestedOffsets, [0, 100, 200]);
+  });
 }

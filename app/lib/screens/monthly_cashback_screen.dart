@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'plan_confirmation_screen.dart';
+
 import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
@@ -623,6 +625,16 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             );
             final canSendToChrome =
                 detectAppSessionType().canLaunchCashbackBrowser;
+            final confirmationButton = OutlinedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const PlanConfirmationScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.fact_check_outlined, size: 18),
+              label: const Text('Подтверждение в банках'),
+            );
 
             if (compact) {
               return Column(
@@ -631,6 +643,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                   dateButton,
                   const SizedBox(height: 8),
                   switcher,
+                  const SizedBox(height: 8),
+                  confirmationButton,
                   if (canSendToChrome) ...[
                     const SizedBox(height: 8),
                     sendButton,
@@ -643,6 +657,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 dateButton,
                 const Spacer(),
                 switcher,
+                const SizedBox(width: 8),
+                confirmationButton,
                 if (canSendToChrome) ...[
                   const SizedBox(width: 8),
                   sendButton,

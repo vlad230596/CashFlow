@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Выгода — варианты представления по картам</title>
+  <style>
+    :root {
+      --ink:#092451; --text:#17243c; --muted:#65738b; --line:#dfe6ef;
+      --surface:#fff; --canvas:#f4f7fb; --blue:#176df3; --blue-soft:#eaf2ff;
+      --amber:#f18400; --green:#168353; --violet:#714bd8; --pink:#c83b8d;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--text); background:linear-gradient(180deg,#f8fafc,#edf2f8); font-family:Inter,Segoe UI,Arial,sans-serif; }
+    svg { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+    .board { width:1600px; min-height:1100px; margin:0 auto; padding:26px 54px 38px; }
+    h1 { margin:0 0 6px; color:var(--ink); font-size:34px; text-align:center; }
+    .lead { margin:0 0 20px; color:var(--muted); font-size:16px; text-align:center; }
+    .options { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
+    .option { padding:20px; border:1px solid var(--line); border-radius:26px; background:rgba(255,255,255,.82); box-shadow:0 16px 38px rgba(33,52,81,.08); }
+    .option-title { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+    .letter { width:34px; height:34px; display:grid; place-items:center; flex:none; border-radius:11px; color:#fff; background:var(--blue); font-weight:800; }
+    .option h2 { margin:0; color:var(--ink); font-size:21px; }
+    .option-title p { margin:2px 0 0; color:var(--muted); font-size:12px; }
+    .phone { width:342px; height:650px; margin:auto; padding:12px; border:10px solid #172230; border-radius:42px; background:#172230; box-shadow:0 14px 32px rgba(14,27,45,.16); }
+    .screen { position:relative; height:100%; overflow:hidden; border-radius:26px; background:#f7f9fc; }
+    .status { height:25px; padding:7px 15px 0; display:flex; justify-content:space-between; color:#07192f; font-size:10px; font-weight:700; }
+    .head { padding:5px 14px 9px; }
+    .family { display:flex; align-items:center; gap:6px; margin-bottom:7px; color:#26415f; font-size:10px; font-weight:700; }
+    .family svg { width:15px; height:15px; color:var(--blue); }
+    .title { display:flex; justify-content:space-between; align-items:center; }
+    .title h3 { margin:0; color:var(--ink); font-size:23px; }
+    .search { height:36px; margin-top:8px; padding:0 11px; display:flex; align-items:center; gap:8px; border:1px solid #d8e0ec; border-radius:11px; color:#8190a7; background:#fff; font-size:11px; }
+    .search svg { width:16px; height:16px; }
+    .tabs { height:34px; margin-top:8px; padding:2px; display:grid; grid-template-columns:1fr 1fr; border-radius:10px; background:#e6ebf3; font-size:11px; font-weight:750; text-align:center; }
+    .tabs span { display:grid; place-items:center; border-radius:8px; }
+    .tabs .selected { color:#fff; background:var(--blue); }
+    .content { height:460px; padding:0 11px 74px; overflow:hidden; }
+    .bank-card { margin-bottom:8px; padding:11px; border:1px solid var(--line); border-radius:14px; background:#fff; box-shadow:0 2px 8px rgba(27,45,73,.045); }
+    .card-head { display:flex; align-items:center; gap:9px; margin-bottom:8px; }
+    .card-mark { width:34px; height:34px; display:grid; place-items:center; flex:none; border-radius:10px; color:#fff; background:linear-gradient(135deg,#162a58,#4078d8); font-size:11px; font-weight:800; letter-spacing:.4px; }
+    .card-mark.black { background:linear-gradient(135deg,#111,#454545); }
+    .card-mark.sky { background:linear-gradient(135deg,#0873b8,#39a2e0); }
+    .card-meta { min-width:0; flex:1; }
+    .card-meta strong { display:block; overflow:hidden; color:#142544; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+    .card-meta small { color:var(--muted); font-size:10px; }
+    .owner { padding:3px 6px; border-radius:6px; color:#4b607e; background:#edf2f8; font-size:9px; font-weight:700; }
+    .cat-row { min-height:27px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; border-top:1px solid #eef2f6; font-size:11px; }
+    .cat-row:first-of-type { border-top:0; }
+    .cat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .percent { color:var(--amber); font-size:13px; font-weight:800; }
+    .limit { margin-left:4px; color:#66758a; font-size:9px; font-weight:600; }
+    .count { margin-top:6px; color:#52647d; font-size:10px; font-weight:700; }
+    .bank-section { margin-bottom:8px; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:#fff; }
+    .bank-head { height:38px; padding:0 11px; display:flex; align-items:center; justify-content:space-between; background:#f1f5fa; }
+    .bank-head strong { color:#173252; font-size:12px; }
+    .bank-head span { color:var(--muted); font-size:10px; }
+    .compact-card { padding:9px 11px; border-top:1px solid #e9eef5; }
+    .compact-title { display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; font-size:11px; }
+    .compact-title strong { font-size:12px; }
+    .pills { display:flex; flex-wrap:wrap; gap:4px; }
+    .pill { padding:4px 6px; border-radius:6px; color:#3f5572; background:#edf3fa; font-size:9px; white-space:nowrap; }
+    .pill b { color:var(--amber); }
+    .selector { display:flex; gap:7px; margin-bottom:9px; overflow:hidden; }
+    .mini-card { min-width:82px; height:51px; padding:8px; border:1px solid var(--line); border-radius:11px; color:#53627a; background:#fff; font-size:9px; }
+    .mini-card strong { display:block; margin-bottom:7px; color:#1d304e; font-size:10px; }
+    .mini-card.selected { border:2px solid var(--blue); background:var(--blue-soft); }
+    .selected-summary { margin-bottom:8px; padding:11px; border-radius:14px; color:#fff; background:linear-gradient(135deg,#122b59,#316cc5); }
+    .selected-summary small { opacity:.78; font-size:9px; }
+    .selected-summary strong { display:block; margin-top:4px; font-size:15px; }
+    .detail-row { min-height:43px; padding:6px 2px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:7px; border-bottom:1px solid #e8edf4; }
+    .cat-icon { width:27px; height:27px; display:grid; place-items:center; border-radius:8px; color:var(--green); background:#e6f6ec; font-size:11px; font-weight:800; }
+    .detail-copy strong { display:block; font-size:11px; }
+    .detail-copy small { color:var(--muted); font-size:9px; }
+    .nav { position:absolute; right:0; bottom:0; left:0; height:64px; padding:7px 8px 9px; display:grid; grid-template-columns:repeat(4,1fr); border-top:1px solid var(--line); background:#fff; }
+    .nav div { display:flex; flex-direction:column; align-items:center; gap:3px; color:#5e6d83; font-size:9px; font-weight:700; }
+    .nav div:first-child { color:var(--blue); }
+    .nav svg { width:19px; height:19px; }
+    .desktop { height:150px; margin-top:16px; padding:11px; border:1px solid var(--line); border-radius:15px; background:#f7f9fc; }
+    .desktop-label { margin-bottom:8px; color:#415673; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.6px; }
+    .desktop-shell { height:105px; display:grid; grid-template-columns:45px 1fr; overflow:hidden; border:1px solid #dbe3ed; border-radius:9px; background:#fff; }
+    .rail { background:#132b52; }
+    .desktop-grid { padding:9px; display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+    .desktop-tile { padding:7px; border:1px solid #dfe6ef; border-radius:7px; font-size:8px; }
+    .desktop-tile b { display:block; margin-bottom:5px; font-size:9px; }
+    .desktop-list { padding:8px; }
+    .desktop-line { height:21px; padding:0 7px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #e6ebf2; font-size:8px; }
+    .master { padding:8px; display:grid; grid-template-columns:92px 1fr; gap:7px; }
+    .master > div { padding:7px; border:1px solid #e0e6ef; border-radius:7px; font-size:8px; }
+    .pros { min-height:72px; margin-top:14px; padding:11px 13px; border-left:3px solid var(--blue); border-radius:8px; color:#4d5e77; background:#edf4ff; font-size:11px; line-height:1.45; }
+    .pros strong { color:#173255; }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <h1>«ВЫГОДА» — ПРЕДСТАВЛЕНИЕ «ПО КАРТАМ»</h1>
+    <p class="lead">Три способа сгруппировать категории по платёжным картам</p>
+    <section class="options">
+      <article class="option">
+        <header class="option-title"><div class="letter">A</div><div><h2>Карточки карт</h2><p>Быстрый обзор всего набора</p></div></header>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>● ●●</span></div>
+          <div class="head"><div class="family"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg>Семья Ивановых</div><div class="title"><h3>Выгода</h3></div><div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4-4"/></svg>Категория, банк или карта</div><div class="tabs"><span>Список</span><span class="selected">По картам</span></div></div>
+          <div class="content">
+            <section class="bank-card"><div class="card-head"><div class="card-mark">A</div><div class="card-meta"><strong>Альфа-Банк • 1234</strong><small>4 категории</small></div><span class="owner">Анна</span></div><div class="cat-row"><span class="cat-name">Супермаркеты <span class="limit">▣ 1 000 ₽/мес.</span></span><b class="percent">5%</b></div><div class="cat-row"><span class="cat-name">Путешествия</span><b class="percent">5%</b></div><div class="cat-row"><span class="cat-name">Красота</span><b class="percent">4%</b></div><div class="count">+1 категория</div></section>
+            <section class="bank-card"><div class="card-head"><div class="card-mark black">T</div><div class="card-meta"><strong>Т-Банк • 5678</strong><small>5 категорий</small></div><span class="owner">Общая</span></div><div class="cat-row"><span class="cat-name">АЗС <span class="limit">▱ от 500 ₽</span></span><b class="percent">7%</b></div><div class="cat-row"><span class="cat-name">Кафе и рестораны</span><b class="percent">5%</b></div><div class="cat-row"><span class="cat-name">Супермаркеты</span><b class="percent">3%</b></div><div class="count">+2 категории</div></section>
+            <section class="bank-card"><div class="card-head"><div class="card-mark sky">ВТБ</div><div class="card-meta"><strong>ВТБ • 3456</strong><small>3 категории</small></div><span class="owner">Влад</span></div></section>
+          </div>
+          <nav class="nav"><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9h.01M15 15h.01"/></svg>Выгода</div><div><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4"/></svg>План</div><div><svg viewBox="0 0 24 24"><path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7"/></svg>Акции</div><div><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>Ещё</div></nav>
+        </div></div>
+        <div class="desktop"><div class="desktop-label">На компьютере — сетка</div><div class="desktop-shell"><div class="rail"></div><div class="desktop-grid"><div class="desktop-tile"><b>Альфа-Банк • 1234</b>Супермаркеты 5%<br>Путешествия 5%</div><div class="desktop-tile"><b>Т-Банк • 5678</b>АЗС 7%<br>Кафе 5%</div><div class="desktop-tile"><b>ВТБ • 3456</b>Одежда 6%<br>Путешествия 8%</div></div></div></div>
+        <div class="pros"><strong>Сильная сторона:</strong> все карты видны одновременно. Хорошо для семьи с 4–8 картами; высота карточек зависит от количества категорий.</div>
+      </article>
+
+      <article class="option">
+        <header class="option-title"><div class="letter">Б</div><div><h2>Сначала банк</h2><p>Карты собраны по источнику</p></div></header>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>● ●●</span></div>
+          <div class="head"><div class="family"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg>Семья Ивановых</div><div class="title"><h3>Выгода</h3></div><div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4-4"/></svg>Категория, банк или карта</div><div class="tabs"><span>Список</span><span class="selected">По картам</span></div></div>
+          <div class="content">
+            <section class="bank-section"><div class="bank-head"><strong>Альфа-Банк</strong><span>2 карты · 7 категорий</span></div><div class="compact-card"><div class="compact-title"><strong>Карта • 1234</strong><span class="owner">Анна</span></div><div class="pills"><span class="pill">Супермаркеты <b>5%</b></span><span class="pill">Путешествия <b>5%</b></span><span class="pill">Красота <b>4%</b></span></div></div><div class="compact-card"><div class="compact-title"><strong>Карта • 7788</strong><span class="owner">Влад</span></div><div class="pills"><span class="pill">Такси <b>7%</b></span><span class="pill">Аптеки <b>5%</b></span></div></div></section>
+            <section class="bank-section"><div class="bank-head"><strong>Т-Банк</strong><span>1 карта · 5 категорий</span></div><div class="compact-card"><div class="compact-title"><strong>Карта • 5678</strong><span class="owner">Общая</span></div><div class="pills"><span class="pill">АЗС <b>7%</b></span><span class="pill">Кафе <b>5%</b></span><span class="pill">Супермаркеты <b>3%</b></span><span class="pill">+2</span></div></div></section>
+            <section class="bank-section"><div class="bank-head"><strong>ВТБ</strong><span>1 карта · 3 категории</span></div><div class="compact-card"><div class="compact-title"><strong>Карта • 3456</strong><span class="owner">Влад</span></div><div class="pills"><span class="pill">Путешествия <b>8%</b></span><span class="pill">Одежда <b>6%</b></span></div></div></section>
+          </div>
+          <nav class="nav"><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9h.01M15 15h.01"/></svg>Выгода</div><div><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4"/></svg>План</div><div><svg viewBox="0 0 24 24"><path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7"/></svg>Акции</div><div><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>Ещё</div></nav>
+        </div></div>
+        <div class="desktop"><div class="desktop-label">На компьютере — плотный список</div><div class="desktop-shell"><div class="rail"></div><div class="desktop-list"><div class="desktop-line"><b>Альфа-Банк</b><span>2 карты · 7 категорий</span></div><div class="desktop-line"><span>•• 1234 · Анна</span><span>Супермаркеты 5% · Путешествия 5%</span></div><div class="desktop-line"><b>Т-Банк</b><span>1 карта · 5 категорий</span></div><div class="desktop-line"><span>•• 5678 · Общая</span><span>АЗС 7% · Кафе 5%</span></div></div></div></div>
+        <div class="pros"><strong>Сильная сторона:</strong> легко проверить данные конкретного банка. Подходит, когда банков немного, но у каждого несколько карт.</div>
+      </article>
+
+      <article class="option">
+        <header class="option-title"><div class="letter">В</div><div><h2>Одна карта подробно</h2><p>Максимум места категориям</p></div></header>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>● ●●</span></div>
+          <div class="head"><div class="family"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg>Семья Ивановых</div><div class="title"><h3>Выгода</h3></div><div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4-4"/></svg>Категория, банк или карта</div><div class="tabs"><span>Список</span><span class="selected">По картам</span></div></div>
+          <div class="content">
+            <div class="selector"><div class="mini-card selected"><strong>Альфа-Банк</strong>•• 1234</div><div class="mini-card"><strong>Т-Банк</strong>•• 5678</div><div class="mini-card"><strong>ВТБ</strong>•• 3456</div></div>
+            <div class="selected-summary"><small>Карта Анны · 4 категории</small><strong>Альфа-Банк • 1234</strong></div>
+            <div class="detail-row"><div class="cat-icon">С</div><div class="detail-copy"><strong>Супермаркеты</strong><small>▣ максимум 1 000 ₽/мес.</small></div><b class="percent">5%</b></div>
+            <div class="detail-row"><div class="cat-icon" style="color:#176fc4;background:#e7f2ff">П</div><div class="detail-copy"><strong>Путешествия</strong><small>▣ максимум 1 200 ₽</small></div><b class="percent">5%</b></div>
+            <div class="detail-row"><div class="cat-icon" style="color:#bd3483;background:#fce9f5">К</div><div class="detail-copy"><strong>Красота</strong><small>Без ограничения</small></div><b class="percent">4%</b></div>
+            <div class="detail-row"><div class="cat-icon" style="color:#6b48cc;background:#f0ebff">А</div><div class="detail-copy"><strong>Аптеки</strong><small>▱ покупка от 700 ₽</small></div><b class="percent">3%</b></div>
+          </div>
+          <nav class="nav"><div><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9h.01M15 15h.01"/></svg>Выгода</div><div><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4"/></svg>План</div><div><svg viewBox="0 0 24 24"><path d="M20 12v10H4V12M2 7h20v5H2zM12 22V7"/></svg>Акции</div><div><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>Ещё</div></nav>
+        </div></div>
+        <div class="desktop"><div class="desktop-label">На компьютере — master-detail</div><div class="desktop-shell"><div class="rail"></div><div class="master"><div><b>Карты</b><br><br>Альфа • 1234<br><br>Т-Банк • 5678<br><br>ВТБ • 3456</div><div><b>Альфа-Банк • 1234</b><br><br>Супермаркеты 5%<br>Путешествия 5%<br>Красота 4%</div></div></div></div>
+        <div class="pros"><strong>Сильная сторона:</strong> самые читаемые условия и ограничения. Слабее для быстрого сравнения нескольких карт на телефоне.</div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

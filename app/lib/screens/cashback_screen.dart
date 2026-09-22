@@ -1,121 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
-import '../utils/category_info.dart';
-import 'widgets/cashback_item.dart';
+import 'widgets/benefit_states_view.dart';
 
-class CashbackScreen extends StatefulWidget {
+class CashbackScreen extends StatelessWidget {
   const CashbackScreen({super.key});
 
   @override
-  State<CashbackScreen> createState() => _CashbackScreenState();
+  Widget build(BuildContext context) => Consumer<DataProvider>(
+        builder: (context, provider, _) {
+          final items = provider.effectiveActiveCashbackCategories
+              .map(
+                (category) => BenefitItemData(
+                  category: category,
+                  cardLabel: _cardLabel(provider, category.cardId),
+                ),
+              )
+              .toList();
+          return BenefitStatesView(
+            phase: provider.primaryDataPhase,
+            hasUsableSnapshot: provider.hasUsableDataSnapshot,
+            snapshotUpdatedAt: provider.dataSnapshotUpdatedAt,
+            items: items,
+            onRefresh: () async {
+              await provider.fetchAllData();
+            },
+          );
+        },
+      );
 }
 
-class _CashbackScreenState extends State<CashbackScreen> {
-  final TextEditingController _searchController = TextEditingController();
-  late List<CashbackCategoryModel> _filteredData;
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController.addListener(_onSearchChanged);
-    _filteredData = [];
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _updateFilteredData();
-  }
-
-  @override
-  void dispose() {
-    _searchController.removeListener(_onSearchChanged);
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  void _updateFilteredData() {
-    final dataProvider = Provider.of<DataProvider>(context, listen: false);
-    final allData = dataProvider.effectiveActiveCashbackCategories;
-    final query = _searchController.text.toLowerCase();
-
-    if (query.isEmpty) {
-      _filteredData = allData;
-    } else {
-      _filteredData = allData.where((item) {
-        final category = item.name.toLowerCase();
-        final description = item.description?.toLowerCase() ?? '';
-        final cardNumber = dataProvider
-                .getCardById(item.cardId)
-                .lastFourDigits
-                ?.toLowerCase() ??
-            '';
-        final cardName = dataProvider.getCardName(item.cardId).toLowerCase();
-
-        return category.contains(query) ||
-            description.contains(query) ||
-            cardNumber.contains(query) ||
-            cardName.contains(query);
-      }).toList();
-    }
-
-    _filteredData.sort(
-      (a, b) => b.cashbackPercent.compareTo(a.cashbackPercent),
-    );
-  }
-
-  void _onSearchChanged() {
-    setState(_updateFilteredData);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: 'Поиск по категории, карте, банку...',
-              prefixIcon: const Icon(Icons.search),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: Consumer<DataProvider>(
-            builder: (context, dataProvider, child) {
-              _updateFilteredData();
-
-              return ListView.builder(
-                itemCount: _filteredData.length,
-                itemBuilder: (context, index) {
-                  final item = _filteredData[index];
-                  final card = dataProvider.getCardById(item.cardId);
-
-                  return CashbackItem(
-                    category: item.name,
-                    percent: item.cashbackPercent,
-                    cardName:
-                        '${dataProvider.getCardName(item.cardId)} ${card.lastFourDigits ?? '????'}',
-                    icon: CategoryInfo.getCategoryIcon(item.name),
-                    description: item.description,
-                    isStackableBonus: item.isStackableBonus,
-                    maxCashbackAmount: item.maxCashbackAmount,
-                    minPurchaseAmount: item.minPurchaseAmount,
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
+String _cardLabel(DataProvider provider, int cardId) {
+  final card = provider.getCardById(cardId);
+  return '${provider.getCardName(cardId)} ${card.lastFourDigits ?? '????'}';
 }

@@ -1,12 +1,24 @@
 # CashFlow App
 
-A new Flutter project.
+The Flutter client for CashFlow, a family cashback assistant. It helps family
+members with shared access to several bank cards compare active cashback,
+coordinate monthly category selections, and review personal partner offers.
+
+The client targets mobile, web, and desktop layouts. Product scope and redesign
+requirements are documented in [`../docs/product-design-brief.md`](../docs/product-design-brief.md).
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+Run Flutter commands through the repository helper so the same SDK configured
+in VS Code is used:
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+.\scripts\setup_vscode_flutter_env.ps1 -Run "flutter pub get"
+.\scripts\setup_vscode_flutter_env.ps1 -Run "flutter analyze"
+.\scripts\setup_vscode_flutter_env.ps1 -Run "flutter test"
+```
+
+A few Flutter resources:
 
 - [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
 - [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)

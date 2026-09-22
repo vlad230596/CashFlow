@@ -1,0 +1,22 @@
+<svg viewBox="0 0 1024 1024" width="1024" height="1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="frontclip"><rect x="170" y="300" width="600" height="385" rx="60"/></clipPath>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="#1FB58F"/>
+  <g transform="rotate(11 570 565)">
+    <rect x="285" y="350" width="585" height="375" rx="60" fill="#0B6B57"/>
+  </g>
+  <g transform="rotate(2 470 510)">
+    <rect x="170" y="300" width="600" height="385" rx="60" fill="#FFFFFF"/>
+    <g clip-path="url(#frontclip)">
+      <rect x="222" y="356" width="126" height="94" rx="26" fill="#F5A623"/>
+      <rect x="222" y="546" width="300" height="30" rx="15" fill="#C9E3DA"/>
+      <rect x="222" y="602" width="188" height="30" rx="15" fill="#C9E3DA"/>
+    </g>
+  </g>
+  <circle cx="752" cy="756" r="122" fill="#F5A623"/>
+  <circle cx="752" cy="756" r="122" fill="none" stroke="#0B6B57" stroke-width="12"/>
+  <line x1="804" y1="704" x2="700" y2="808" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="712" cy="718" r="22" fill="#FFFFFF"/>
+  <circle cx="792" cy="794" r="22" fill="#FFFFFF"/>
+</svg>
