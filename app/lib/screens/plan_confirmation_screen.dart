@@ -25,12 +25,14 @@ class PlanConfirmationScreen extends StatefulWidget {
     this.filePicker,
     this.documentImporter,
     this.sessionType,
+    this.onShellDestinationSelected,
   });
 
   final VoidCallback? onBack;
   final CashbackFilePicker? filePicker;
   final CashbackDocumentImporter? documentImporter;
   final AppSessionType? sessionType;
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   State<PlanConfirmationScreen> createState() => _PlanConfirmationScreenState();
@@ -67,6 +69,16 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
     }
   }
 
+  void _selectShellDestination(int index) {
+    if (index == 1) {
+      _goBack();
+      return;
+    }
+    Navigator.maybePop(context).then((_) {
+      widget.onShellDestinationSelected?.call(index);
+    });
+  }
+
   List<_ConfirmationCard> _plannedCards(DataProvider provider) {
     final grouped = <int, List<CashbackCategoryModel>>{};
     for (final category in provider.cashbackCategories) {
@@ -84,8 +96,7 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
           .where((user) => user.id == card.userId)
           .map((user) => user.name)
           .firstOrNull;
-      final categories = [...entry.value]
-        ..sort((a, b) => a.name.compareTo(b.name));
+      final categories = [...entry.value];
       return _ConfirmationCard(
         card: card,
         bankName: bankName ?? 'Неизвестный банк',
@@ -101,6 +112,10 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
               ? 1
               : -1;
       if (completion != 0) return completion;
+      final aProgress = a.total == 0 ? 0.0 : a.confirmed / a.total;
+      final bProgress = b.total == 0 ? 0.0 : b.confirmed / b.total;
+      final progressOrder = aProgress.compareTo(bProgress);
+      if (progressOrder != 0) return progressOrder;
       return a.title.compareTo(b.title);
     });
     return cards;
@@ -181,56 +196,101 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
     final confirmed = cards.fold<int>(0, (sum, card) => sum + card.confirmed);
     final total = cards.fold<int>(0, (sum, card) => sum + card.total);
 
-    return PopScope(
-      canPop: !_showCompactDetails,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _showCompactDetails) _goBack();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            tooltip: _showCompactDetails ? 'К обзору карт' : 'К плану',
-            onPressed: _goBack,
-            icon: const Icon(Icons.arrow_back),
-          ),
-          title: const Text('Подтверждение в банках'),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Chip(
-                avatar: Icon(
-                  provider.canEdit ? Icons.edit_outlined : Icons.visibility,
-                  size: 18,
-                ),
-                label: Text(provider.canEdit ? 'Редактор' : 'Только просмотр'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final expanded = constraints.maxWidth >= 840;
+        final gutter = expanded ? 24.0 : 12.0;
+        final period = cards
+            .expand((card) => card.categories)
+            .map((category) => category.startDate)
+            .firstOrNull;
+        return PopScope(
+          canPop: !_showCompactDetails,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && _showCompactDetails) _goBack();
+          },
+          child: Scaffold(
+            appBar: expanded
+                ? AppBar(
+                    leading: IconButton(
+                      tooltip: 'К плану',
+                      onPressed: _goBack,
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                    title: const Text('Подтверждение в банках'),
+                    actions: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: Chip(
+                          avatar: Icon(
+                            provider.canEdit
+                                ? Icons.edit_outlined
+                                : Icons.visibility,
+                            size: 18,
+                          ),
+                          label: Text(
+                            provider.canEdit ? 'Редактор' : 'Только просмотр',
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : null,
+            bottomNavigationBar: !expanded && !_showCompactDetails
+                ? _ConfirmationBottomNavigation(
+                    onSelected: _selectShellDestination,
+                  )
+                : null,
+            body: SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  if (!expanded)
+                    _MobileConfirmationHeader(
+                      details: _showCompactDetails,
+                      period: period,
+                      canEdit: provider.canEdit,
+                      onBack: _goBack,
+                    ),
+                  if (expanded || !_showCompactDetails) ...[
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        gutter,
+                        expanded ? 12 : 14,
+                        gutter,
+                        0,
+                      ),
+                      child: _ProgressBanner(
+                        confirmed: confirmed,
+                        total: total,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ] else
+                    const SizedBox(height: 14),
+                  Expanded(
+                    child: cards.isEmpty
+                        ? const _EmptyPlan()
+                        : expanded
+                            ? _buildExpanded(
+                                provider,
+                                cards,
+                                selected!,
+                                gutter,
+                              )
+                            : _buildSequential(
+                                provider,
+                                cards,
+                                selected!,
+                                gutter,
+                              ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final expanded = constraints.maxWidth >= 840;
-            final gutter = expanded ? 24.0 : 12.0;
-            return Column(
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 0),
-                  child: _ProgressBanner(confirmed: confirmed, total: total),
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: cards.isEmpty
-                      ? const _EmptyPlan()
-                      : expanded
-                          ? _buildExpanded(provider, cards, selected!, gutter)
-                          : _buildSequential(
-                              provider, cards, selected!, gutter),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -270,10 +330,16 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
         final card = cards[index];
         return _CardOverviewTile(
           card: card,
-          onTap: () => setState(() {
-            _selectedCardId = card.card.id;
-            _showCompactDetails = true;
-          }),
+          onTap: () {
+            if (!card.isComplete && MediaQuery.sizeOf(context).width < 600) {
+              _showSnapshotSheet(provider, card);
+              return;
+            }
+            setState(() {
+              _selectedCardId = card.card.id;
+              _showCompactDetails = true;
+            });
+          },
         );
       },
     );
@@ -350,6 +416,104 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
   bool get _canImport =>
       (widget.sessionType ?? detectAppSessionType()).canImportCashbackFile;
 
+  void _showSnapshotSheet(
+    DataProvider provider,
+    _ConfirmationCard card,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            22,
+            18,
+            18 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Импортировать снимок',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Получите свежий JSON через существующий сценарий импорта '
+                'и выберите файл. CashFlow не активирует категории в '
+                'приложении банка.',
+                style: const TextStyle(color: _ConfirmationPalette.muted),
+              ),
+              const SizedBox(height: 14),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: _ConfirmationPalette.outline),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        card.title,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Подтверждено ${card.confirmed} из ${card.total}',
+                        style: const TextStyle(
+                          color: _ConfirmationPalette.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
+                onPressed: provider.canEdit && _canImport && !_importing
+                    ? () {
+                        Navigator.pop(sheetContext);
+                        _importSnapshot(provider, card);
+                      }
+                    : null,
+                child: const Text('Выбрать JSON-файл'),
+              ),
+              if (!_canImport) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Выбор JSON-файла доступен в Windows-приложении.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _ConfirmationPalette.muted,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(sheetContext),
+                child: const Text('Отмена'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showImportHelp(_ConfirmationCard card) {
     showModalBottomSheet<void>(
       context: context,
@@ -407,6 +571,126 @@ class _ConfirmationCard {
   String get title => '$bankName · ${card.lastFourDigits ?? '••••'}';
 }
 
+abstract final class _ConfirmationPalette {
+  static const navy = Color(0xFF102F59);
+  static const blue = Color(0xFF216DF3);
+  static const blueDark = Color(0xFF12376A);
+  static const blueLight = Color(0xFF2874DF);
+  static const success = Color(0xFF087F5B);
+  static const successBackground = Color(0xFFE7F6EF);
+  static const warning = Color(0xFF9A5700);
+  static const warningBackground = Color(0xFFFFF3DC);
+  static const error = Color(0xFFB42318);
+  static const errorBackground = Color(0xFFFFF0EE);
+  static const muted = Color(0xFF58708F);
+  static const outline = Color(0xFFCFDAEA);
+}
+
+class _MobileConfirmationHeader extends StatelessWidget {
+  const _MobileConfirmationHeader({
+    required this.details,
+    required this.period,
+    required this.canEdit,
+    required this.onBack,
+  });
+
+  final bool details;
+  final DateTime? period;
+  final bool canEdit;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            bottom: BorderSide(color: _ConfirmationPalette.outline),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 20, 14, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextButton.icon(
+                onPressed: onBack,
+                icon: const Icon(Icons.chevron_left, size: 22),
+                label: Text(details ? 'Карты' : 'План'),
+                style: TextButton.styleFrom(
+                  foregroundColor: _ConfirmationPalette.blue,
+                  minimumSize: const Size(48, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  details ? 'Подтверждения' : 'Подтверждение',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: _ConfirmationPalette.navy,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  '${period == null ? 'Текущий месяц' : _formatMonth(period!)} · '
+                  '${canEdit ? 'редактор' : 'только просмотр'}',
+                  style: const TextStyle(
+                    color: _ConfirmationPalette.muted,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfirmationBottomNavigation extends StatelessWidget {
+  const _ConfirmationBottomNavigation({required this.onSelected});
+
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return NavigationBar(
+      selectedIndex: 1,
+      onDestinationSelected: onSelected,
+      destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.home_outlined),
+          selectedIcon: Icon(Icons.home_rounded),
+          label: 'Выгода',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.description_outlined),
+          selectedIcon: Icon(Icons.description_rounded),
+          label: 'План',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.local_offer_outlined),
+          selectedIcon: Icon(Icons.local_offer_rounded),
+          label: 'Акции',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.more_horiz),
+          label: 'Ещё',
+        ),
+      ],
+    );
+  }
+}
+
 class _ProgressBanner extends StatelessWidget {
   const _ProgressBanner({required this.confirmed, required this.total});
 
@@ -415,14 +699,18 @@ class _ProgressBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final progress = total == 0 ? 0.0 : confirmed / total;
     return Semantics(
       liveRegion: true,
       label: '$confirmed из $total категорий подтверждено банком',
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: scheme.primaryContainer,
+          gradient: const LinearGradient(
+            colors: [
+              _ConfirmationPalette.blueDark,
+              _ConfirmationPalette.blueLight,
+            ],
+          ),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Padding(
@@ -436,14 +724,14 @@ class _ProgressBanner extends StatelessWidget {
                   Text(
                     'План — это ещё не активация',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: scheme.onPrimaryContainer,
+                          color: Colors.white,
                           fontWeight: FontWeight.w800,
                         ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Подтверждение появляется только после импорта снимка из банков.',
-                    style: TextStyle(color: scheme.onPrimaryContainer),
+                    style: const TextStyle(color: Color(0xFFDEEBFF)),
                   ),
                 ],
               );
@@ -456,13 +744,15 @@ class _ProgressBanner extends StatelessWidget {
                         value: progress,
                         minHeight: 8,
                         borderRadius: BorderRadius.circular(8),
+                        color: Colors.white,
+                        backgroundColor: const Color(0xFF78A7E7),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Text(
                       '$confirmed из $total',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: scheme.onPrimaryContainer,
+                            color: Colors.white,
                             fontWeight: FontWeight.w800,
                           ),
                     ),
@@ -507,6 +797,22 @@ class _CardOverviewTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final complete = card.isComplete;
+    final partial = !complete && card.confirmed > 0;
+    final status = complete
+        ? 'Готово'
+        : partial
+            ? 'Есть расхождение'
+            : 'Ждёт снимка';
+    final kind = complete
+        ? _StatusKind.success
+        : partial
+            ? _StatusKind.error
+            : _StatusKind.warning;
+    final action = complete
+        ? 'Посмотреть подтверждения'
+        : partial
+            ? 'Как обновить снимок'
+            : 'Импортировать снимок';
     return Card(
       margin: EdgeInsets.zero,
       color: selected ? scheme.secondaryContainer : null,
@@ -519,51 +825,61 @@ class _CardOverviewTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.all(dense ? 12 : 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: EdgeInsets.all(dense ? 12 : 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text(
-                      card.title,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          card.title,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _StatusPill(
+                        label: status,
+                        kind: kind,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  _StatusPill(
-                    icon:
-                        complete ? Icons.check_circle_outline : Icons.schedule,
-                    label: complete ? 'Готово' : 'Ждёт снимка',
-                    kind: complete ? _StatusKind.success : _StatusKind.warning,
+                  const SizedBox(height: 6),
+                  Text(
+                    '${card.userName} · подтверждено ${card.confirmed} из ${card.total}',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                '${card.userName} · подтверждено ${card.confirmed} из ${card.total}',
-                style: TextStyle(color: scheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: LinearProgressIndicator(
-                      value: card.total == 0 ? 0 : card.confirmed / card.total,
-                      minHeight: 6,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
+            ),
+            if (!dense) ...[
+              const Divider(height: 1),
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          action,
+                          style: const TextStyle(
+                            color: _ConfirmationPalette.navy,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, size: 20),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Text('${card.confirmed}/${card.total}'),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right, size: 20),
-                ],
+                ),
               ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -609,7 +925,21 @@ class _CardDetails extends StatelessWidget {
       controller: scrollController,
       padding: padding,
       children: [
-        Text(card.title, style: Theme.of(context).textTheme.titleLarge),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                card.title,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            const SizedBox(width: 8),
+            _StatusPill(
+              label: card.isComplete ? 'Готово' : 'Есть расхождение',
+              kind: card.isComplete ? _StatusKind.success : _StatusKind.error,
+            ),
+          ],
+        ),
         const SizedBox(height: 4),
         Text(
           '${card.userName} · подтверждено ${card.confirmed} из ${card.total}',
@@ -674,15 +1004,21 @@ class _CardDetails extends StatelessWidget {
         ],
         const SizedBox(height: 6),
         if (canEdit) ...[
-          FilledButton.icon(
+          FilledButton(
             onPressed: canImport && !importing ? onImport : null,
-            icon: importing
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+            child: importing
+                ? const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Импортируем…'),
+                    ],
                   )
-                : const Icon(Icons.upload_file_outlined),
-            label: Text(importing ? 'Импортируем…' : 'Импортировать снимок'),
+                : const Text('Импортировать снимок'),
           ),
           if (!canImport) ...[
             const SizedBox(height: 8),
@@ -693,14 +1029,18 @@ class _CardDetails extends StatelessWidget {
           ],
           const SizedBox(height: 8),
         ],
-        OutlinedButton.icon(
+        OutlinedButton(
           onPressed: onShowHelp,
-          icon: const Icon(Icons.help_outline),
-          label: const Text('Как получить JSON'),
+          child: const Text('Как получить JSON'),
         ),
         if (includeSummary) ...[
           const SizedBox(height: 20),
-          _SnapshotNote(lastSuccessfulImport: lastSuccessfulImport),
+          const _InfoBox(
+            icon: Icons.history,
+            text: 'Подтверждение хранится отдельно от плана. Свежий '
+                'банковский снимок может обновить его, не меняя выбранные '
+                'категории.',
+          ),
         ],
       ],
     );
@@ -733,7 +1073,7 @@ class _CategoryConfirmationTile extends StatelessWidget {
             ? _StatusKind.error
             : _StatusKind.warning;
     final icon = confirmed
-        ? Icons.verified_outlined
+        ? Icons.check
         : mismatch
             ? Icons.error_outline
             : Icons.schedule;
@@ -744,7 +1084,26 @@ class _CategoryConfirmationTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ExcludeSemantics(child: Icon(icon, size: 24)),
+            ExcludeSemantics(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SizedBox.square(
+                  dimension: 24,
+                  child: Icon(
+                    icon,
+                    size: 16,
+                    color: switch (kind) {
+                      _StatusKind.success => _ConfirmationPalette.success,
+                      _StatusKind.warning => _ConfirmationPalette.warning,
+                      _StatusKind.error => _ConfirmationPalette.error,
+                    },
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -761,7 +1120,7 @@ class _CategoryConfirmationTile extends StatelessWidget {
                         visualDensity: VisualDensity.compact,
                         label: Text('В плане'),
                       ),
-                      _StatusPill(icon: icon, label: status, kind: kind),
+                      _StatusPill(label: status, kind: kind),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -783,6 +1142,7 @@ class _CategoryConfirmationTile extends StatelessWidget {
             Text(
               _formatPercent(category.cashbackPercent),
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: const Color(0xFFD36A00),
                 fontWeight: FontWeight.w900,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
@@ -798,28 +1158,28 @@ enum _StatusKind { success, warning, error }
 
 class _StatusPill extends StatelessWidget {
   const _StatusPill({
-    required this.icon,
     required this.label,
     required this.kind,
   });
 
-  final IconData icon;
   final String label;
   final _StatusKind kind;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final (background, foreground) = switch (kind) {
       _StatusKind.success => (
-          scheme.tertiaryContainer,
-          scheme.onTertiaryContainer
+          _ConfirmationPalette.successBackground,
+          _ConfirmationPalette.success
         ),
       _StatusKind.warning => (
-          scheme.secondaryContainer,
-          scheme.onSecondaryContainer
+          _ConfirmationPalette.warningBackground,
+          _ConfirmationPalette.warning
         ),
-      _StatusKind.error => (scheme.errorContainer, scheme.onErrorContainer),
+      _StatusKind.error => (
+          _ConfirmationPalette.errorBackground,
+          _ConfirmationPalette.error
+        ),
     };
     return Semantics(
       label: label,
@@ -832,25 +1192,14 @@ class _StatusPill extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 176),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ExcludeSemantics(
-                  child: Icon(icon, size: 15, color: foreground),
-                ),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    label,
-                    softWrap: true,
-                    style: TextStyle(
-                      color: foreground,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
+            child: Text(
+              label,
+              softWrap: true,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ),
@@ -1014,6 +1363,24 @@ String _formatPercent(double value) {
       ? value.toInt().toString()
       : value.toStringAsFixed(1).replaceAll('.', ',');
   return '$amount%';
+}
+
+String _formatMonth(DateTime value) {
+  const months = [
+    'Январь',
+    'Февраль',
+    'Март',
+    'Апрель',
+    'Май',
+    'Июнь',
+    'Июль',
+    'Август',
+    'Сентябрь',
+    'Октябрь',
+    'Ноябрь',
+    'Декабрь',
+  ];
+  return '${months[value.month - 1]} ${value.year}';
 }
 
 String _formatTime(DateTime value) =>

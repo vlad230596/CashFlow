@@ -88,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
               child: Card(
@@ -101,23 +101,38 @@ class _LoginScreenState extends State<LoginScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        ExcludeSemantics(
-                          child: Icon(
-                            Icons.account_balance_wallet_rounded,
-                            size: 52,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.primary,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.account_balance_wallet_outlined,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'CashFlow',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 26),
                         Text(
-                          'CashFlow',
-                          textAlign: TextAlign.center,
+                          'Войти в семью',
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Карты и кешбэк доступны только участникам с выданным доступом.',
-                          textAlign: TextAlign.center,
+                          textAlign: TextAlign.left,
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         if (_validationSummary != null) ...[

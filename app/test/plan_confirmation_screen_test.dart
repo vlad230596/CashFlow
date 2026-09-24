@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 void main() {
-  testWidgets('compact overview opens card details without changing plan',
+  testWidgets('compact overview opens snapshot sheet without changing plan',
       (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -24,19 +24,47 @@ void main() {
     expect(find.text('План — это ещё не активация'), findsOneWidget);
     expect(find.text('1 из 2'), findsOneWidget);
     expect(find.text('Первый банк · 1111'), findsOneWidget);
-    expect(find.text('Ждёт снимка'), findsOneWidget);
+    expect(find.text('Есть расхождение'), findsOneWidget);
+    expect(find.text('Подтверждение'), findsOneWidget);
+    expect(find.text('План'), findsWidgets);
+    expect(find.text('Выгода'), findsOneWidget);
 
     await tester.tap(find.text('Первый банк · 1111'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Подтверждено банком'), findsOneWidget);
-    expect(find.text('В плане'), findsNWidgets(2));
-    expect(
-      find.text('Импортировать снимок', skipOffstage: false),
-      findsOneWidget,
-    );
+    expect(find.text('Импортировать снимок'), findsOneWidget);
+    expect(find.text('Выбрать JSON-файл'), findsOneWidget);
+    expect(find.text('Отмена'), findsOneWidget);
+    expect(find.text('Первый банк · 1111'), findsWidgets);
     expect(
         provider.cashbackCategories.every((item) => item.isSelected), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact completed card opens confirmation details',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final provider = _provider(role: 'editor');
+    provider.cashbackCategories = [
+      for (final category in provider.cashbackCategories)
+        category.isSelectable
+            ? category.copyWith(isBankConfirmed: true)
+            : category,
+    ];
+    await _pump(tester, provider);
+
+    await tester.tap(find.text('Первый банк · 1111'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Подтверждения'), findsOneWidget);
+    expect(find.text('Готово'), findsOneWidget);
+    expect(find.text('План — это ещё не активация'), findsNothing);
+    expect(find.text('Подтверждено банком'), findsNWidgets(2));
+    expect(find.text('Импортировать снимок'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

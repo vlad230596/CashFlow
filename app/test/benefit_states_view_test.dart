@@ -71,6 +71,68 @@ void main() {
     expect(find.text('Карта семьи •1234'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('compact search groups categories, MCC codes and merchants',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      _app(
+        items: _searchItems,
+        mccResults: _mccResults,
+        merchantResults: _merchantResults,
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('benefit-search')),
+      'дет',
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('benefit-compact-search-results')),
+      findsOneWidget,
+    );
+    expect(find.text('КАТЕГОРИИ'), findsOneWidget);
+    expect(find.text('MCC-КОДЫ'), findsOneWidget);
+    expect(find.text('МАГАЗИНЫ'), findsOneWidget);
+    expect(find.text('Детские товары'), findsOneWidget);
+    expect(find.text('Детская одежда'), findsOneWidget);
+    expect(find.text('Детский мир'), findsOneWidget);
+
+    await tester.tap(find.text('Детский мир'));
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('benefit-compact-purchase-result')),
+      findsOneWidget,
+    );
+    expect(find.text('ЛУЧШИЙ ИЗВЕСТНЫЙ ВАРИАНТ'), findsOneWidget);
+    expect(find.text('Т-Банк • 5678'), findsOneWidget);
+    expect(find.textContaining('Точный MCC будущей покупки'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact overview shows recent merchants and opens result',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      _app(items: _searchItems, merchantResults: _merchantResults),
+    );
+
+    expect(find.text('Недавние магазины'), findsOneWidget);
+    expect(find.text('История'), findsOneWidget);
+    expect(find.text('Детский мир'), findsOneWidget);
+
+    await tester.tap(find.text('Детский мир'));
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('benefit-compact-purchase-result')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _setViewport(WidgetTester tester, Size size) async {
@@ -84,6 +146,8 @@ Widget _app({
   PrimaryDataPhase phase = PrimaryDataPhase.ready,
   bool hasUsableSnapshot = true,
   List<BenefitItemData> items = const [],
+  List<BenefitMccSearchResult> mccResults = const [],
+  List<BenefitMerchantSearchResult> merchantResults = const [],
   Future<void> Function()? onRefresh,
   double textScale = 1,
 }) =>
@@ -100,6 +164,8 @@ Widget _app({
           hasUsableSnapshot: hasUsableSnapshot,
           snapshotUpdatedAt: DateTime(2026, 9, 22, 10, 42),
           items: items,
+          mccResults: mccResults,
+          merchantResults: merchantResults,
           onRefresh: onRefresh ?? () async {},
         ),
       ),
@@ -133,5 +199,92 @@ final _items = [
       cardId: 2,
     ),
     cardLabel: 'Основная карта •5678',
+  ),
+];
+
+final _searchItems = [
+  BenefitItemData(
+    category: CashbackCategoryModel(
+      id: 3,
+      name: 'Детские товары',
+      startDate: DateTime(2026, 9),
+      endDate: DateTime(2026, 10),
+      isSelected: true,
+      isBankConfirmed: true,
+      cashbackPercent: 5,
+      cardId: 1,
+    ),
+    cardLabel: 'Альфа-Банк •1234',
+  ),
+];
+
+const _mccResults = [
+  BenefitMccSearchResult(
+    code: '5641',
+    name: 'Детская одежда',
+    description: 'Children’s and Infants’ Wear Stores',
+  ),
+  BenefitMccSearchResult(
+    code: '5945',
+    name: 'Игрушки и товары для хобби',
+    description: 'Hobby, Toy and Game Shops',
+  ),
+];
+
+const _merchantResults = [
+  BenefitMerchantSearchResult(
+    name: 'Детский мир',
+    description: '7 операций · наблюдались MCC 5945 и 5641',
+    initials: 'ДМ',
+    highlighted: true,
+    purchaseResult: BenefitPurchaseResult(
+      title: 'Покупка в «Детском мире»',
+      merchantName: 'Детский мир',
+      subtitle: 'По истории семьи возможны два MCC',
+      evidence: ['5945 · 5 из 7 операций', '5641 · 2 из 7'],
+      best: BenefitPurchaseOption(
+        bankMark: 'Т',
+        cardLabel: 'Т-Банк • 5678',
+        cardSubtitle: 'Общая карта',
+        rate: '7%',
+        categoryName: 'Развлечения',
+        categorySubtitle: 'Уже выбрано и подтверждено',
+        limitLabel: 'до 3 000 ₽',
+        reason: 'Почему: MCC 5945 чаще всего встречался в ваших операциях '
+            'и явно входит в правило «Развлечения» этого банка.',
+        chainLabel: 'Т-Банк',
+        bankColor: Color(0xFF111111),
+      ),
+      alternatives: [
+        BenefitPurchaseOption(
+          bankMark: 'A',
+          cardLabel: 'Альфа-Банк • 1234',
+          cardSubtitle: 'Карта Анны',
+          rate: '5%',
+          categoryName: 'Детские товары',
+          categorySubtitle: 'Выбрано',
+          matchLabel: 'MCC 5945 подходит',
+        ),
+        BenefitPurchaseOption(
+          bankMark: 'ВТБ',
+          cardLabel: 'ВТБ • 3456',
+          cardSubtitle: 'Карта Влада',
+          rate: '5%',
+          categoryName: 'Детские товары',
+          categorySubtitle: 'Выбрано',
+          matchLabel: 'MCC 5945 не покрывается',
+          matchIsPositive: false,
+          bankColor: Color(0xFF1684BB),
+        ),
+      ],
+      risk: 'Если операция пройдёт с MCC 5641, лучший вариант может '
+          'измениться. Точный MCC будущей покупки заранее неизвестен.',
+    ),
+  ),
+  BenefitMerchantSearchResult(
+    name: 'Детский развлекательный центр',
+    description: '2 операции · наблюдался MCC 7999',
+    initials: 'ДР',
+    color: Color(0xFF7957BA),
   ),
 ];

@@ -16,11 +16,13 @@ class CashbackCategoryDetailScreen extends StatefulWidget {
     required this.category,
     this.onOpenPlan,
     this.onSave,
+    this.onShellDestinationSelected,
   });
 
   final CashbackCategoryModel category;
   final VoidCallback? onOpenPlan;
   final CashbackCategorySaver? onSave;
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   State<CashbackCategoryDetailScreen> createState() =>
@@ -101,17 +103,6 @@ class _CashbackCategoryDetailScreenState
             widget.category.maxCashbackAmount ||
         _parseNumber(_minAmountController.text) !=
             widget.category.minPurchaseAmount ||
-        _startDate != DateUtils.dateOnly(widget.category.startDate) ||
-        _endDate != DateUtils.dateOnly(widget.category.endDate) ||
-        _cardId != widget.category.cardId ||
-        _categoryType != widget.category.categoryType;
-  }
-
-  bool get _confirmationWillBeRevoked {
-    if (!widget.category.isBankConfirmed) return false;
-    return _nameController.text.trim() != widget.category.name ||
-        _parseNumber(_percentController.text) !=
-            widget.category.cashbackPercent ||
         _startDate != DateUtils.dateOnly(widget.category.startDate) ||
         _endDate != DateUtils.dateOnly(widget.category.endDate) ||
         _cardId != widget.category.cardId ||
@@ -223,6 +214,7 @@ class _CashbackCategoryDetailScreenState
   Widget build(BuildContext context) {
     final provider = context.watch<DataProvider>();
     final canEdit = provider.canEdit && _knownType;
+    final compact = MediaQuery.sizeOf(context).width < 600;
 
     return PopScope(
       canPop: !_editing || !_dirty,
@@ -231,23 +223,59 @@ class _CashbackCategoryDetailScreenState
         Navigator.of(context).pop();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Категория по карте'),
-          actions: [
-            if (!_editing && canEdit)
-              TextButton.icon(
-                onPressed: () => setState(() => _editing = true),
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Редактировать'),
+        appBar: compact
+            ? null
+            : AppBar(
+                title: const Text('Категория по карте'),
+                actions: [
+                  if (!_editing && canEdit)
+                    TextButton.icon(
+                      onPressed: () => setState(() => _editing = true),
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Редактировать'),
+                    ),
+                ],
               ),
-          ],
-        ),
+        bottomNavigationBar: compact
+            ? _editing
+                ? _buildCompactEditBar()
+                : NavigationBar(
+                    selectedIndex: 0,
+                    onDestinationSelected: _selectShellDestination,
+                    destinations: const [
+                      NavigationDestination(
+                        icon: Icon(Icons.home_outlined),
+                        selectedIcon: Icon(Icons.home_rounded),
+                        label: 'Выгода',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.description_outlined),
+                        selectedIcon: Icon(Icons.description_rounded),
+                        label: 'План',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.local_offer_outlined),
+                        selectedIcon: Icon(Icons.local_offer_rounded),
+                        label: 'Акции',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.more_horiz),
+                        label: 'Ещё',
+                      ),
+                    ],
+                  )
+            : null,
         body: SafeArea(
-          top: false,
+          top: compact,
           child: LayoutBuilder(
             builder: (context, constraints) {
               final expanded = constraints.maxWidth >= 840;
               final medium = constraints.maxWidth >= 600;
+              if (!medium) {
+                return _editing
+                    ? _buildCompactEditor(provider)
+                    : _buildCompact(provider, canEdit: canEdit);
+              }
               final summary = _SummaryCard(
                 category: widget.category,
                 provider: provider,
@@ -294,6 +322,385 @@ class _CashbackCategoryDetailScreenState
           ),
         ),
       ),
+    );
+  }
+
+  void _selectShellDestination(int index) {
+    Navigator.of(context).pop();
+    if (index != 0) widget.onShellDestinationSelected?.call(index);
+  }
+
+  Widget _buildCompactEditBar() {
+    return SafeArea(
+      top: false,
+      child: Material(
+        color: Theme.of(context).colorScheme.surface,
+        elevation: 8,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _saving ? null : _cancelEditing,
+                  child: const Text('Отмена'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: FilledButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Сохранить изменения'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactEditor(DataProvider provider) {
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(8, 2, 16, 14),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextButton.icon(
+                  onPressed: _saving ? null : _cancelEditing,
+                  icon: const Icon(Icons.arrow_back, size: 20),
+                  label: const Text('К карточке'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Редактирование',
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  color: const Color(0xFF102B52),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Изменения относятся только к этому предложению',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _buildForm(
+              provider,
+              twoColumns: false,
+              inlineActions: false,
+              compact: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompact(DataProvider provider, {required bool canEdit}) {
+    final category = widget.category;
+    final card = _findCard(provider, category.cardId);
+    final bank = card == null
+        ? null
+        : provider.banks
+            .where((item) => item.id == card.bankId)
+            .map((item) => item.name)
+            .firstOrNull;
+    final owner = card == null
+        ? null
+        : provider.users
+            .where((item) => item.id == card.userId)
+            .map((item) => item.name)
+            .firstOrNull;
+    final cardText = card == null
+        ? 'Карта недоступна · ID ${category.cardId}'
+        : '${bank ?? 'Банк не указан'} · ${card.lastFourDigits ?? '????'}';
+    final subtitle =
+        provider.canEdit ? 'Сентябрь 2026' : 'Только просмотр · сентябрь 2026';
+
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Container(
+            color: Theme.of(context).colorScheme.surface,
+            padding: const EdgeInsets.fromLTRB(8, 2, 16, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.arrow_back, size: 20),
+                  label: const Text('К выгоде'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Категория по карте',
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  color: const Color(0xFF102B52),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              children: [
+                _MobileCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _typeLabel(category.categoryType),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: .8,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  category.name,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
+                                const SizedBox(height: 7),
+                                Text(
+                                  cardText,
+                                  style: const TextStyle(
+                                    color: Color(0xFF344A65),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (owner != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    owner,
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            '${_number(category.cashbackPercent)}%',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineMedium
+                                ?.copyWith(
+                                  color: const Color(0xFFCF6500),
+                                  fontWeight: FontWeight.w900,
+                                ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 15),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _MobileStatusChip(
+                            positive: category.isSelected,
+                            icon: category.isSelected
+                                ? Icons.check
+                                : Icons.remove,
+                            label:
+                                category.isSelected ? 'В плане' : 'Не в плане',
+                          ),
+                          _MobileStatusChip(
+                            positive: category.isBankConfirmed,
+                            waiting: !category.isBankConfirmed,
+                            icon: category.isBankConfirmed
+                                ? Icons.check
+                                : Icons.schedule_outlined,
+                            label: category.isBankConfirmed
+                                ? 'Подтверждено банком'
+                                : 'Ждёт банк',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 11,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5FA),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _formatPeriod(
+                                  category.startDate, category.endDate),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Период действия предложения',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _MobileCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _SectionTitle('Условия'),
+                      Text(
+                        (category.description?.trim().isNotEmpty ?? false)
+                            ? category.description!.trim()
+                            : 'Банк не указал',
+                        style: const TextStyle(
+                          color: Color(0xFF40536A),
+                          height: 1.55,
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      _FactRow(
+                        label: 'Максимум',
+                        value: _moneyOrMissing(category.maxCashbackAmount),
+                      ),
+                      _FactRow(
+                        label: 'Покупка от',
+                        value: _moneyOrMissing(category.minPurchaseAmount),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _MobileCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const _SectionTitle('План и подтверждение'),
+                      _MobileStatusRow(
+                        positive: category.isSelected,
+                        icon: category.isSelected ? Icons.check : Icons.remove,
+                        title: category.isSelected
+                            ? 'Добавлено в план'
+                            : 'Не добавлено в план',
+                        subtitle: category.isSelectionLocked
+                            ? 'Выбор зафиксирован банком'
+                            : 'Намерение сохранено',
+                      ),
+                      const SizedBox(height: 10),
+                      _MobileStatusRow(
+                        positive: category.isBankConfirmed,
+                        waiting: !category.isBankConfirmed,
+                        icon: category.isBankConfirmed
+                            ? Icons.check
+                            : Icons.schedule_outlined,
+                        title: category.isBankConfirmed
+                            ? 'Подтверждено банком'
+                            : 'Ждёт подтверждения',
+                        subtitle: category.isBankConfirmed
+                            ? 'Категория найдена в банковском снимке'
+                            : 'Нужен банковский снимок',
+                      ),
+                      if (!provider.canEdit) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(11),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Значения доступны только для просмотра. Изменение данных доступно редактору семейного пространства.',
+                            style: TextStyle(
+                              color: Color(0xFF51657D),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (canEdit) ...[
+                        const SizedBox(height: 14),
+                        FilledButton(
+                          onPressed: () => setState(() => _editing = true),
+                          child: const Text('Редактировать данные'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -390,7 +797,12 @@ class _CashbackCategoryDetailScreenState
     );
   }
 
-  Widget _buildForm(DataProvider provider, {required bool twoColumns}) {
+  Widget _buildForm(
+    DataProvider provider, {
+    required bool twoColumns,
+    bool inlineActions = true,
+    bool compact = false,
+  }) {
     final cardItems = provider.cards
         .where((card) => card.id != null)
         .map(
@@ -401,6 +813,22 @@ class _CashbackCategoryDetailScreenState
         )
         .toList();
     final selectedCardExists = cardItems.any((item) => item.value == _cardId);
+    Widget labeled(String label, Widget child, {String? helper}) => compact
+        ? _CompactLabeledField(label: label, helper: helper, child: child)
+        : child;
+    InputDecoration decoration(
+      String label, {
+      String? helper,
+      String? counter,
+      bool alignLabelWithHint = false,
+    }) =>
+        InputDecoration(
+          labelText: compact ? null : label,
+          helperText: compact ? null : helper,
+          counterText: counter,
+          alignLabelWithHint: alignLabelWithHint,
+          border: const OutlineInputBorder(),
+        );
 
     return Form(
       key: _formKey,
@@ -409,10 +837,10 @@ class _CashbackCategoryDetailScreenState
           : AutovalidateMode.onUserInteraction,
       child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(
-          MediaQuery.sizeOf(context).width >= 600 ? 32 : 16,
-          24,
-          MediaQuery.sizeOf(context).width >= 600 ? 32 : 16,
-          32 + MediaQuery.paddingOf(context).bottom,
+          compact ? 16 : (MediaQuery.sizeOf(context).width >= 600 ? 32 : 16),
+          compact ? 20 : 24,
+          compact ? 16 : (MediaQuery.sizeOf(context).width >= 600 ? 32 : 16),
+          compact ? 24 : 32 + MediaQuery.paddingOf(context).bottom,
         ),
         child: Align(
           alignment: Alignment.topCenter,
@@ -443,78 +871,85 @@ class _CashbackCategoryDetailScreenState
                 _FieldGrid(
                   twoColumns: twoColumns,
                   children: [
-                    TextFormField(
-                      key: const Key('category-name-field'),
-                      controller: _nameController,
-                      maxLength: 50,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Название *',
-                        border: OutlineInputBorder(),
+                    labeled(
+                      'Название *',
+                      TextFormField(
+                        key: const Key('category-name-field'),
+                        controller: _nameController,
+                        maxLength: 50,
+                        textInputAction: TextInputAction.next,
+                        decoration: decoration('Название *', counter: ''),
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                                ? 'Введите название категории'
+                                : null,
                       ),
-                      validator: (value) =>
-                          value == null || value.trim().isEmpty
-                              ? 'Введите название категории'
-                              : null,
                     ),
-                    TextFormField(
-                      key: const Key('category-percent-field'),
-                      controller: _percentController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,\-]')),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'Кешбэк, % *',
-                        border: OutlineInputBorder(),
-                        helperText: 'Точка или запятая',
+                    labeled(
+                      'Кешбэк, % *',
+                      TextFormField(
+                        key: const Key('category-percent-field'),
+                        controller: _percentController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'[0-9.,\-]'),
+                          ),
+                        ],
+                        decoration: decoration(
+                          'Кешбэк, % *',
+                          helper: 'Можно использовать точку или запятую',
+                        ),
+                        validator: (value) {
+                          final number = _parseNumber(value ?? '');
+                          if (number == null || !number.isFinite) {
+                            return 'Введите число';
+                          }
+                          if (number < 0) {
+                            return 'Значение не может быть отрицательным';
+                          }
+                          return null;
+                        },
                       ),
-                      validator: (value) {
-                        final number = _parseNumber(value ?? '');
-                        if (number == null || !number.isFinite) {
-                          return 'Введите число';
-                        }
-                        if (number < 0) {
-                          return 'Значение не может быть отрицательным';
-                        }
-                        return null;
-                      },
+                      helper: 'Можно использовать точку или запятую',
                     ),
-                    DropdownButtonFormField<String>(
-                      initialValue: _categoryType,
-                      decoration: const InputDecoration(
-                        labelText: 'Тип *',
-                        border: OutlineInputBorder(),
+                    labeled(
+                      'Тип *',
+                      DropdownButtonFormField<String>(
+                        initialValue: _categoryType,
+                        decoration: decoration('Тип *'),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'standard',
+                            child: Text('Обычная'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'stackable_bonus',
+                            child: Text('Дополнительная'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'task_bonus',
+                            child: Text('За задание'),
+                          ),
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _categoryType = value!),
                       ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'standard',
-                          child: Text('Обычная'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'stackable_bonus',
-                          child: Text('Дополнительная'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'task_bonus',
-                          child: Text('За задание'),
-                        ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _categoryType = value!),
                     ),
-                    DropdownButtonFormField<int>(
-                      initialValue: selectedCardExists ? _cardId : null,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Карта *',
-                        border: OutlineInputBorder(),
+                    labeled(
+                      'Карта *',
+                      DropdownButtonFormField<int>(
+                        initialValue: selectedCardExists ? _cardId : null,
+                        isExpanded: true,
+                        decoration: decoration('Карта *'),
+                        items: cardItems,
+                        onChanged: (value) => setState(() => _cardId = value!),
+                        validator: (value) => value == null
+                            ? 'Выберите существующую карту'
+                            : null,
                       ),
-                      items: cardItems,
-                      onChanged: (value) => setState(() => _cardId = value!),
-                      validator: (value) =>
-                          value == null ? 'Выберите существующую карту' : null,
                     ),
                   ],
                 ),
@@ -523,44 +958,64 @@ class _CashbackCategoryDetailScreenState
                 _FieldGrid(
                   twoColumns: twoColumns,
                   children: [
-                    _DateField(
-                      label: 'Начало *',
-                      value: _formatNumericDate(_startDate),
-                      onTap: () => _pickDate(true),
+                    labeled(
+                      'Начало *',
+                      _DateField(
+                        label: 'Начало *',
+                        value: _formatNumericDate(_startDate),
+                        showLabel: !compact,
+                        onTap: () => _pickDate(true),
+                      ),
                     ),
-                    _DateField(
-                      label: 'Окончание *',
-                      value: _formatNumericDate(_endDate),
-                      error: _submitted && _endDate.isBefore(_startDate)
-                          ? 'Окончание не может быть раньше начала'
-                          : null,
-                      onTap: () => _pickDate(false),
+                    labeled(
+                      'Окончание *',
+                      _DateField(
+                        label: 'Окончание *',
+                        value: _formatNumericDate(_endDate),
+                        showLabel: !compact,
+                        error: _submitted && _endDate.isBefore(_startDate)
+                            ? 'Окончание не может быть раньше начала'
+                            : null,
+                        onTap: () => _pickDate(false),
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 28),
                 const _SectionTitle('Условия'),
-                TextFormField(
-                  controller: _descriptionController,
-                  minLines: 3,
-                  maxLines: 6,
-                  decoration: const InputDecoration(
-                    labelText: 'Описание',
-                    alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
+                labeled(
+                  'Описание',
+                  TextFormField(
+                    controller: _descriptionController,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: decoration(
+                      'Описание',
+                      alignLabelWithHint: true,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
                 _FieldGrid(
                   twoColumns: twoColumns,
                   children: [
-                    _amountField(
-                      controller: _maxAmountController,
-                      label: 'Максимальный кешбэк, ₽',
+                    labeled(
+                      'Максимальный кешбэк, ₽',
+                      _amountField(
+                        controller: _maxAmountController,
+                        label: 'Максимальный кешбэк, ₽',
+                        compact: compact,
+                      ),
+                      helper: 'Пусто — банк не указал',
                     ),
-                    _amountField(
-                      controller: _minAmountController,
-                      label: 'Минимальная покупка, ₽',
+                    labeled(
+                      'Минимальная покупка, ₽',
+                      _amountField(
+                        controller: _minAmountController,
+                        label: 'Минимальная покупка, ₽',
+                        compact: compact,
+                      ),
+                      helper: 'Пусто — банк не указал',
                     ),
                   ],
                 ),
@@ -572,7 +1027,7 @@ class _CashbackCategoryDetailScreenState
                       ? 'Категория добавлена в план. Назначение изменяется только на экране «План».'
                       : 'Категория не добавлена в план. Назначение изменяется только на экране «План».',
                 ),
-                if (_confirmationWillBeRevoked) ...[
+                if (widget.category.isBankConfirmed) ...[
                   const SizedBox(height: 16),
                   const _InfoBanner(
                     icon: Icons.warning_amber_rounded,
@@ -585,30 +1040,33 @@ class _CashbackCategoryDetailScreenState
                   'Технический ID: ${widget.category.id}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                const SizedBox(height: 24),
-                Wrap(
-                  alignment: WrapAlignment.end,
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    OutlinedButton(
-                      onPressed: _saving ? null : _cancelEditing,
-                      child: const Text('Отмена'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _saving ? null : _save,
-                      icon: _saving
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.save_outlined),
-                      label: Text(
-                        _saving ? 'Сохранение…' : 'Сохранить изменения',
+                if (inlineActions) ...[
+                  const SizedBox(height: 24),
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      OutlinedButton(
+                        onPressed: _saving ? null : _cancelEditing,
+                        child: const Text('Отмена'),
                       ),
-                    ),
-                  ],
-                ),
+                      FilledButton.icon(
+                        onPressed: _saving ? null : _save,
+                        icon: _saving
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.save_outlined),
+                        label: Text(
+                          _saving ? 'Сохранение…' : 'Сохранить изменения',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -620,6 +1078,7 @@ class _CashbackCategoryDetailScreenState
   Widget _amountField({
     required TextEditingController controller,
     required String label,
+    bool compact = false,
   }) {
     return TextFormField(
       controller: controller,
@@ -628,8 +1087,8 @@ class _CashbackCategoryDetailScreenState
         FilteringTextInputFormatter.allow(RegExp(r'[0-9.,\-\s]')),
       ],
       decoration: InputDecoration(
-        labelText: label,
-        helperText: 'Пусто — банк не указал',
+        labelText: compact ? null : label,
+        helperText: compact ? null : 'Пусто — банк не указал',
         border: const OutlineInputBorder(),
       ),
       validator: (value) {
@@ -639,6 +1098,138 @@ class _CashbackCategoryDetailScreenState
         if (number < 0) return 'Значение не может быть отрицательным';
         return null;
       },
+    );
+  }
+}
+
+class _MobileCard extends StatelessWidget {
+  const _MobileCard({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border.all(color: Theme.of(context).colorScheme.outline),
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: child,
+      );
+}
+
+class _MobileStatusChip extends StatelessWidget {
+  const _MobileStatusChip({
+    required this.positive,
+    required this.icon,
+    required this.label,
+    this.waiting = false,
+  });
+
+  final bool positive;
+  final bool waiting;
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = waiting
+        ? const Color(0xFF8B5208)
+        : positive
+            ? const Color(0xFF126B50)
+            : Theme.of(context).colorScheme.onSurfaceVariant;
+    final background = waiting
+        ? const Color(0xFFFFF3DC)
+        : positive
+            ? const Color(0xFFE7F6EF)
+            : const Color(0xFFEEF2F6);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: foreground),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileStatusRow extends StatelessWidget {
+  const _MobileStatusRow({
+    required this.positive,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.waiting = false,
+  });
+
+  final bool positive;
+  final bool waiting;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = waiting
+        ? const Color(0xFF8B5208)
+        : positive
+            ? const Color(0xFF126B50)
+            : Theme.of(context).colorScheme.onSurfaceVariant;
+    final background = waiting
+        ? const Color(0xFFFFF3DC)
+        : positive
+            ? const Color(0xFFE7F6EF)
+            : const Color(0xFFEEF2F6);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          alignment: Alignment.center,
+          child: Icon(icon, size: 16, color: foreground),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -890,12 +1481,14 @@ class _DateField extends StatelessWidget {
     required this.value,
     required this.onTap,
     this.error,
+    this.showLabel = true,
   });
 
   final String label;
   final String value;
   final VoidCallback onTap;
   final String? error;
+  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -904,13 +1497,66 @@ class _DateField extends StatelessWidget {
       borderRadius: BorderRadius.circular(4),
       child: InputDecorator(
         decoration: InputDecoration(
-          labelText: label,
+          labelText: showLabel ? label : null,
           border: const OutlineInputBorder(),
           errorText: error,
           suffixIcon: const Icon(Icons.calendar_today_outlined),
         ),
         child: Text(value),
       ),
+    );
+  }
+}
+
+class _CompactLabeledField extends StatelessWidget {
+  const _CompactLabeledField({
+    required this.label,
+    required this.child,
+    this.helper,
+  });
+
+  final String label;
+  final Widget child;
+  final String? helper;
+
+  @override
+  Widget build(BuildContext context) {
+    final required = label.endsWith(' *');
+    final plainLabel = required ? label.substring(0, label.length - 2) : label;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(text: plainLabel),
+              if (required)
+                TextSpan(
+                  text: ' *',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+            ],
+          ),
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: const Color(0xFF344A64),
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const SizedBox(height: 5),
+        child,
+        if (helper != null) ...[
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              helper!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontSize: 11,
+                  ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

@@ -10,6 +10,29 @@
     .editing .formscroll{padding-top:11px;padding-bottom:74px}.editing .group{padding-bottom:10px;margin-bottom:10px}.editing .group h4{margin-bottom:8px}.editing .grid{gap:8px 13px}.editing .control{min-height:40px;padding:7px 10px}.editing textarea.control{min-height:58px}.editing .field label{margin-bottom:3px}.editing .help{margin-top:2px}.editing .switchrow{min-height:50px;padding:6px 10px}.editing .warning{margin-top:7px;padding:7px 10px}.editing .formbar{height:64px;padding:10px 20px}
     .phone-wrap h2{height:28px;margin:0 4px;color:#3e5878;font-size:11px;letter-spacing:.08em;text-transform:uppercase;display:flex;justify-content:space-between}.phone{height:1028px;border:8px solid #14283f;border-radius:42px;position:relative}.phonebar{height:42px;padding:12px 17px;background:#fff;display:flex;justify-content:space-between;font-size:11px;font-weight:900}.phonecontent{height:906px;overflow:auto;padding-bottom:86px}.mobilehead{padding:10px 14px 14px;background:#fff;border-bottom:1px solid var(--line)}.mobilehead h3{font-size:23px;margin:4px 0 3px}.mobilehead p{margin:0;color:var(--muted);font-size:11px}.mobilehero{margin:12px;padding:15px;border-radius:16px;background:#fff;border:1px solid var(--line)}.mobilehero .percent{font-size:32px}.mobilehero .hero h3{font-size:20px}.mobile-section{margin:0 12px 10px;padding:14px;border:1px solid var(--line);border-radius:15px;background:#fff}.mobile-section h4{margin:0 0 9px}.mobile-section p{color:#40536a;margin:0;line-height:1.6;overflow-wrap:anywhere}.mobile-section .fact{font-size:12px}.mobile-locked{padding:10px 11px;border-radius:10px;background:#f1f5f9;color:#51657d;font-size:11px;overflow-wrap:anywhere}.mobile-edit{width:100%;margin-top:14px}.bottom{position:absolute;left:0;right:0;bottom:0;height:74px;display:grid;grid-template-columns:repeat(4,1fr);padding:7px 6px 10px;border-top:1px solid var(--line);background:#fff}.bottom button{min-height:48px;border:0;background:transparent;color:#63758c;font-size:10px}.bottom svg{display:block;margin:0 auto 3px}.bottom .active{color:var(--blue);font-weight:900}@media(max-width:839px){body{min-width:0}.board{width:100%;height:auto}.stage{grid-template-columns:1fr}.desktop{display:none}.phone-wrap{max-width:410px;margin:auto}}@media(max-width:599px){html,body{background:var(--bg);overflow-x:hidden}.board{padding:0}.boardhead,.phone-wrap>h2{display:none}.stage{display:block}.phone-wrap{width:100%;max-width:none}.phone{width:100%;height:100dvh;min-height:720px;border:0;border-radius:0;box-shadow:none}.phonecontent{height:calc(100dvh - 42px);min-height:678px}.hero{grid-template-columns:minmax(0,1fr) auto}.mobilehero,.mobile-section{min-width:0}.bottom{position:fixed}}@media(prefers-reduced-motion:no-preference){button,.control{transition:background-color .14s,border-color .14s,box-shadow .14s}}
   </style>
+  <style>
+    body.capture-mobile{width:390px;min-width:390px;margin:0;overflow:hidden}
+    body.capture-mobile .board{width:390px;margin:0;padding:0}
+    body.capture-mobile .stage{display:block;width:390px}
+    body.capture-mobile .desktop,body.capture-mobile .boardhead,body.capture-mobile .phone-wrap>h2{display:none}
+    body.capture-mobile .phone-wrap,body.capture-mobile .phone{width:390px;max-width:none;margin:0}
+    body.capture-mobile .phone{height:867px;min-height:867px;border:0;border-radius:0;box-shadow:none}
+    body.capture-mobile .phonecontent{height:825px;min-height:825px}
+    body.capture-mobile .bottom{position:fixed;right:auto;width:390px}
+    body.mobile-edit .phonecontent{padding-bottom:92px;background:#fff}
+    body.mobile-edit .mobile-form{padding:15px 16px 26px}
+    body.mobile-edit .mobile-form h4{margin:5px 0 12px;color:var(--navy);font-size:15px}
+    body.mobile-edit .mobile-field{margin-bottom:14px}
+    body.mobile-edit .mobile-field label{display:block;margin-bottom:5px;color:#344a64;font-size:11px;font-weight:800}
+    body.mobile-edit .mobile-control{width:100%;min-height:48px;padding:11px 12px;border:1px solid #c8d5e3;border-radius:10px;background:#fff;color:var(--ink)}
+    body.mobile-edit textarea.mobile-control{min-height:76px;resize:none}
+    body.mobile-edit .mobile-help{display:block;margin-top:4px;color:var(--muted);font-size:10px}
+    body.mobile-edit .mobile-group{padding-bottom:15px;margin-bottom:16px;border-bottom:1px solid #e8edf3}
+    body.mobile-edit .edit-actions{height:76px;display:flex;gap:9px;padding:13px 12px 12px}
+    body.mobile-edit .edit-actions button{height:48px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#40536d;font-size:12px;font-weight:850}
+    body.mobile-edit .edit-actions .save{flex:2;border-color:var(--blue);background:var(--blue);color:#fff}
+    body.mobile-edit .edit-actions .cancel{flex:1}
+  </style>
 </head>
 <body>
 <svg width="0" height="0" aria-hidden="true" focusable="false"><symbol id="back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol><symbol id="home" viewBox="0 0 24 24"><path d="m3 11 9-7 9 7v9H3z"/><path d="M9 20v-6h6v6"/></symbol><symbol id="plan" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol><symbol id="tag" viewBox="0 0 24 24"><path d="M20 13 13 20 4 11V4h7z"/><circle cx="8.5" cy="8.5" r="1"/></symbol><symbol id="more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol><symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="edit" viewBox="0 0 24 24"><path d="m4 20 4-1 11-11-3-3L5 16zM14 7l3 3"/></symbol><symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></symbol><symbol id="warn" viewBox="0 0 24 24"><path d="M12 3 2 21h20z"/><path d="M12 9v5M12 18h.01"/></symbol></svg>
@@ -40,6 +63,7 @@
   </div>
 </main>
 <script>
+  if(new URLSearchParams(location.search).has('captureMobile'))document.body.classList.add('capture-mobile');
   const app=document.querySelector('#desktopApp');
   if(new URLSearchParams(location.search).has('edit'))app.classList.add('editing');
   document.querySelectorAll('[data-role]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-role]').forEach(x=>x.classList.toggle('active',x===button));app.classList.toggle('viewer',button.dataset.role==='viewer');if(button.dataset.role==='viewer')app.classList.remove('editing')}));
@@ -49,6 +73,14 @@
   document.querySelector('#categoryForm').addEventListener('submit',event=>{event.preventDefault();app.classList.remove('editing')});
 </script>
 <script>
+  if(new URLSearchParams(location.search).has('mobileEdit')){
+    document.body.classList.add('mobile-edit');
+    const phoneContent=document.querySelector('.phonecontent');
+    phoneContent.innerHTML=`<header class="mobilehead"><button class="back"><svg class="icon"><use href="#back"/></svg> К карточке</button><h3>Редактирование</h3><p>Изменения относятся только к этому предложению</p></header><form class="mobile-form"><section class="mobile-group"><h4>Основное</h4><div class="mobile-field"><label>Название <span class="req">*</span></label><input class="mobile-control" value="Кафе и рестораны"></div><div class="mobile-field"><label>Кешбэк, % <span class="req">*</span></label><input class="mobile-control" value="5"><span class="mobile-help">Можно использовать точку или запятую</span></div><div class="mobile-field"><label>Тип <span class="req">*</span></label><select class="mobile-control"><option>Обычная</option></select></div><div class="mobile-field"><label>Карта <span class="req">*</span></label><select class="mobile-control"><option>Т-Банк · 5678 · Общая карта</option></select></div></section><section class="mobile-group"><h4>Период</h4><div class="mobile-field"><label>Начало <span class="req">*</span></label><input class="mobile-control" value="01.09.2026"></div><div class="mobile-field"><label>Окончание <span class="req">*</span></label><input class="mobile-control" value="30.09.2026"></div></section><section class="mobile-group"><h4>Условия</h4><div class="mobile-field"><label>Описание</label><textarea class="mobile-control">Повышенный кешбэк в кафе, ресторанах и сервисах доставки еды.</textarea></div></section></form>`;
+    const bottom=document.querySelector('.bottom');
+    bottom.classList.add('edit-actions');
+    bottom.innerHTML='<button class="cancel">Отмена</button><button class="save">Сохранить изменения</button>';
+  }
   const viewerNote=document.querySelector('.viewer-note');
   if(viewerNote)viewerNote.innerHTML='<b>Только просмотр.</b> Изменение данных доступно учётной записи с ролью editor или admin.';
   const startField=document.querySelector('#start');

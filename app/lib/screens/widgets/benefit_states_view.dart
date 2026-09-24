@@ -13,6 +13,86 @@ class BenefitItemData {
   final String cardLabel;
 }
 
+class BenefitMccSearchResult {
+  const BenefitMccSearchResult({
+    required this.code,
+    required this.name,
+    required this.description,
+  });
+
+  final String code;
+  final String name;
+  final String description;
+}
+
+class BenefitMerchantSearchResult {
+  const BenefitMerchantSearchResult({
+    required this.name,
+    required this.description,
+    required this.initials,
+    this.highlighted = false,
+    this.color = const Color(0xFF2467CC),
+    this.purchaseResult,
+  });
+
+  final String name;
+  final String description;
+  final String initials;
+  final bool highlighted;
+  final Color color;
+  final BenefitPurchaseResult? purchaseResult;
+}
+
+class BenefitPurchaseResult {
+  const BenefitPurchaseResult({
+    required this.title,
+    required this.merchantName,
+    required this.subtitle,
+    required this.evidence,
+    required this.best,
+    required this.alternatives,
+    required this.risk,
+  });
+
+  final String title;
+  final String merchantName;
+  final String subtitle;
+  final List<String> evidence;
+  final BenefitPurchaseOption best;
+  final List<BenefitPurchaseOption> alternatives;
+  final String risk;
+}
+
+class BenefitPurchaseOption {
+  const BenefitPurchaseOption({
+    required this.bankMark,
+    required this.cardLabel,
+    required this.cardSubtitle,
+    required this.rate,
+    required this.categoryName,
+    required this.categorySubtitle,
+    this.limitLabel,
+    this.matchLabel,
+    this.matchIsPositive = true,
+    this.reason,
+    this.chainLabel,
+    this.bankColor = const Color(0xFF17396D),
+  });
+
+  final String bankMark;
+  final String cardLabel;
+  final String cardSubtitle;
+  final String rate;
+  final String categoryName;
+  final String categorySubtitle;
+  final String? limitLabel;
+  final String? matchLabel;
+  final bool matchIsPositive;
+  final String? reason;
+  final String? chainLabel;
+  final Color bankColor;
+}
+
 class BenefitStatesView extends StatefulWidget {
   const BenefitStatesView({
     super.key,
@@ -20,27 +100,36 @@ class BenefitStatesView extends StatefulWidget {
     required this.hasUsableSnapshot,
     required this.items,
     required this.onRefresh,
+    this.mccResults = const [],
+    this.merchantResults = const [],
     this.snapshotUpdatedAt,
+    this.onShellDestinationSelected,
   });
 
   final PrimaryDataPhase phase;
   final bool hasUsableSnapshot;
   final DateTime? snapshotUpdatedAt;
   final List<BenefitItemData> items;
+  final List<BenefitMccSearchResult> mccResults;
+  final List<BenefitMerchantSearchResult> merchantResults;
   final Future<void> Function() onRefresh;
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   State<BenefitStatesView> createState() => _BenefitStatesViewState();
 }
 
 class _BenefitStatesViewState extends State<BenefitStatesView> {
-  final _searchController = TextEditingController();
+  late final TextEditingController _searchController;
   final _searchFocusNode = FocusNode();
   int? _selectedId;
+  BenefitPurchaseResult? _selectedPurchaseResult;
+  String? _selectedMerchantName;
 
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController();
     _searchController.addListener(_onQueryChanged);
   }
 
@@ -64,6 +153,11 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
 
   void _onQueryChanged() {
     setState(() {
+      if (_selectedMerchantName != null &&
+          _searchController.text != _selectedMerchantName) {
+        _selectedMerchantName = null;
+        _selectedPurchaseResult = null;
+      }
       if (_selectedId != null &&
           !_filteredItems.any((item) => item.category.id == _selectedId)) {
         _selectedId = null;
@@ -85,6 +179,18 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     return result;
   }
 
+  List<BenefitMccSearchResult> get _filteredMccResults {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) return const [];
+    return widget.mccResults;
+  }
+
+  List<BenefitMerchantSearchResult> get _filteredMerchantResults {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) return const [];
+    return widget.merchantResults;
+  }
+
   BenefitItemData? get _selectedItem {
     for (final item in widget.items) {
       if (item.category.id == _selectedId) return item;
@@ -93,8 +199,22 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   }
 
   void _clearQuery() {
+    _selectedMerchantName = null;
+    _selectedPurchaseResult = null;
     _searchController.clear();
     _searchFocusNode.requestFocus();
+  }
+
+  void _selectMerchant(BenefitMerchantSearchResult merchant) {
+    final result = merchant.purchaseResult;
+    if (result == null) return;
+    _selectedMerchantName = merchant.name;
+    _selectedPurchaseResult = result;
+    _searchController.value = TextEditingValue(
+      text: merchant.name,
+      selection: TextSelection.collapsed(offset: merchant.name.length),
+    );
+    _searchFocusNode.unfocus();
   }
 
   @override
@@ -106,7 +226,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
         widget.phase == PrimaryDataPhase.failed && !hasData;
 
     return SafeArea(
-      top: false,
+      top: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -120,8 +240,12 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
               enabled: !initialLoading && !failedWithoutData,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                labelText: 'Категория или карта',
-                hintText: 'Например, аптеки или •1234',
+                hintText: 'Что хотите купить?',
+                helperText: _selectedPurchaseResult != null
+                    ? 'Магазин · результат по текущему плану'
+                    : _searchController.text.trim().isEmpty
+                        ? 'Категория, MCC-код или конкретный магазин'
+                        : 'Найдено в категориях, MCC и магазинах',
                 prefixIcon: const Icon(Icons.search_outlined),
                 suffixIcon: _searchController.text.isEmpty
                     ? null
@@ -131,6 +255,13 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
                         icon: const Icon(Icons.close),
                       ),
                 border: const OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2,
+                  ),
+                ),
               ),
             ),
           ),
@@ -162,8 +293,11 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
 
   Widget _buildReadyContent(double width) {
     final filtered = _filteredItems;
-    if (filtered.isEmpty) {
-      if (_searchController.text.trim().isNotEmpty) {
+    final query = _searchController.text.trim();
+    final filteredMcc = _filteredMccResults;
+    final filteredMerchants = _filteredMerchantResults;
+    if (filtered.isEmpty && filteredMcc.isEmpty && filteredMerchants.isEmpty) {
+      if (query.isNotEmpty) {
         return _EmptySearchState(onClear: _clearQuery);
       }
       return const _NoCategoriesState();
@@ -190,9 +324,18 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
                 : _BenefitDetail(
                     item: _selectedItem!,
                     tiedItems: _tiedLeaders(_selectedItem!),
+                    onShellDestinationSelected:
+                        widget.onShellDestinationSelected,
                   ),
           ),
         ],
+      );
+    }
+
+    if (_selectedPurchaseResult != null) {
+      return _CompactPurchaseResult(
+        key: const Key('benefit-compact-purchase-result'),
+        result: _selectedPurchaseResult!,
       );
     }
 
@@ -201,10 +344,32 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
         key: const Key('benefit-compact-detail'),
         item: _selectedItem!,
         tiedItems: _tiedLeaders(_selectedItem!),
+        onShellDestinationSelected: widget.onShellDestinationSelected,
         onBack: () => setState(() => _selectedId = null),
       );
     }
 
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    if (width < 600 && !largeText) {
+      if (query.isNotEmpty) {
+        return _CompactSearchResults(
+          key: const Key('benefit-compact-search-results'),
+          categories: filtered,
+          mccResults: filteredMcc,
+          merchantResults: filteredMerchants,
+          onMerchantSelected: _selectMerchant,
+          onCategorySelected: (item) =>
+              setState(() => _selectedId = item.category.id),
+        );
+      }
+      return _CompactBenefitOverview(
+        key: const Key('benefit-compact-list'),
+        items: filtered,
+        merchantResults: widget.merchantResults,
+        onMerchantSelected: _selectMerchant,
+        onSelected: (item) => setState(() => _selectedId = item.category.id),
+      );
+    }
     return _BenefitList(
       key: const Key('benefit-compact-list'),
       items: filtered,
@@ -230,25 +395,759 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   }
 }
 
+class _CompactPurchaseResult extends StatelessWidget {
+  const _CompactPurchaseResult({super.key, required this.result});
+
+  final BenefitPurchaseResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 20),
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(11, 10, 11, 9),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                result.title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                result.subtitle,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+              ),
+              if (result.evidence.isNotEmpty) ...[
+                const SizedBox(height: 7),
+                Wrap(
+                  spacing: 5,
+                  runSpacing: 5,
+                  children: [
+                    for (final evidence in result.evidence)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.primaryContainer,
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Text(
+                          evidence,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: colors.primary,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _BestPurchaseCard(
+          merchantName: result.merchantName,
+          option: result.best,
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Другие варианты',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+            Text(
+              'Все карты',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            border: Border.all(color: colors.outlineVariant),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              for (var index = 0;
+                  index < result.alternatives.length;
+                  index++) ...[
+                if (index > 0) Divider(height: 1, color: colors.outlineVariant),
+                _AlternativePurchaseRow(option: result.alternatives[index]),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 9),
+        Container(
+          padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF3DF),
+            borderRadius: BorderRadius.circular(8),
+            border: const Border(
+              left: BorderSide(color: Color(0xFFD77A00), width: 3),
+            ),
+          ),
+          child: Text(
+            result.risk,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: const Color(0xFF805319),
+                  fontSize: 9,
+                  height: 1.3,
+                ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BestPurchaseCard extends StatelessWidget {
+  const _BestPurchaseCard({
+    required this.merchantName,
+    required this.option,
+  });
+
+  final String merchantName;
+  final BenefitPurchaseOption option;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF12366E), Color(0xFF2874D5)],
+          ),
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x241B5BB4),
+              blurRadius: 18,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(color: Colors.white),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'ЛУЧШИЙ ИЗВЕСТНЫЙ ВАРИАНТ',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .35,
+                  color: Color(0xFFDCEAFF),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _BankMark(option: option, size: 34),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          option.cardLabel,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          option.cardSubtitle,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFFDCEAFF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    option.rate,
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 9),
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: const Color(0x22FFFFFF),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            option.categoryName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            option.categorySubtitle,
+                            style: const TextStyle(
+                              fontSize: 9,
+                              color: Color(0xFFDCEAFF),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (option.limitLabel != null)
+                      Text(
+                        option.limitLabel!,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 9),
+              _PurchaseChain(
+                merchantName: merchantName,
+                mccLabel: _firstEvidenceCode(option.reason),
+                categoryName: option.categoryName,
+                bankLabel: option.chainLabel ?? option.bankMark,
+              ),
+              if (option.reason?.isNotEmpty ?? false) ...[
+                const SizedBox(height: 9),
+                Text(
+                  option.reason!,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    height: 1.35,
+                    color: Color(0xFFDCEAFF),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+}
+
+String _firstEvidenceCode(String? reason) {
+  final match = RegExp(r'MCC\s+\d{4}').firstMatch(reason ?? '');
+  return match?.group(0) ?? 'MCC';
+}
+
+class _PurchaseChain extends StatelessWidget {
+  const _PurchaseChain({
+    required this.merchantName,
+    required this.mccLabel,
+    required this.categoryName,
+    required this.bankLabel,
+  });
+
+  final String merchantName;
+  final String mccLabel;
+  final String categoryName;
+  final String bankLabel;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(child: _ChainPill(merchantName)),
+          const _ChainArrow(),
+          Expanded(child: _ChainPill(mccLabel)),
+          const _ChainArrow(),
+          Expanded(child: _ChainPill(categoryName)),
+          const _ChainArrow(),
+          Expanded(child: _ChainPill(bankLabel)),
+        ],
+      );
+}
+
+class _ChainPill extends StatelessWidget {
+  const _ChainPill(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0x19FFFFFF),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Color(0xFFDBE9FF),
+            fontSize: 8,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+}
+
+class _ChainArrow extends StatelessWidget {
+  const _ChainArrow();
+
+  @override
+  Widget build(BuildContext context) => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 3),
+        child: Text('→', style: TextStyle(color: Color(0x99DBE9FF))),
+      );
+}
+
+class _AlternativePurchaseRow extends StatelessWidget {
+  const _AlternativePurchaseRow({required this.option});
+  final BenefitPurchaseOption option;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 62),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            children: [
+              _BankMark(option: option, size: 32),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      option.cardLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    Text(
+                      option.categoryName,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                    if (option.matchLabel != null)
+                      Text(
+                        option.matchLabel!,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: option.matchIsPositive
+                                  ? const Color(0xFF168154)
+                                  : const Color(0xFFB94343),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                  ],
+                ),
+              ),
+              Text(
+                option.rate,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: const Color(0xFFD77A00),
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _BankMark extends StatelessWidget {
+  const _BankMark({required this.option, required this.size});
+  final BenefitPurchaseOption option;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+        child: Container(
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: option.bankColor,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            option.bankMark,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: option.bankMark.length > 2 ? 9 : 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      );
+}
+
+class _CompactSearchResults extends StatelessWidget {
+  const _CompactSearchResults({
+    super.key,
+    required this.categories,
+    required this.mccResults,
+    required this.merchantResults,
+    required this.onCategorySelected,
+    required this.onMerchantSelected,
+  });
+
+  final List<BenefitItemData> categories;
+  final List<BenefitMccSearchResult> mccResults;
+  final List<BenefitMerchantSearchResult> merchantResults;
+  final ValueChanged<BenefitItemData> onCategorySelected;
+  final ValueChanged<BenefitMerchantSearchResult> onMerchantSelected;
+
+  @override
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.fromLTRB(13, 0, 13, 20),
+        children: [
+          if (categories.isNotEmpty) ...[
+            const _SearchGroupHeader(
+              title: 'КАТЕГОРИИ',
+              hint: 'САМЫЙ ПРЯМОЙ ЗАПРОС',
+            ),
+            for (final item in categories)
+              _SearchResultRow(
+                badge: 'КАТ',
+                badgeColor: const Color(0xFF279164),
+                title: item.category.name,
+                subtitle: 'Сравнить все выбранные категории с таким названием',
+                kind: 'Категория',
+                onTap: () => onCategorySelected(item),
+              ),
+          ],
+          if (mccResults.isNotEmpty) ...[
+            const _SearchGroupHeader(
+              title: 'MCC-КОДЫ',
+              hint: 'ТОЧНЕЕ КАТЕГОРИИ',
+            ),
+            for (final item in mccResults)
+              _SearchResultRow(
+                badge: item.code,
+                badgeColor: const Color(0xFF687D97),
+                title: item.name,
+                subtitle: item.description,
+                kind: 'MCC',
+              ),
+          ],
+          if (merchantResults.isNotEmpty) ...[
+            const _SearchGroupHeader(
+              title: 'МАГАЗИНЫ',
+              hint: 'ПОЛНАЯ ЦЕПОЧКА',
+            ),
+            for (final item in merchantResults)
+              _SearchResultRow(
+                badge: item.initials,
+                badgeColor: item.color,
+                title: item.name,
+                subtitle: item.description,
+                kind: 'Магазин',
+                highlighted: item.highlighted,
+                onTap: item.purchaseResult == null
+                    ? null
+                    : () => onMerchantSelected(item),
+              ),
+          ],
+          if (mccResults.isNotEmpty || merchantResults.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEDF3FB),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                'Чем конкретнее исходные данные, тем точнее сравнение. '
+                'Для магазина результат учитывает историю MCC и показывает '
+                'неопределённость.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF526780),
+                      fontSize: 10,
+                      height: 1.3,
+                    ),
+              ),
+            ),
+          ],
+        ],
+      );
+}
+
+class _SearchGroupHeader extends StatelessWidget {
+  const _SearchGroupHeader({required this.title, required this.hint});
+
+  final String title;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 31,
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFF5E6E84),
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: .35,
+                    ),
+              ),
+            ),
+            Text(
+              hint,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFF5E6E84),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .2,
+                  ),
+            ),
+          ],
+        ),
+      );
+}
+
+class _SearchResultRow extends StatelessWidget {
+  const _SearchResultRow({
+    required this.badge,
+    required this.badgeColor,
+    required this.title,
+    required this.subtitle,
+    required this.kind,
+    this.highlighted = false,
+    this.onTap,
+  });
+
+  final String badge;
+  final Color badgeColor;
+  final String title;
+  final String subtitle;
+  final String kind;
+  final bool highlighted;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: highlighted ? colors.primary : colors.outlineVariant,
+          width: highlighted ? 2 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              highlighted ? 8 : 9,
+              8,
+              highlighted ? 8 : 9,
+              8,
+            ),
+            child: Row(
+              children: [
+                ExcludeSemantics(
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: badgeColor,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Text(
+                      badge,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: colors.onSurfaceVariant,
+                              fontSize: 9,
+                              height: 1.15,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: colors.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Text(
+                    kind,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: const Color(0xFF607087),
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
   const _Header({required this.isRefreshing});
   final bool isRefreshing;
 
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.5;
+    const months = [
+      'Январь',
+      'Февраль',
+      'Март',
+      'Апрель',
+      'Май',
+      'Июнь',
+      'Июль',
+      'Август',
+      'Сентябрь',
+      'Октябрь',
+      'Ноябрь',
+      'Декабрь',
+    ];
+    if (largeText) {
+      return Padding(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
         child: Semantics(
           header: true,
           label: isRefreshing ? 'Выгода, данные обновляются' : 'Выгода',
-          child: Text(
-            'Выгода',
-            style: Theme.of(context)
-                .textTheme
-                .headlineMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
+          child: ExcludeSemantics(
+            child: Text(
+              'Выгода',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
           ),
         ),
       );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Семейное пространство',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Semantics(
+                  header: true,
+                  label: isRefreshing ? 'Выгода, данные обновляются' : 'Выгода',
+                  child: ExcludeSemantics(
+                    child: Text(
+                      'Выгода',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              child: Text(
+                '${months[now.month - 1]} ${now.year}',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LoadingState extends StatelessWidget {
@@ -488,6 +1387,333 @@ class _BenefitList extends StatelessWidget {
   }
 }
 
+class _CompactBenefitOverview extends StatelessWidget {
+  const _CompactBenefitOverview({
+    super.key,
+    required this.items,
+    required this.merchantResults,
+    required this.onMerchantSelected,
+    required this.onSelected,
+  });
+
+  final List<BenefitItemData> items;
+  final List<BenefitMerchantSearchResult> merchantResults;
+  final ValueChanged<BenefitMerchantSearchResult> onMerchantSelected;
+  final ValueChanged<BenefitItemData> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = <String, List<BenefitItemData>>{};
+    for (final item in items) {
+      grouped.putIfAbsent(item.category.name, () => []).add(item);
+    }
+    final groups = grouped.values.toList()
+      ..sort((a, b) => b
+          .map((item) => item.category.cashbackPercent)
+          .reduce((left, right) => left > right ? left : right)
+          .compareTo(a
+              .map((item) => item.category.cashbackPercent)
+              .reduce((left, right) => left > right ? left : right)));
+
+    final recentMerchants = merchantResults.take(2).toList();
+    return CustomScrollView(
+      key: const PageStorageKey('benefit-compact-overview-scroll'),
+      slivers: [
+        SliverToBoxAdapter(
+          child: _OverviewSectionHeader(
+            title: 'Категории',
+            action: 'Показать все ${groups.length}',
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              mainAxisExtent: 88,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _CompactCategoryCard(
+                items: groups[index],
+                onTap: () => onSelected(groups[index].first),
+              ),
+              childCount: groups.length,
+            ),
+          ),
+        ),
+        if (recentMerchants.isNotEmpty) ...[
+          const SliverToBoxAdapter(child: SizedBox(height: 8)),
+          const SliverToBoxAdapter(
+            child: _OverviewSectionHeader(
+              title: 'Недавние магазины',
+              action: 'История',
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverList.separated(
+              itemCount: recentMerchants.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 6),
+              itemBuilder: (context, index) {
+                final merchant = recentMerchants[index];
+                return _RecentMerchantRow(
+                  merchant: merchant,
+                  onTap: merchant.purchaseResult == null
+                      ? null
+                      : () => onMerchantSelected(merchant),
+                );
+              },
+            ),
+          ),
+        ],
+        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+      ],
+    );
+  }
+}
+
+class _OverviewSectionHeader extends StatelessWidget {
+  const _OverviewSectionHeader({required this.title, required this.action});
+
+  final String title;
+  final String action;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(17, 2, 17, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+            Text(
+              action,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ],
+        ),
+      );
+}
+
+class _RecentMerchantRow extends StatelessWidget {
+  const _RecentMerchantRow({required this.merchant, this.onTap});
+
+  final BenefitMerchantSearchResult merchant;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                ExcludeSemantics(
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: merchant.color,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Text(
+                      merchant.initials,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        merchant.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        merchant.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: colors.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (onTap != null) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: colors.primary,
+                    size: 22,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactCategoryCard extends StatelessWidget {
+  const _CompactCategoryCard({required this.items, required this.onTap});
+
+  final List<BenefitItemData> items;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final category = items.first.category;
+    final color = CategoryInfo.getCategoryColor(category.name);
+    final sorted = [...items]..sort((a, b) =>
+        b.category.cashbackPercent.compareTo(a.category.cashbackPercent));
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: color,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(
+                      CategoryInfo.getCategoryIcon(category.name),
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          category.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                        ),
+                        Text(
+                          '${items.length} ${_cardsWord(items.length)}',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: [
+                  for (final item in sorted.take(2))
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${_formatPercent(item.category.cashbackPercent)}% '
+                        '${_cardMark(item.cardLabel)}',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: color,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _cardsWord(int count) {
+  final mod100 = count % 100;
+  final mod10 = count % 10;
+  if (mod100 >= 11 && mod100 <= 14) return 'карт';
+  if (mod10 == 1) return 'карта';
+  if (mod10 >= 2 && mod10 <= 4) return 'карты';
+  return 'карт';
+}
+
+String _cardMark(String label) {
+  final normalized = label.toLowerCase();
+  if (normalized.contains('альфа')) return 'А';
+  if (normalized.contains('т-банк') || normalized.contains('тинькофф')) {
+    return 'Т';
+  }
+  if (normalized.contains('втб')) return 'ВТБ';
+  if (normalized.contains('сбер')) return 'СБ';
+  final words = label
+      .split(RegExp(r'\s+'))
+      .where((word) => word.isNotEmpty && !RegExp(r'^\d+$').hasMatch(word));
+  return words.isEmpty ? 'К' : words.first.characters.first.toUpperCase();
+}
+
 class _BenefitListCard extends StatelessWidget {
   const _BenefitListCard({
     required this.item,
@@ -509,7 +1735,7 @@ class _BenefitListCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         side: selected
             ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)
-            : BorderSide.none,
+            : BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(16),
       ),
       child: InkWell(
@@ -586,11 +1812,13 @@ class _BenefitDetail extends StatelessWidget {
     required this.item,
     required this.tiedItems,
     this.onBack,
+    this.onShellDestinationSelected,
   });
 
   final BenefitItemData item;
   final List<BenefitItemData> tiedItems;
   final VoidCallback? onBack;
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -627,7 +1855,10 @@ class _BenefitDetail extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         for (final current in shownItems) ...[
-          _DetailCard(item: current),
+          _DetailCard(
+            item: current,
+            onShellDestinationSelected: onShellDestinationSelected,
+          ),
           const SizedBox(height: 12),
         ],
         if (category.description?.trim().isNotEmpty ?? false) ...[
@@ -662,8 +1893,13 @@ class _BenefitDetail extends StatelessWidget {
 }
 
 class _DetailCard extends StatelessWidget {
-  const _DetailCard({required this.item});
+  const _DetailCard({
+    required this.item,
+    this.onShellDestinationSelected,
+  });
+
   final BenefitItemData item;
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -701,6 +1937,7 @@ class _DetailCard extends StatelessWidget {
                   MaterialPageRoute<void>(
                     builder: (_) => CashbackCategoryDetailScreen(
                       category: category,
+                      onShellDestinationSelected: onShellDestinationSelected,
                     ),
                   ),
                 ),

@@ -32,6 +32,10 @@ void main() {
           child: MaterialApp(home: HomeScreen(sessionType: sessionType)),
         ),
       );
+      await tester.tap(
+        find.byKey(const ValueKey('shell-destination-Ещё')),
+      );
+      await tester.pump();
 
       expect(find.byIcon(Icons.upload_file_outlined), findsNothing);
       expect(find.byIcon(Icons.download_for_offline_outlined), findsNothing);
@@ -39,16 +43,47 @@ void main() {
   });
 
   testWidgets('Windows session shows its desktop actions', (tester) async {
+    final provider = DataProvider()
+      ..currentAuthUser = AuthIdentity(
+        id: 1,
+        username: 'editor',
+        role: 'editor',
+      );
     await tester.pumpWidget(
-      ChangeNotifierProvider(
-        create: (_) => DataProvider(),
+      ChangeNotifierProvider.value(
+        value: provider,
         child: const MaterialApp(
           home: HomeScreen(sessionType: AppSessionType.windows),
         ),
       ),
     );
+    await tester.tap(
+      find.byKey(const ValueKey('shell-destination-Ещё')),
+    );
+    await tester.pump();
 
     expect(find.byIcon(Icons.upload_file_outlined), findsOneWidget);
     expect(find.byIcon(Icons.download_for_offline_outlined), findsOneWidget);
+  });
+
+  testWidgets('wide short layout uses the rail without overflow',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 270);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => DataProvider(),
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('CashFlow'), findsOneWidget);
+    expect(find.text('Выгода'), findsWidgets);
+    expect(find.text('План'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

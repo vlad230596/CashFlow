@@ -5,7 +5,12 @@ import '../providers/data_provider.dart';
 import 'widgets/benefit_states_view.dart';
 
 class CashbackScreen extends StatelessWidget {
-  const CashbackScreen({super.key});
+  const CashbackScreen({
+    super.key,
+    this.onShellDestinationSelected,
+  });
+
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   Widget build(BuildContext context) => Consumer<DataProvider>(
@@ -26,6 +31,7 @@ class CashbackScreen extends StatelessWidget {
             onRefresh: () async {
               await provider.fetchAllData();
             },
+            onShellDestinationSelected: onShellDestinationSelected,
           );
         },
       );

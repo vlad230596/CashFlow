@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 void main() {
-  testWidgets('mobile view compares the same need across banks',
+  testWidgets('mobile plan follows the manual needs-first layout',
       (tester) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
@@ -47,7 +47,7 @@ void main() {
           name: 'Аптеки',
           startDate: month,
           endDate: DateTime(month.year, month.month + 1),
-          isSelected: true,
+          isSelected: false,
           cashbackPercent: 3,
           cardId: 1,
         ),
@@ -70,19 +70,91 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('По категориям'), findsOneWidget);
-    expect(find.text('Аптеки'), findsWidgets);
-    expect(find.text('Лекарства'), findsOneWidget);
-    expect(find.text('Есть 5%'), findsOneWidget);
-    expect(find.text('Лучший процент'), findsOneWidget);
-    expect(find.textContaining('Покрыто 1 из 1'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    expect(find.text('План'), findsOneWidget);
+    expect(find.text('Обязательные потребности'), findsOneWidget);
+    expect(find.text('Обязательные'), findsOneWidget);
+    expect(find.text('Частые'), findsOneWidget);
+    expect(find.text('Остальные'), findsOneWidget);
+    expect(find.text('Аптеки'), findsOneWidget);
+    expect(find.text('Ещё не назначено'), findsOneWidget);
+    expect(find.textContaining('Первый банк'), findsWidgets);
+    expect(find.textContaining('Второй банк'), findsWidgets);
+    expect(find.text('Добавить потребность'), findsOneWidget);
+    expect(find.text('0 из 1'), findsOneWidget);
 
-    await tester.tap(find.text('По банкам'));
+    await tester.tap(find.textContaining('Второй банк').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Добавить категории'), findsWidgets);
-    expect(find.textContaining('1/3'), findsOneWidget);
+    expect(find.text('Выберите карту'), findsOneWidget);
+    expect(find.text('Назад'), findsOneWidget);
+    expect(find.text('Назначить Второй банк'), findsOneWidget);
+    expect(find.text('Оставить без карты'), findsOneWidget);
+
+    await tester.tap(find.text('Назад'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Обязательные потребности'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile plan opens the grouped manual review', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.now();
+    final month = DateTime(now.year, now.day <= 20 ? now.month : now.month + 1);
+    final provider = DataProvider()
+      ..banks = [BankModel(id: 1, name: 'Первый банк', description: '')]
+      ..users = [UserModel(id: 1, name: 'Анна')]
+      ..cards = [
+        CardModel(
+          id: 1,
+          bankId: 1,
+          userId: 1,
+          lastFourDigits: '1111',
+          maxCashbackCategories: 3,
+        ),
+      ]
+      ..cashbackCategories = [
+        CashbackCategoryModel(
+          id: 1,
+          name: 'Продукты и супермаркеты',
+          startDate: month,
+          endDate: DateTime(month.year, month.month + 1),
+          isSelected: true,
+          isBankConfirmed: true,
+          cashbackPercent: 5,
+          cardId: 1,
+        ),
+        CashbackCategoryModel(
+          id: 2,
+          name: 'Такси',
+          startDate: month,
+          endDate: DateTime(month.year, month.month + 1),
+          isSelected: false,
+          cashbackPercent: 3,
+          cardId: 1,
+        ),
+      ];
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: const MaterialApp(home: MonthlyCashbackScreen()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Проверить план'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('План заполнен вручную'), findsOneWidget);
+    expect(find.text('Первый банк · 1111'), findsOneWidget);
+    expect(find.byIcon(Icons.shopping_cart_outlined), findsOneWidget);
+    expect(find.textContaining('Не закрыто: Такси'), findsOneWidget);
+    expect(find.text('Перейти к подтверждению'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

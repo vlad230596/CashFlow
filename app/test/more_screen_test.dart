@@ -22,8 +22,8 @@ void main() {
 
     expect(find.text('Ещё'), findsOneWidget);
     expect(find.text('Данные обновлены'), findsOneWidget);
-    expect(find.text('Параметры расчёта'), findsOneWidget);
-    expect(find.text('Аккаунт и приложение'), findsOneWidget);
+    expect(find.text('ПАРАМЕТРЫ'), findsOneWidget);
+    expect(find.text('АККАУНТ И ПРИЛОЖЕНИЕ'), findsOneWidget);
     expect(find.text('anna · Просмотр'), findsOneWidget);
     expect(find.text('Управление данными'), findsNothing);
     expect(find.text('Импортировать JSON'), findsNothing);

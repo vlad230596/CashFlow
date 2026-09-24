@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'providers/data_provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'theme/cashflow_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,11 +25,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'CashFlow',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        fontFamily: 'Roboto',
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
+      debugShowCheckedModeBanner: false,
+      theme: CashFlowTheme.light(),
       home: const AuthGate(),
     );
   }

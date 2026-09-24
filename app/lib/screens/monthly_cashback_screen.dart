@@ -172,6 +172,8 @@ enum _MonthlyView { categories, banks }
 
 enum _CategoryFilter { all, uncovered, duplicates }
 
+enum _MobileNeedFilter { required, frequent, other }
+
 class _BrowserProfileChoice {
   const _BrowserProfileChoice({required this.profile, this.userId});
 
@@ -195,7 +197,12 @@ class _CategoryGroup {
 }
 
 class MonthlyCashbackScreen extends StatefulWidget {
-  const MonthlyCashbackScreen({super.key});
+  const MonthlyCashbackScreen({
+    super.key,
+    this.onShellDestinationSelected,
+  });
+
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   State<MonthlyCashbackScreen> createState() => _MonthlyCashbackScreenState();
@@ -211,6 +218,10 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   late DateTime _endDate;
   _MonthlyView _view = _MonthlyView.categories;
   _CategoryFilter _filter = _CategoryFilter.all;
+  _MobileNeedFilter _mobileNeedFilter = _MobileNeedFilter.required;
+  String? _mobileEditingGroupTitle;
+  int? _mobileSelectedOfferId;
+  bool _mobileReviewingPlan = false;
   String _query = '';
   bool _sendingToChrome = false;
 
@@ -262,6 +273,24 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   String _formatDate(DateTime date) {
     return '${date.day.toString().padLeft(2, '0')}.'
         '${date.month.toString().padLeft(2, '0')}.${date.year}';
+  }
+
+  String _formatMonth(DateTime date) {
+    const months = [
+      'Январь',
+      'Февраль',
+      'Март',
+      'Апрель',
+      'Май',
+      'Июнь',
+      'Июль',
+      'Август',
+      'Сентябрь',
+      'Октябрь',
+      'Ноябрь',
+      'Декабрь',
+    ];
+    return '${months[date.month - 1]} ${date.year}';
   }
 
   bool _isCategoryInSelectedPeriod(CashbackCategoryModel category) {
@@ -552,26 +581,1308 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
         if (category.isSelected) normalizedCashbackCategoryName(category.name),
     }.length;
 
-    return Scaffold(
-      body: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 760;
+        return Scaffold(
+          body: compact
+              ? SafeArea(
+                  bottom: false,
+                  child: _buildMobilePlan(
+                    context,
+                    dataProvider,
+                    visibleGroups,
+                  ),
+                )
+              : Column(
+                  children: [
+                    _buildHeader(context, dataProvider),
+                    Expanded(
+                      child: _view == _MonthlyView.categories
+                          ? _buildCategoryView(
+                              context,
+                              dataProvider,
+                              visibleGroups,
+                            )
+                          : _buildBankView(
+                              context,
+                              dataProvider,
+                              periodCategories,
+                            ),
+                    ),
+                  ],
+                ),
+          bottomNavigationBar: compact
+              ? null
+              : _buildSummary(
+                  context,
+                  dataProvider,
+                  periodCategories,
+                  coveredGroups,
+                  totalGroups,
+                ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMobilePlan(
+    BuildContext context,
+    DataProvider dataProvider,
+    List<_CategoryGroup> allGroups,
+  ) {
+    final requiredGroups = allGroups
+        .where((group) => cashbackCategorySortPriority(group.title) <= 50)
+        .toList();
+    final groups = allGroups.where((group) {
+      final priority = cashbackCategorySortPriority(group.title);
+      return switch (_mobileNeedFilter) {
+        _MobileNeedFilter.required => priority <= 50,
+        _MobileNeedFilter.frequent => priority > 50 && priority <= 80,
+        _MobileNeedFilter.other => priority > 80,
+      };
+    }).toList()
+      ..sort((a, b) {
+        if (a.isCovered != b.isCovered) return a.isCovered ? 1 : -1;
+        return cashbackCategorySortPriority(
+          a.title,
+        ).compareTo(cashbackCategorySortPriority(b.title));
+      });
+    final coveredRequired =
+        requiredGroups.where((group) => group.isCovered).length;
+    final familyNames =
+        dataProvider.users.take(2).map((user) => user.name).join(' и ');
+    final editingGroup = _mobileEditingGroupTitle == null
+        ? null
+        : allGroups
+            .where((group) => group.title == _mobileEditingGroupTitle)
+            .firstOrNull;
+
+    if (_mobileReviewingPlan) {
+      return _buildMobilePlanReview(context, dataProvider, allGroups);
+    }
+
+    if (editingGroup != null) {
+      return _buildMobileCardSelector(
+        context,
+        dataProvider,
+        editingGroup,
+      );
+    }
+
+    return KeyedSubtree(
+      key: const ValueKey('mobile-plan-overview'),
+      child: Column(
         children: [
-          _buildHeader(context, dataProvider),
+          Material(
+            color: Colors.white,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              decoration: const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE7EBF0)),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    familyNames.isEmpty
+                        ? 'Семейный план'
+                        : 'Семья · $familyNames',
+                    style: const TextStyle(
+                      color: Color(0xFF637189),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'План',
+                          style: TextStyle(
+                            color: Color(0xFF0D2852),
+                            fontSize: 24,
+                            height: 1.1,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => _showDateRangePicker(context),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          backgroundColor: const Color(0xFFEDF2F8),
+                          foregroundColor: const Color(0xFF425A78),
+                          side: BorderSide.none,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        child: Text(_formatMonth(_startDate)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
           Expanded(
-            child: _view == _MonthlyView.categories
-                ? _buildCategoryView(context, dataProvider, visibleGroups)
-                : _buildBankView(context, dataProvider, periodCategories),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+              children: [
+                _buildMobileGuide(coveredRequired, requiredGroups.length),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildMobileFilterChip(
+                        'Обязательные',
+                        _MobileNeedFilter.required,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _buildMobileFilterChip(
+                        'Частые',
+                        _MobileNeedFilter.frequent,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _buildMobileFilterChip(
+                        'Остальные',
+                        _MobileNeedFilter.other,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (groups.isEmpty)
+                  _buildMobileEmptyNeeds()
+                else
+                  for (var index = 0; index < groups.length; index++) ...[
+                    _buildMobileNeedCard(
+                      context,
+                      dataProvider,
+                      groups[index],
+                      expanded: !groups[index].isCovered &&
+                          groups.take(index).every((group) => group.isCovered),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                if (allGroups.any((group) => group.isCovered)) ...[
+                  FilledButton(
+                    onPressed: () => setState(() {
+                      _mobileReviewingPlan = true;
+                    }),
+                    child: const Text('Проверить план'),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                OutlinedButton(
+                  onPressed: dataProvider.cards.isEmpty
+                      ? null
+                      : () => _showAddCategoriesDialog(
+                            context,
+                            dataProvider.cards.first.id!,
+                          ),
+                  child: const Text('Добавить потребность'),
+                ),
+              ],
+            ),
           ),
         ],
       ),
-      bottomNavigationBar: _buildSummary(
-        context,
-        dataProvider,
-        periodCategories,
-        coveredGroups,
-        totalGroups,
+    );
+  }
+
+  Widget _buildMobilePlanReview(
+    BuildContext context,
+    DataProvider dataProvider,
+    List<_CategoryGroup> allGroups,
+  ) {
+    final periodCategories = _periodCategories(dataProvider)
+        .where((category) => category.isSelectable)
+        .toList();
+    final required = allGroups
+        .where((group) => cashbackCategorySortPriority(group.title) <= 50)
+        .toList();
+    final frequent = allGroups.where((group) {
+      final priority = cashbackCategorySortPriority(group.title);
+      return priority > 50 && priority <= 80;
+    }).toList();
+    final occupied = periodCategories.where((category) => category.isSelected);
+    final totalSlots = dataProvider.cards.fold<int>(
+      0,
+      (sum, card) =>
+          sum + _getMaxCategories(card.id!, card.maxCashbackCategories),
+    );
+    final familyNames =
+        dataProvider.users.take(2).map((user) => user.name).join(' и ');
+    final cards = dataProvider.cards.where((card) {
+      return periodCategories.any(
+        (category) => category.cardId == card.id && category.isSelected,
+      );
+    }).toList()
+      ..sort((a, b) => a.id!.compareTo(b.id!));
+    final uncovered = allGroups.where((group) => !group.isCovered).firstOrNull;
+    final freeCards = dataProvider.cards.where((card) {
+      final maximum = _getMaxCategories(card.id!, card.maxCashbackCategories);
+      return _selectedStandardCount(periodCategories, card.id!) < maximum;
+    }).length;
+
+    return KeyedSubtree(
+      key: const ValueKey('mobile-plan-review'),
+      child: Column(
+        children: [
+          Material(
+            color: Colors.white,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              decoration: const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE7EBF0)),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    familyNames.isEmpty
+                        ? 'Семейный план'
+                        : 'Семья · $familyNames',
+                    style: const TextStyle(
+                      color: Color(0xFF637189),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'План',
+                          style: TextStyle(
+                            color: Color(0xFF0D2852),
+                            fontSize: 24,
+                            height: 1.1,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => setState(() {
+                          _mobileReviewingPlan = false;
+                        }),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          backgroundColor: const Color(0xFFEDF2F8),
+                          foregroundColor: const Color(0xFF425A78),
+                          side: BorderSide.none,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        child: Text(_formatMonth(_startDate)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+              children: [
+                Container(
+                  constraints: const BoxConstraints(minHeight: 124),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF14366E), Color(0xFF2972D1)],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'План заполнен вручную',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      const Text(
+                        'Можно менять назначения в любом порядке',
+                        style: TextStyle(color: Color(0xFFD8E7FF), fontSize: 9),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _mobileReviewStat(
+                              '${required.where((group) => group.isCovered).length}/${required.length}',
+                              'обязательных',
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _mobileReviewStat(
+                              '${frequent.where((group) => group.isCovered).length}/${frequent.length}',
+                              'частых',
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: _mobileReviewStat(
+                              '${occupied.length}/$totalSlots',
+                              'мест занято',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 9),
+                for (final card in cards) ...[
+                  _buildMobilePlanCard(dataProvider, periodCategories, card),
+                  const SizedBox(height: 8),
+                ],
+                if (uncovered != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF3DF),
+                      borderRadius: BorderRadius.circular(7),
+                      border: const Border(
+                        left: BorderSide(color: Color(0xFFDB7A00), width: 3),
+                      ),
+                    ),
+                    child: Text(
+                      'Не закрыто: ${_mobileNeedTitle(uncovered.title)} · ${_mobileNeedKind(uncovered.title)}. Свободные места есть в ${_mobileCardsCount(freeCards)}.',
+                      style: const TextStyle(
+                        color: Color(0xFF80500F),
+                        fontSize: 9,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                FilledButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => PlanConfirmationScreen(
+                        onShellDestinationSelected:
+                            widget.onShellDestinationSelected,
+                      ),
+                    ),
+                  ),
+                  child: const Text('Перейти к подтверждению'),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
+
+  Widget _mobileReviewStat(String value, String label) => Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.13),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(
+              label,
+              maxLines: 1,
+              style: const TextStyle(color: Color(0xFFD8E7FF), fontSize: 8),
+            ),
+          ],
+        ),
+      );
+
+  Widget _buildMobilePlanCard(
+    DataProvider dataProvider,
+    List<CashbackCategoryModel> periodCategories,
+    CardModel card,
+  ) {
+    final categories = periodCategories
+        .where((category) => category.cardId == card.id && category.isSelected)
+        .toList();
+    final maximum = _getMaxCategories(card.id!, card.maxCashbackCategories);
+    final bankName = _mobileBankName(dataProvider, card.id!);
+    final owner = dataProvider.users
+            .where((user) => user.id == card.userId)
+            .map((user) => user.name)
+            .firstOrNull ??
+        'Владелец';
+    final normalizedBank = bankName.toLowerCase();
+    final (logo, logoColor) = normalizedBank.contains('втб')
+        ? ('ВТБ', const Color(0xFF1682BA))
+        : normalizedBank.contains('т-банк') || normalizedBank.contains('тинь')
+            ? ('Т', const Color(0xFF171717))
+            : ('A', const Color(0xFF17386B));
+    final full = categories.length >= maximum;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFDFE6EE)),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Container(
+            height: 52,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            color: const Color(0xFFF0F4F8),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: logoColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    logo,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _mobileCardLabel(dataProvider, card.id!),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF17243B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        owner,
+                        style: const TextStyle(
+                          color: Color(0xFF69778D),
+                          fontSize: 9,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: full
+                        ? const Color(0xFF168154)
+                        : const Color(0xFFE3E9F1),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Text(
+                    '${categories.length} / $maximum',
+                    style: TextStyle(
+                      color: full ? Colors.white : const Color(0xFF51647D),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (final category in categories)
+            Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              decoration: const BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: Color(0xFFEDF1F5)),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF2FF),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
+                    child: ExcludeSemantics(
+                      child: Icon(
+                        _mobileCategoryIcon(category.name),
+                        size: 14,
+                        color: const Color(0xFF1B6FF3),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _mobileNeedTitle(category.name),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF17243B),
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _formatPercent(category.cashbackPercent),
+                    style: const TextStyle(
+                      color: Color(0xFFDB7A00),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _mobileNeedKind(String title) {
+    final priority = cashbackCategorySortPriority(title);
+    if (priority <= 50) return 'обязательная потребность';
+    if (priority <= 80) return 'частая потребность';
+    return 'остальная потребность';
+  }
+
+  String _mobileCardsCount(int count) => switch (count) {
+        1 => 'одной карте',
+        2 => 'двух картах',
+        _ => '$count картах',
+      };
+
+  IconData _mobileCategoryIcon(String title) {
+    return switch (normalizedCashbackCategoryName(title)) {
+      'Продукты и супермаркеты' => Icons.shopping_cart_outlined,
+      'Путешествия' => Icons.flight_outlined,
+      'АЗС и топливо' => Icons.local_gas_station_outlined,
+      'Кафе и рестораны' => Icons.restaurant_outlined,
+      'Одежда и обувь' => Icons.checkroom_outlined,
+      'Аптеки' => Icons.local_pharmacy_outlined,
+      'Дом и ремонт' => Icons.handyman_outlined,
+      'Такси и каршеринг' => Icons.local_taxi_outlined,
+      _ => Icons.category_outlined,
+    };
+  }
+
+  Widget _buildMobileGuide(int covered, int total) {
+    final progress = total == 0 ? 0.0 : covered / total;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 11),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF15386F), Color(0xFF2770CE)],
+        ),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Обязательные потребности',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                '$covered из $total',
+                style: const TextStyle(
+                  color: Color(0xFFD8E7FF),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              backgroundColor: const Color(0xFF5578A7),
+              valueColor: const AlwaysStoppedAnimation(Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileFilterChip(String label, _MobileNeedFilter value) {
+    final selected = _mobileNeedFilter == value;
+    return Material(
+      color: selected ? const Color(0xFFEAF2FF) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(9),
+        side: BorderSide(
+          color: selected ? const Color(0xFF1B6FF3) : const Color(0xFFDFE6EE),
+        ),
+      ),
+      child: InkWell(
+        onTap: () => setState(() => _mobileNeedFilter = value),
+        borderRadius: BorderRadius.circular(9),
+        child: SizedBox(
+          height: 44,
+          child: Center(
+            child: Text(
+              label,
+              maxLines: 1,
+              style: TextStyle(
+                color: selected
+                    ? const Color(0xFF1B6FF3)
+                    : const Color(0xFF4F6078),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileEmptyNeeds() => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFDFE6EE)),
+          borderRadius: BorderRadius.circular(13),
+        ),
+        child: const Text(
+          'Здесь пока нет потребностей',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Color(0xFF69778D)),
+        ),
+      );
+
+  Widget _buildMobileNeedCard(
+    BuildContext context,
+    DataProvider dataProvider,
+    _CategoryGroup group, {
+    required bool expanded,
+  }) {
+    final selectedOffer =
+        group.offers.where((offer) => offer.isSelected).firstOrNull;
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(13),
+        side: BorderSide(
+          color: expanded ? const Color(0xFF1B6FF3) : const Color(0xFFDFE6EE),
+          width: expanded ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF2FF),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    group.isCovered ? Icons.check_rounded : Icons.add_rounded,
+                    color: const Color(0xFF1B6FF3),
+                    size: 19,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _mobileNeedTitle(group.title),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF17243B),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        selectedOffer == null
+                            ? 'Ещё не назначено'
+                            : _mobileCardLabel(
+                                dataProvider,
+                                selectedOffer.cardId,
+                              ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF69778D),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: group.isCovered
+                        ? const Color(0xFFE8F6EE)
+                        : const Color(0xFFFFF3DF),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Text(
+                    selectedOffer == null
+                        ? 'Важно'
+                        : _formatPercent(selectedOffer.cashbackPercent),
+                    style: TextStyle(
+                      color: group.isCovered
+                          ? const Color(0xFF168154)
+                          : const Color(0xFF9B5700),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (expanded) ...[
+            const Divider(height: 1, indent: 10, endIndent: 10),
+            for (final offer in group.offers.take(3))
+              _buildMobileOffer(context, dataProvider, group, offer),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileOffer(
+    BuildContext context,
+    DataProvider dataProvider,
+    _CategoryGroup group,
+    CashbackCategoryModel offer,
+  ) {
+    final card = dataProvider.getCardById(offer.cardId);
+    final bankName = dataProvider.banks
+            .where((bank) => bank.id == card.bankId)
+            .map((bank) => bank.name)
+            .firstOrNull ??
+        dataProvider.getCardName(offer.cardId);
+    final normalizedBank = bankName.toLowerCase();
+    final (logo, logoColor) = normalizedBank.contains('втб')
+        ? ('ВТБ', const Color(0xFF1682BA))
+        : normalizedBank.contains('т-банк') || normalizedBank.contains('тинь')
+            ? ('Т', const Color(0xFF171717))
+            : ('A', const Color(0xFF17386B));
+    return InkWell(
+      onTap: offer.isSelectionLocked || offer.isTaskBonus
+          ? null
+          : () => setState(() {
+                _mobileEditingGroupTitle = group.title;
+                _mobileSelectedOfferId = offer.id;
+              }),
+      child: SizedBox(
+        height: 50,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11),
+          child: Row(
+            children: [
+              Container(
+                width: 138,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: logoColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  logo,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  '$bankName${card.lastFourDigits == null ? '' : ' · ${card.lastFourDigits}'}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF17243B),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                _formatPercent(offer.cashbackPercent),
+                style: const TextStyle(
+                  color: Color(0xFFDB7A00),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileCardSelector(
+    BuildContext context,
+    DataProvider dataProvider,
+    _CategoryGroup group,
+  ) {
+    final selected = group.offers
+        .where((offer) => offer.id == _mobileSelectedOfferId)
+        .firstOrNull;
+    final selectedCard =
+        selected == null ? null : dataProvider.getCardById(selected.cardId);
+    final selectedMaximum = selectedCard == null
+        ? 0
+        : _getMaxCategories(
+            selected!.cardId,
+            selectedCard.maxCashbackCategories,
+          );
+    final selectedUsed = selected == null
+        ? 0
+        : _selectedStandardCount(
+            _periodCategories(dataProvider),
+            selected.cardId,
+          );
+    final filteredGroups = _categoryGroups(dataProvider).where((candidate) {
+      final priority = cashbackCategorySortPriority(candidate.title);
+      return switch (_mobileNeedFilter) {
+        _MobileNeedFilter.required => priority <= 50,
+        _MobileNeedFilter.frequent => priority > 50 && priority <= 80,
+        _MobileNeedFilter.other => priority > 80,
+      };
+    }).toList();
+    final coveredAfterAssignment =
+        filteredGroups.where((candidate) => candidate.isCovered).length +
+            (group.isCovered ? 0 : 1);
+    final needLabel = switch (_mobileNeedFilter) {
+      _MobileNeedFilter.required => 'обязательные',
+      _MobileNeedFilter.frequent => 'частые',
+      _MobileNeedFilter.other => 'остальные',
+    };
+    return Column(
+      children: [
+        Material(
+          color: Colors.white,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            decoration: const BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE7EBF0)),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'План · Обязательные',
+                  style: TextStyle(
+                    color: Color(0xFF637189),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _mobileNeedTitle(group.title),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF0D2852),
+                          fontSize: 24,
+                          height: 1.1,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                    ),
+                    OutlinedButton(
+                      onPressed: () => setState(() {
+                        _mobileEditingGroupTitle = null;
+                        _mobileSelectedOfferId = null;
+                      }),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(64, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        backgroundColor: const Color(0xFFEDF2F8),
+                        foregroundColor: const Color(0xFF425A78),
+                        side: BorderSide.none,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                      ),
+                      child: const Text(
+                        'Назад',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
+            children: [
+              const Text(
+                'Выберите карту',
+                style: TextStyle(
+                  color: Color(0xFF0D2852),
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Проценты, свободные места и известные ограничения показаны рядом. Решение остаётся за вами.',
+                style: TextStyle(
+                  color: Color(0xFF69778D),
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final offer in group.offers) ...[
+                _buildMobileCardOption(
+                  dataProvider,
+                  offer,
+                  selected: offer.id == _mobileSelectedOfferId,
+                  onTap: () => setState(() {
+                    _mobileSelectedOfferId = offer.id;
+                  }),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (selected != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F6EE),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    'После назначения: $needLabel $coveredAfterAssignment из ${filteredGroups.length} · ${_mobileBankName(dataProvider, selected.cardId)} будет заполнена ${selectedUsed + 1} из $selectedMaximum.',
+                    style: const TextStyle(
+                      color: Color(0xFF23553E),
+                      fontSize: 9,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              FilledButton(
+                onPressed: selected == null
+                    ? null
+                    : () async {
+                        await _toggleCategory(
+                          context,
+                          dataProvider,
+                          selected,
+                          true,
+                          group,
+                        );
+                        if (!mounted) return;
+                        setState(() {
+                          _mobileEditingGroupTitle = null;
+                          _mobileSelectedOfferId = null;
+                        });
+                      },
+                child: Text(
+                  selected == null
+                      ? 'Выберите карту'
+                      : 'Назначить ${_mobileBankName(dataProvider, selected.cardId)}',
+                ),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () => setState(() {
+                  _mobileEditingGroupTitle = null;
+                  _mobileSelectedOfferId = null;
+                }),
+                child: const Text('Оставить без карты'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileCardOption(
+    DataProvider dataProvider,
+    CashbackCategoryModel offer, {
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final card = dataProvider.getCardById(offer.cardId);
+    final maximum = _getMaxCategories(
+      offer.cardId,
+      card.maxCashbackCategories,
+    );
+    final used = _selectedStandardCount(
+      _periodCategories(dataProvider),
+      offer.cardId,
+    );
+    final owner = dataProvider.users
+            .where((user) => user.id == card.userId)
+            .map((user) => user.name)
+            .firstOrNull ??
+        'Владелец';
+    final bankName = _mobileBankName(dataProvider, offer.cardId);
+    final normalizedBank = bankName.toLowerCase();
+    final (logo, logoColor) = normalizedBank.contains('втб')
+        ? ('ВТБ', const Color(0xFF1682BA))
+        : normalizedBank.contains('т-банк') || normalizedBank.contains('тинь')
+            ? ('Т', const Color(0xFF171717))
+            : ('A', const Color(0xFF17386B));
+
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(13),
+        side: BorderSide(
+          color: selected ? const Color(0xFF1B6FF3) : const Color(0xFFDFE6EE),
+          width: selected ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(11),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 20,
+                    height: 20,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected
+                            ? const Color(0xFF1B6FF3)
+                            : const Color(0xFFB7C3D2),
+                        width: selected ? 6 : 2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Container(
+                    width: 30,
+                    height: 30,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: logoColor,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      logo,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _mobileCardLabel(dataProvider, offer.cardId),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF17243B),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          '$owner · осталось ${maximum - used} из $maximum мест',
+                          style: const TextStyle(
+                            color: Color(0xFF69778D),
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    _formatPercent(offer.cashbackPercent),
+                    style: const TextStyle(
+                      color: Color(0xFFDB7A00),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              if (offer.maxCashbackAmount != null ||
+                  offer.minPurchaseAmount != null) ...[
+                const SizedBox(height: 9),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (offer.maxCashbackAmount != null)
+                      _mobileFact(
+                        'до ${_mobileInteger(offer.maxCashbackAmount!)} ₽ возврата',
+                      ),
+                    if (offer.minPurchaseAmount != null)
+                      _mobileFact(
+                        'от ${_mobileInteger(offer.minPurchaseAmount!)} ₽',
+                        warning: true,
+                      ),
+                    if (offer.description?.trim().isNotEmpty == true)
+                      _mobileFact(offer.description!.trim().toLowerCase()),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileFact(String text, {bool warning = false}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+        decoration: BoxDecoration(
+          color: warning ? const Color(0xFFFFF3DF) : const Color(0xFFF1F4F8),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: warning ? const Color(0xFF8D5000) : const Color(0xFF5E6C80),
+            fontSize: 9,
+          ),
+        ),
+      );
+
+  String _mobileInteger(double value) {
+    final digits = value.toStringAsFixed(0);
+    return digits.replaceAllMapped(
+      RegExp(r'(?<!^)(?=(\d{3})+$)'),
+      (_) => ' ',
+    );
+  }
+
+  String _mobileBankName(DataProvider dataProvider, int cardId) {
+    final card = dataProvider.getCardById(cardId);
+    return dataProvider.banks
+            .where((bank) => bank.id == card.bankId)
+            .map((bank) => bank.name)
+            .firstOrNull ??
+        dataProvider.getCardName(cardId);
+  }
+
+  String _mobileCardLabel(DataProvider dataProvider, int cardId) {
+    final card = dataProvider.getCardById(cardId);
+    final bankName = dataProvider.banks
+            .where((bank) => bank.id == card.bankId)
+            .map((bank) => bank.name)
+            .firstOrNull ??
+        dataProvider.getCardName(cardId);
+    return '$bankName${card.lastFourDigits == null ? '' : ' · ${card.lastFourDigits}'}';
+  }
+
+  String _mobileNeedTitle(String title) => switch (title) {
+        'Продукты и супермаркеты' => 'Супермаркеты',
+        'Кафе и рестораны' => 'Кафе',
+        'АЗС и топливо' => 'АЗС',
+        'Такси и каршеринг' => 'Такси',
+        _ => title,
+      };
 
   Widget _buildHeader(BuildContext context, DataProvider dataProvider) {
     return Material(
@@ -581,7 +1892,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final compact = constraints.maxWidth < 600;
+            final compact = constraints.maxWidth < 760;
             final dateButton = OutlinedButton.icon(
               onPressed: () => _showDateRangePicker(context),
               icon: const Icon(Icons.calendar_month_outlined, size: 18),
@@ -629,7 +1940,10 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => const PlanConfirmationScreen(),
+                  builder: (_) => PlanConfirmationScreen(
+                    onShellDestinationSelected:
+                        widget.onShellDestinationSelected,
+                  ),
                 ),
               ),
               icon: const Icon(Icons.fact_check_outlined, size: 18),
@@ -640,7 +1954,24 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  dateButton,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'План',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () => _showDateRangePicker(context),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        child: Text(_formatMonth(_startDate)),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   switcher,
                   const SizedBox(height: 8),

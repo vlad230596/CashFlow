@@ -71,7 +71,7 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
                   : constraints.maxWidth >= 600
                       ? 24.0
                       : 12.0;
-              return Column(
+              final content = Column(
                 children: [
                   _Header(
                     searchController: _searchController,
@@ -121,6 +121,9 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
                     onDeadlineChanged: (value) =>
                         setState(() => _deadline = value),
                     onSortChanged: (value) => setState(() => _sort = value),
+                    showHidden: _showHidden,
+                    onShowHidden: () =>
+                        _changeHiddenMode(provider, !_showHidden),
                     onReset: _hasFilters
                         ? () => setState(() {
                               _bankId = null;
@@ -182,6 +185,9 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
                   ),
                 ],
               );
+              return expanded
+                  ? content
+                  : SafeArea(bottom: false, child: content);
             },
           );
         },
@@ -350,40 +356,48 @@ class _Header extends StatelessWidget {
   final VoidCallback onShowHidden;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(gutter, 16, gutter, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        showHidden ? 'Чёрный список' : 'Акции',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        updatedAt == null
-                            ? 'Персональные предложения банков'
-                            : 'Обновлено ${_relativeUpdate(updatedAt!, DateTime.now())}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 840;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(gutter, compact ? 10 : 16, gutter, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      showHidden ? 'Чёрный список' : 'Акции',
+                      style:
+                          Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontSize: compact ? 24 : null,
+                                fontWeight: FontWeight.w800,
+                              ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      updatedAt == null
+                          ? 'Персональные предложения банков'
+                          : 'Обновлено ${_relativeUpdate(updatedAt!, DateTime.now())}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontSize: compact ? 10 : null,
+                          ),
+                    ),
+                  ],
                 ),
-                IconButton.outlined(
-                  tooltip: 'Обновить предложения',
-                  onPressed: loading ? null : onRefresh,
-                  icon: const Icon(Icons.refresh_outlined),
-                ),
+              ),
+              IconButton.outlined(
+                tooltip: 'Обновить предложения',
+                onPressed: loading ? null : onRefresh,
+                icon: const Icon(Icons.refresh_outlined),
+              ),
+              if (!compact) ...[
                 const SizedBox(width: 8),
                 PopupMenuButton<String>(
                   tooltip: 'Дополнительные действия',
@@ -406,15 +420,21 @@ class _Header extends StatelessWidget {
                   ],
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
+            ],
+          ),
+          SizedBox(height: compact ? 8 : 12),
+          SizedBox(
+            height: compact ? 48 : null,
+            child: TextField(
               controller: searchController,
               onChanged: onSearchChanged,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                labelText: 'Поиск акций',
-                hintText: 'Магазин или название акции',
+                labelText: compact ? null : 'Поиск акций',
+                hintText: compact
+                    ? 'Магазин или акция'
+                    : 'Магазин или название акции',
+                isDense: compact,
                 prefixIcon: const Icon(Icons.search_outlined),
                 suffixIcon: searchController.text.isEmpty
                     ? null
@@ -426,9 +446,11 @@ class _Header extends StatelessWidget {
                 border: const OutlineInputBorder(),
               ),
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _SegmentBar extends StatelessWidget {
@@ -502,6 +524,8 @@ class _FilterBar extends StatelessWidget {
     required this.onOwnerChanged,
     required this.onDeadlineChanged,
     required this.onSortChanged,
+    required this.showHidden,
+    required this.onShowHidden,
     required this.onReset,
   });
 
@@ -519,10 +543,13 @@ class _FilterBar extends StatelessWidget {
   final ValueChanged<int?> onOwnerChanged;
   final ValueChanged<_OfferDeadline> onDeadlineChanged;
   final ValueChanged<_OfferSort> onSortChanged;
+  final bool showHidden;
+  final VoidCallback onShowHidden;
   final VoidCallback? onReset;
 
   @override
   Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 840;
     final owners = users.where((user) => ownerIds.contains(user.key)).toList();
     var ownerName = 'Все владельцы';
     for (final owner in owners) {
@@ -531,7 +558,12 @@ class _FilterBar extends StatelessWidget {
     return Container(
       width: double.infinity,
       color: Theme.of(context).colorScheme.surfaceContainerLowest,
-      padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 10),
+      padding: EdgeInsets.fromLTRB(
+        gutter,
+        compact ? 6 : 8,
+        gutter,
+        compact ? 8 : 10,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -556,31 +588,12 @@ class _FilterBar extends StatelessWidget {
                         onBankChanged(selected ? bank.key : null),
                   ),
                 ],
-                if (owners.length > 1) ...[
-                  const SizedBox(width: 8),
-                  _PopupFilter<int>(
-                    tooltip: 'Фильтр по владельцу',
-                    label: ownerName,
-                    active: selectedOwnerId != null,
-                    items: [
-                      const PopupMenuItem<int>(
-                        value: -1,
-                        child: Text('Все владельцы'),
-                      ),
-                      for (final owner in owners)
-                        PopupMenuItem<int>(
-                          value: owner.key,
-                          child: Text(owner.value),
-                        ),
-                    ],
-                    onSelected: (value) =>
-                        onOwnerChanged(value == -1 ? null : value),
-                  ),
-                ],
                 const SizedBox(width: 8),
                 _PopupFilter<_OfferDeadline>(
                   tooltip: 'Фильтр по сроку',
-                  label: _deadlineFilterLabel(deadline),
+                  label: compact && deadline == _OfferDeadline.any
+                      ? 'Срок'
+                      : _deadlineFilterLabel(deadline),
                   active: deadline != _OfferDeadline.any,
                   items: const [
                     PopupMenuItem(
@@ -602,6 +615,29 @@ class _FilterBar extends StatelessWidget {
                   ],
                   onSelected: onDeadlineChanged,
                 ),
+                if (owners.length > 1) ...[
+                  const SizedBox(width: 8),
+                  _PopupFilter<int>(
+                    tooltip: 'Фильтр по владельцу',
+                    label: compact && selectedOwnerId == null
+                        ? 'Ещё 1'
+                        : ownerName,
+                    active: selectedOwnerId != null,
+                    items: [
+                      const PopupMenuItem<int>(
+                        value: -1,
+                        child: Text('Все владельцы'),
+                      ),
+                      for (final owner in owners)
+                        PopupMenuItem<int>(
+                          value: owner.key,
+                          child: Text(owner.value),
+                        ),
+                    ],
+                    onSelected: (value) =>
+                        onOwnerChanged(value == -1 ? null : value),
+                  ),
+                ],
                 const SizedBox(width: 8),
                 _PopupFilter<_OfferSort>(
                   tooltip: 'Сортировка предложений',
@@ -624,6 +660,14 @@ class _FilterBar extends StatelessWidget {
                   ],
                   onSelected: onSortChanged,
                 ),
+                const SizedBox(width: 8),
+                ActionChip(
+                  avatar: const Icon(Icons.block_outlined, size: 18),
+                  label: Text(
+                    showHidden ? 'Вернуться к акциям' : 'Чёрный список',
+                  ),
+                  onPressed: onShowHidden,
+                ),
                 if (onReset != null) ...[
                   const SizedBox(width: 8),
                   TextButton.icon(
@@ -635,7 +679,7 @@ class _FilterBar extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: compact ? 4 : 8),
           Row(
             children: [
               Expanded(
@@ -903,6 +947,7 @@ class _OfferCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 840;
     return Semantics(
       selected: selected,
       button: true,
@@ -910,7 +955,7 @@ class _OfferCard extends StatelessWidget {
           '${offer.rateLabel ?? 'ставка не указана'}',
       child: Card(
         clipBehavior: Clip.antiAlias,
-        margin: const EdgeInsets.only(bottom: 10),
+        margin: EdgeInsets.only(bottom: compact ? 8 : 10),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(
@@ -921,15 +966,19 @@ class _OfferCard extends StatelessWidget {
         child: InkWell(
           onTap: onDetails,
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(compact ? 11 : 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _OfferLogo(url: offer.iconUrl),
-                    const SizedBox(width: 12),
+                    _OfferLogo(
+                      url: offer.iconUrl,
+                      label: offer.name,
+                      compact: compact,
+                    ),
+                    SizedBox(width: compact ? 10 : 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -943,7 +992,10 @@ class _OfferCard extends StatelessWidget {
                                   style: Theme.of(context)
                                       .textTheme
                                       .titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                      ?.copyWith(
+                                        fontSize: compact ? 14 : null,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                 ),
                               ),
                               if (selected)
@@ -962,7 +1014,10 @@ class _OfferCard extends StatelessWidget {
                           const SizedBox(height: 2),
                           Text(
                             '${offer.bankName} · $ownerName',
-                            style: Theme.of(context).textTheme.bodySmall,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(fontSize: compact ? 10 : null),
                           ),
                         ],
                       ),
@@ -974,7 +1029,7 @@ class _OfferCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                SizedBox(height: compact ? 8 : 10),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -983,43 +1038,53 @@ class _OfferCard extends StatelessWidget {
                       icon: Icons.percent_outlined,
                       text: offer.rateLabel ?? 'Ставка не указана',
                       color: colors.primaryContainer,
+                      compact: compact,
                     ),
                     for (final limit in offer.limits.take(2))
                       _InfoBadge(
                         icon: Icons.account_balance_wallet_outlined,
                         text: limit.originalText,
                         color: colors.secondaryContainer,
+                        compact: compact,
                       ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                SizedBox(height: compact ? 8 : 10),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
                       Icons.schedule_outlined,
-                      size: 18,
+                      size: compact ? 14 : 18,
                       color: _isEndingSoon(offer, DateTime.now())
-                          ? colors.error
+                          ? colors.tertiary
                           : colors.onSurfaceVariant,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        _deadlineText(offer, DateTime.now()),
+                        compact
+                            ? _deadlineText(offer, DateTime.now())
+                                .split(' · ')
+                                .first
+                            : _deadlineText(offer, DateTime.now()),
                         style: TextStyle(
+                          fontSize: compact ? 11 : null,
                           fontWeight: FontWeight.w600,
                           color: _isEndingSoon(offer, DateTime.now())
-                              ? colors.error
+                              ? colors.tertiary
                               : colors.onSurface,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _PreferenceLabel(preference: offer.preference),
+                    _PreferenceLabel(
+                      preference: offer.preference,
+                      compact: compact,
+                    ),
                   ],
                 ),
-                if (offer.description.isNotEmpty) ...[
+                if (!compact && offer.description.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text(
                     offer.description,
@@ -1037,8 +1102,9 @@ class _OfferCard extends StatelessWidget {
 }
 
 class _PreferenceLabel extends StatelessWidget {
-  const _PreferenceLabel({required this.preference});
+  const _PreferenceLabel({required this.preference, this.compact = false});
   final String preference;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1053,7 +1119,7 @@ class _PreferenceLabel extends StatelessWidget {
               : interesting
                   ? Icons.favorite_border_outlined
                   : Icons.bookmark_border_outlined,
-          size: 18,
+          size: compact ? 14 : 18,
         ),
         const SizedBox(width: 4),
         Text(
@@ -1062,7 +1128,9 @@ class _PreferenceLabel extends StatelessWidget {
               : interesting
                   ? 'Интересно'
                   : 'Отложено',
-          style: Theme.of(context).textTheme.labelMedium,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontSize: compact ? 11 : null,
+              ),
         ),
       ],
     );
@@ -1082,6 +1150,7 @@ class _OfferMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) => PopupMenuButton<String>(
         tooltip: 'Действия с предложением',
+        icon: const Icon(Icons.more_horiz),
         onSelected: (value) =>
             value == 'details' ? onDetails() : onSelected(value),
         itemBuilder: (context) => [
@@ -1099,21 +1168,38 @@ class _OfferMenu extends StatelessWidget {
 }
 
 class _OfferLogo extends StatelessWidget {
-  const _OfferLogo({this.url});
+  const _OfferLogo({this.url, required this.label, this.compact = false});
   final String? url;
+  final String label;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final normalized = label.toLowerCase();
+    final (background, foreground) = normalized.contains('лавка')
+        ? (const Color(0xFFE1F5F0), const Color(0xFF0C675B))
+        : normalized.contains('маркет')
+            ? (const Color(0xFFFFF0DC), const Color(0xFF944B00))
+            : (const Color(0xFFE7EEF8), const Color(0xFF173559));
     final fallback = ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: const Center(child: Icon(Icons.storefront_outlined)),
+      color: background,
+      child: Center(
+        child: Text(
+          _offerInitials(label),
+          style: TextStyle(
+            color: foreground,
+            fontSize: compact ? 11 : 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
     );
     return ExcludeSemantics(
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: SizedBox(
-          width: 48,
-          height: 48,
+          width: compact ? 42 : 48,
+          height: compact ? 42 : 48,
           child: url == null
               ? fallback
               : Image.network(
@@ -1127,19 +1213,36 @@ class _OfferLogo extends StatelessWidget {
   }
 }
 
+String _offerInitials(String label) {
+  if (label.toLowerCase() == 'лавка у дома') return 'ЛС';
+  final words = label
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((word) => !{'и', 'в', 'у', 'на'}.contains(word.toLowerCase()))
+      .take(2)
+      .toList();
+  if (words.isEmpty) return 'АК';
+  return words.map((word) => word.characters.first.toUpperCase()).join();
+}
+
 class _InfoBadge extends StatelessWidget {
   const _InfoBadge({
     required this.icon,
     required this.text,
     required this.color,
+    this.compact = false,
   });
   final IconData icon;
   final String text;
   final Color color;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: EdgeInsets.symmetric(
+          horizontal: 8,
+          vertical: compact ? 5 : 6,
+        ),
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(10),
@@ -1147,9 +1250,19 @@ class _InfoBadge extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ExcludeSemantics(child: Icon(icon, size: 16)),
-            const SizedBox(width: 4),
-            Flexible(child: Text(text)),
+            if (!compact) ...[
+              ExcludeSemantics(child: Icon(icon, size: 16)),
+              const SizedBox(width: 4),
+            ],
+            Flexible(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: compact ? 11 : null,
+                  fontWeight: compact ? FontWeight.w700 : null,
+                ),
+              ),
+            ),
           ],
         ),
       );
@@ -1174,7 +1287,7 @@ class _OfferDetails extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _OfferLogo(url: offer.iconUrl),
+                _OfferLogo(url: offer.iconUrl, label: offer.name),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

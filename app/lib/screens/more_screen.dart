@@ -181,6 +181,14 @@ class _MoreScreenState extends State<MoreScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
   }
 
+  void _showWindowsOnlyMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Этот инструмент доступен в приложении для Windows'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<DataProvider>();
@@ -190,8 +198,11 @@ class _MoreScreenState extends State<MoreScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        if (constraints.maxWidth < 600) {
+          return _buildCompact(provider, showWindowsTools);
+        }
         final twoColumns = constraints.maxWidth >= 900;
-        final horizontalPadding = constraints.maxWidth >= 600 ? 32.0 : 16.0;
+        const horizontalPadding = 32.0;
         return ColoredBox(
           color: Theme.of(context).colorScheme.surfaceContainerLowest,
           child: SafeArea(
@@ -262,6 +273,159 @@ class _MoreScreenState extends State<MoreScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildCompact(DataProvider provider, bool showWindowsTools) {
+    final identity = provider.currentAuthUser;
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
+      child: SafeArea(
+        top: true,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _CompactHeader(provider: provider),
+              const SizedBox(height: 10),
+              _RefreshCard(
+                compact: true,
+                refreshing: _refreshing,
+                failed: _refreshFailed,
+                lastUpdated: _formatLastUpdated(provider.lastUpdated),
+                onRefresh: () => _refresh(provider),
+              ),
+              if (provider.canEdit) ...[
+                const _SectionLabel('Данные'),
+                _CompactGroup(
+                  children: [
+                    _HubRow(
+                      compact: true,
+                      showTopDivider: false,
+                      icon: Icons.download_for_offline_outlined,
+                      iconColor: const Color(0xFF9A5A00),
+                      iconBackgroundColor: const Color(0xFFFFF2D8),
+                      title: 'Запросить кешбэк',
+                      subtitle: 'Открыть банки в локальном Chrome',
+                      badge: 'Windows',
+                      onTap: showWindowsTools
+                          ? () => _launchCashbackBrowser(provider)
+                          : _showWindowsOnlyMessage,
+                    ),
+                    _HubRow(
+                      compact: true,
+                      icon: Icons.upload_file_outlined,
+                      iconColor: const Color(0xFF9A5A00),
+                      iconBackgroundColor: const Color(0xFFFFF2D8),
+                      title: 'Импортировать JSON',
+                      subtitle: 'Категории и партнёрские акции',
+                      badge: 'Windows',
+                      onTap: showWindowsTools
+                          ? () => _importCashback(provider)
+                          : _showWindowsOnlyMessage,
+                    ),
+                  ],
+                ),
+              ],
+              if (provider.isAdmin) ...[
+                const _SectionLabel('Управление'),
+                _CompactGroup(
+                  children: [
+                    _HubRow(
+                      compact: true,
+                      showTopDivider: false,
+                      icon: Icons.people_outline,
+                      title: 'Владельцы карт',
+                      subtitle: 'Кому принадлежат карты',
+                      value: '${provider.users.length}',
+                      onTap: () => _open(const UsersSettingsScreen()),
+                    ),
+                    _HubRow(
+                      compact: true,
+                      icon: Icons.credit_card_outlined,
+                      title: 'Карты',
+                      subtitle: 'Банк и владелец',
+                      value: '${provider.cards.length}',
+                      onTap: () => _open(const CardsSettingsScreen()),
+                    ),
+                    _HubRow(
+                      compact: true,
+                      icon: Icons.account_balance_outlined,
+                      title: 'Банки',
+                      subtitle: 'Справочник банков',
+                      value: '${provider.banks.length}',
+                      onTap: () => _open(const BanksSettingsScreen()),
+                    ),
+                    _HubRow(
+                      compact: true,
+                      icon: Icons.rule_folder_outlined,
+                      iconColor: const Color(0xFF6A43B7),
+                      iconBackgroundColor: const Color(0xFFF1EAFE),
+                      title: 'Правила MCC',
+                      subtitle: 'Ревизии и публикация',
+                      onTap: () => _open(const MccRulesSettingsScreen()),
+                    ),
+                  ],
+                ),
+              ],
+              const _SectionLabel('Параметры'),
+              _CompactGroup(
+                children: [
+                  _HubRow(
+                    compact: true,
+                    showTopDivider: false,
+                    icon: Icons.event_outlined,
+                    iconColor: const Color(0xFF1661C6),
+                    iconBackgroundColor: const Color(0xFFE9F1FF),
+                    title: 'Расчётная дата кешбэка',
+                    subtitle: provider.usesCurrentCashbackDate
+                        ? 'Сейчас используется сегодня'
+                        : 'Исторический режим',
+                    value: _formatDate(provider.cashbackEffectiveDate),
+                    onTap: () => _pickCashbackDate(provider),
+                  ),
+                ],
+              ),
+              if (!provider.usesCurrentCashbackDate)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => provider.setCashbackEffectiveDate(null),
+                    icon: const Icon(Icons.today_outlined),
+                    label: const Text('Использовать сегодня'),
+                  ),
+                ),
+              const SizedBox(height: 14),
+              const _FutureFamilyCard(compact: true),
+              const _SectionLabel('Аккаунт и приложение'),
+              _CompactAccount(
+                username: identity?.username ?? '—',
+                role: _roleLabel(identity?.role),
+                server: provider.serverIp,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 48,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('logoutButton'),
+                  onPressed: provider.logout,
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Выйти из аккаунта'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.errorContainer,
+                    side: BorderSide(
+                      color: Theme.of(context).colorScheme.error.withAlpha(80),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -482,6 +646,88 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _CompactHeader extends StatelessWidget {
+  const _CompactHeader({required this.provider});
+
+  final DataProvider provider;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: 52,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Ещё',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ),
+          Tooltip(
+            message: 'Аккаунт ${provider.currentAuthUser?.username ?? ''}',
+            child: CircleAvatar(
+              radius: 20,
+              backgroundColor: colors.primary,
+              foregroundColor: colors.onPrimary,
+              child: Text(
+                _Header._initials(provider.currentAuthUser?.username),
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: colors.onPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(5, 17, 5, 7),
+      child: Text(
+        label.toUpperCase(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.1,
+            ),
+      ),
+    );
+  }
+}
+
+class _CompactGroup extends StatelessWidget {
+  const _CompactGroup({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
+    );
+  }
+}
+
 class _Panel extends StatelessWidget {
   const _Panel({required this.title, required this.children, this.subtitle});
 
@@ -533,25 +779,48 @@ class _RefreshCard extends StatelessWidget {
     required this.failed,
     required this.lastUpdated,
     required this.onRefresh,
+    this.compact = false,
   });
 
   final bool refreshing;
   final bool failed;
   final String lastUpdated;
   final VoidCallback onRefresh;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    final statusIcon = Icon(
+      failed
+          ? Icons.cloud_off_outlined
+          : compact
+              ? Icons.check
+              : Icons.cloud_done_outlined,
+      size: compact ? 20 : 24,
+      color: failed
+          ? colors.onErrorContainer
+          : compact
+              ? const Color(0xFF19724D)
+              : colors.primary,
+    );
     final status = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          failed ? Icons.cloud_off_outlined : Icons.cloud_done_outlined,
-          color: failed ? colors.onErrorContainer : colors.onPrimaryContainer,
-        ),
-        const SizedBox(width: 12),
+        if (compact)
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: failed ? colors.errorContainer : const Color(0xFFE6F5EE),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: statusIcon,
+          )
+        else
+          statusIcon,
+        SizedBox(width: compact ? 11 : 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -580,12 +849,24 @@ class _RefreshCard extends StatelessWidget {
             )
           : Icon(failed ? Icons.replay : Icons.refresh),
       label: Text(failed ? 'Повторить' : 'Обновить'),
+      style: compact
+          ? FilledButton.styleFrom(
+              minimumSize: const Size(0, 40),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              visualDensity: VisualDensity.compact,
+            )
+          : null,
     );
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(compact ? 15 : 16),
       decoration: BoxDecoration(
-        color: failed ? colors.errorContainer : colors.primaryContainer,
-        borderRadius: BorderRadius.circular(16),
+        color: failed
+            ? colors.errorContainer
+            : compact
+                ? colors.surface
+                : colors.primaryContainer,
+        border: compact ? Border.all(color: colors.outlineVariant) : null,
+        borderRadius: BorderRadius.circular(compact ? 17 : 16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -623,6 +904,10 @@ class _HubRow extends StatelessWidget {
     required this.onTap,
     this.value,
     this.badge,
+    this.compact = false,
+    this.showTopDivider = true,
+    this.iconColor,
+    this.iconBackgroundColor,
   });
 
   final IconData icon;
@@ -631,6 +916,10 @@ class _HubRow extends StatelessWidget {
   final VoidCallback onTap;
   final String? value;
   final String? badge;
+  final bool compact;
+  final bool showTopDivider;
+  final Color? iconColor;
+  final Color? iconBackgroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -680,33 +969,54 @@ class _HubRow extends StatelessWidget {
         onTap: onTap,
         canRequestFocus: true,
         child: Container(
-          constraints: const BoxConstraints(minHeight: 64),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          constraints: BoxConstraints(minHeight: compact ? 58 : 64),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 12 : 16,
+            vertical: compact ? 9 : 10,
+          ),
           decoration: BoxDecoration(
-            border: Border(top: BorderSide(color: colors.outlineVariant)),
+            border: showTopDivider
+                ? Border(top: BorderSide(color: colors.outlineVariant))
+                : null,
           ),
           child: Row(
             children: [
               ExcludeSemantics(
                 child: Container(
-                  width: 40,
-                  height: 40,
+                  width: compact ? 36 : 40,
+                  height: compact ? 36 : 40,
                   decoration: BoxDecoration(
-                    color: colors.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
+                    color:
+                        iconBackgroundColor ?? colors.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(compact ? 11 : 12),
                   ),
-                  child: Icon(icon, size: 22),
+                  child: Icon(
+                    icon,
+                    size: compact ? 20 : 22,
+                    color: iconColor,
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: compact ? 10 : 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 2),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: compact
+                          ? Theme.of(context).textTheme.labelLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              )
+                          : Theme.of(context).textTheme.titleSmall,
+                    ),
+                    SizedBox(height: compact ? 1 : 2),
                     Text(
                       subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: colors.onSurfaceVariant,
                           ),
@@ -775,7 +1085,9 @@ class _Fact extends StatelessWidget {
 }
 
 class _FutureFamilyCard extends StatelessWidget {
-  const _FutureFamilyCard();
+  const _FutureFamilyCard({this.compact = false});
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -783,26 +1095,32 @@ class _FutureFamilyCard extends StatelessWidget {
     return Semantics(
       label: 'Семейное пространство появится позже',
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(compact ? 12 : 16),
         decoration: BoxDecoration(
           color: colors.surfaceContainerLow,
           border: Border.all(color: colors.outlineVariant),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(compact ? 14 : 16),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const ExcludeSemantics(child: Icon(Icons.group_outlined)),
-            const SizedBox(width: 12),
+            ExcludeSemantics(
+              child: Icon(Icons.group_outlined, size: compact ? 20 : 24),
+            ),
+            SizedBox(width: compact ? 10 : 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Семейное пространство · позже',
-                    style: Theme.of(context).textTheme.titleSmall,
+                    style: compact
+                        ? Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            )
+                        : Theme.of(context).textTheme.titleSmall,
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: compact ? 2 : 4),
                   Text(
                     'Приглашения и семейные роли ещё не реализованы.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -811,6 +1129,80 @@ class _FutureFamilyCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactAccount extends StatelessWidget {
+  const _CompactAccount({
+    required this.username,
+    required this.role,
+    required this.server,
+  });
+
+  final String username;
+  final String role;
+  final String server;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            ExcludeSemantics(
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(Icons.person_outline, size: 20),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$username · $role',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    server,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              appVersionLabel,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
             ),
           ],
         ),

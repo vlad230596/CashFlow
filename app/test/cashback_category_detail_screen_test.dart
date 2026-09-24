@@ -96,6 +96,28 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('editor opens a dedicated compact edit form', (tester) async {
+    await pump(
+      tester,
+      value: provider('editor'),
+      onSave: (_) async {},
+      textScale: 1.3,
+    );
+
+    final edit = find.text('Редактировать данные');
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -700));
+    await tester.pumpAndSettle();
+    await tester.tap(edit);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Редактирование'), findsOneWidget);
+    expect(find.byKey(const Key('category-name-field')), findsOneWidget);
+    expect(find.byKey(const Key('category-percent-field')), findsOneWidget);
+    expect(find.text('Сохранить изменения'), findsOneWidget);
+    expect(find.text('Выгода'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('editor updates the category from expanded layout',
       (tester) async {
     CashbackCategoryModel? saved;

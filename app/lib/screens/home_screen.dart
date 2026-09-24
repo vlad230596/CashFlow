@@ -1,405 +1,236 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../providers/data_provider.dart';
+
 import '../services/app_session_type.dart';
-import '../services/cashback_import_launcher.dart';
 import 'cashback_screen.dart';
-import 'cards_screen.dart';
 import 'monthly_cashback_screen.dart';
 import 'more_screen.dart';
 import 'partner_offers_screen.dart';
-import 'settings/banks_settings.dart';
-import 'settings/users_settings.dart';
-import 'widgets/versioned_app_bar_title.dart';
-import 'settings/cards_settings.dart';
-import 'settings/mcc_rules_settings_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.sessionType});
 
   final AppSessionType? sessionType;
 
-  Future<CashbackImportProfile?> _selectBrowserProfile(
-    BuildContext context,
-    DataProvider dataProvider,
-  ) {
-    final orderedUsers = [...dataProvider.users]
-      ..sort((a, b) => a.id.compareTo(b.id));
-    return showDialog<CashbackImportProfile>(
-      context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: const Text('Выберите профиль браузера'),
-        children: [
-          for (final profile in cashbackImportProfiles)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(dialogContext, profile),
-              child: ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.person_outline),
-                title: Text(
-                  profile.userSlot < orderedUsers.length
-                      ? orderedUsers[profile.userSlot].name
-                      : profile.label,
-                ),
-                subtitle: Text(
-                  '${profile.label} · ${profile.banks.contains('vtb') ? 'все банки' : 'без ВТБ'}',
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
 
-  Future<void> _launchCashbackBrowser(
-    BuildContext context,
-    DataProvider dataProvider,
-  ) async {
-    final profile = await _selectBrowserProfile(context, dataProvider);
-    if (profile == null || !context.mounted) return;
+class _HomeScreenState extends State<HomeScreen> {
+  int _selectedIndex = 0;
 
-    final error = await launchCashbackImport(profile);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          error ??
-              '${profile.label} открыт. Авторизуйтесь в отмеченных банках и скачайте JSON.',
-        ),
-      ),
-    );
-  }
+  late final List<Widget> _screens = [
+    CashbackScreen(
+      onShellDestinationSelected: (value) =>
+          setState(() => _selectedIndex = value),
+    ),
+    MonthlyCashbackScreen(
+      onShellDestinationSelected: (value) =>
+          setState(() => _selectedIndex = value),
+    ),
+    const PartnerOffersScreen(),
+    MoreScreen(sessionType: widget.sessionType ?? detectAppSessionType()),
+  ];
 
-  Future<int?> _selectImportUser(
-    BuildContext context,
-    DataProvider dataProvider,
-  ) async {
-    if (dataProvider.users.isEmpty) return null;
-    if (dataProvider.users.length == 1) return dataProvider.users.single.id;
-
-    var selectedUserId = dataProvider.users.first.id;
-    return showDialog<int>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Кому импортировать категории?'),
-        content: StatefulBuilder(
-          builder: (context, setState) => DropdownButtonFormField<int>(
-            initialValue: selectedUserId,
-            decoration: const InputDecoration(
-              labelText: 'Владелец карт',
-              border: OutlineInputBorder(),
-            ),
-            items: dataProvider.users
-                .map(
-                  (user) => DropdownMenuItem<int>(
-                    value: user.id,
-                    child: Text(user.name),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => selectedUserId = value);
-              }
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, selectedUserId),
-            child: const Text('Импортировать'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _importCashback(
-    BuildContext context,
-    DataProvider dataProvider,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final file = await pickCashbackImportFile();
-      if (file == null || !context.mounted) return;
-      final userId = await _selectImportUser(context, dataProvider);
-      if (userId == null || !context.mounted) return;
-
-      final result = await dataProvider.importCashbackDocument(
-        file.contents,
-        userId,
-      );
-      if (!context.mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Импортировано банков: ${result.importedBanks}; '
-            'создано: ${result.created}, обновлено: ${result.updated}'
-            '; партнёрских предложений создано: '
-            '${result.createdPartnerOffers}, обновлено: '
-            '${result.updatedPartnerOffers}'
-            '${result.skippedBanks == 0 ? '' : ', пропущено банков: ${result.skippedBanks}'}.',
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!context.mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Не удалось импортировать JSON: $error')),
-      );
-    }
-  }
-
-  String _formatDate(DateTime date) {
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    return '$day.$month.${date.year}';
-  }
-
-  Future<void> _pickCashbackDate(
-    BuildContext context,
-    DataProvider dataProvider,
-  ) async {
-    final selectedDate = await showDatePicker(
-      context: context,
-      initialDate: dataProvider.cashbackEffectiveDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-
-    if (selectedDate != null) {
-      await dataProvider.setCashbackEffectiveDate(selectedDate);
-    }
-  }
+  static const _destinations = [
+    _ShellDestination(
+      'Выгода',
+      Icons.home_outlined,
+      Icons.home_rounded,
+    ),
+    _ShellDestination(
+      'План',
+      Icons.description_outlined,
+      Icons.description_rounded,
+    ),
+    _ShellDestination(
+      'Акции',
+      Icons.local_offer_outlined,
+      Icons.local_offer_rounded,
+    ),
+    _ShellDestination('Ещё', Icons.more_horiz, Icons.more_horiz),
+  ];
 
   @override
-  Widget build(BuildContext context) {
-    final dataProvider = Provider.of<DataProvider>(context);
-    final currentSessionType = sessionType ?? detectAppSessionType();
-
-    return DefaultTabController(
-      length: 5,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const VersionedAppBarTitle(title: 'CashFlow'),
-          bottom: TabBar(
-            isScrollable: true,
-            tabs: [
-              Tab(text: 'Cashback'),
-              Tab(text: 'Cards'),
-              Tab(text: 'MonthCashback'),
-              Tab(text: 'Акции'),
-              Tab(text: 'Ещё'),
-            ],
-          ),
-          actions: [
-            if (currentSessionType.canImportCashbackFile)
-              IconButton(
-                tooltip: 'Импортировать кэшбэк из JSON',
-                icon: const Icon(Icons.upload_file_outlined),
-                onPressed: dataProvider.canEdit
-                    ? () => _importCashback(context, dataProvider)
-                    : null,
-              ),
-            if (currentSessionType.canLaunchCashbackBrowser)
-              IconButton(
-                tooltip: 'Запросить кэшбэк',
-                icon: const Icon(Icons.download_for_offline_outlined),
-                onPressed: () => _launchCashbackBrowser(context, dataProvider),
-              ),
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.settings),
-              onSelected: (value) async {
-                switch (value) {
-                  case 'refresh':
-                    final isUpdated = await dataProvider.fetchAllData();
-                    //await Provider.of<DataProvider>(context, listen: false).fetchCashbacks();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          isUpdated
-                              ? 'Data refreshed successfully'
-                              : 'Could not refresh data. Showing cached data.',
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final expanded = constraints.maxWidth >= 840;
+          return Scaffold(
+            body: Row(
+              children: [
+                if (expanded)
+                  _DesktopRail(
+                    selectedIndex: _selectedIndex,
+                    onSelected: (value) =>
+                        setState(() => _selectedIndex = value),
+                  ),
+                Expanded(
+                  child: IndexedStack(
+                    index: _selectedIndex,
+                    children: _screens,
+                  ),
+                ),
+              ],
+            ),
+            bottomNavigationBar: expanded
+                ? null
+                : NavigationBar(
+                    selectedIndex: _selectedIndex,
+                    onDestinationSelected: (value) =>
+                        setState(() => _selectedIndex = value),
+                    destinations: [
+                      for (final destination in _destinations)
+                        NavigationDestination(
+                          key: ValueKey(
+                              'shell-destination-${destination.label}'),
+                          icon: Icon(destination.icon),
+                          selectedIcon: Icon(destination.selectedIcon),
+                          label: destination.label,
                         ),
-                      ),
-                    );
-                    break;
-                  case 'banks':
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => BanksSettingsScreen()),
-                    );
-                    break;
-                  case 'cards':
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => CardsSettingsScreen()),
-                    );
-                    break;
-                  case 'users':
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => UsersSettingsScreen()),
-                    );
-                    break;
-                  case 'mccRules':
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const MccRulesSettingsScreen(),
-                      ),
-                    );
-                    break;
-                  case 'cashbackDate':
-                    await _pickCashbackDate(context, dataProvider);
-                    break;
-                  case 'cashbackDateToday':
-                    await dataProvider.setCashbackEffectiveDate(null);
-                    break;
-                  case 'logout':
-                    await dataProvider.logout();
-                    break;
-                }
-              },
-              itemBuilder: (BuildContext context) {
-                return [
-                  PopupMenuItem(
-                    value: 'refresh',
+                    ],
+                  ),
+          );
+        },
+      );
+}
+
+class _DesktopRail extends StatelessWidget {
+  const _DesktopRail({required this.selectedIndex, required this.onSelected});
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 224,
+        color: const Color(0xFF102C54),
+        padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final dense = constraints.maxHeight < 360;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(12, 4, 12, dense ? 8 : 24),
                     child: Row(
                       children: [
-                        const Icon(Icons.refresh, size: 20),
-                        const SizedBox(width: 8),
-                        const Text('Refresh'),
-                        const Spacer(),
-                        Text(
-                          dataProvider.lastUpdated ?? 'Never',
-                          style:
-                              TextStyle(color: Colors.grey[600], fontSize: 12),
+                        const _BrandMark(),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'CashFlow',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: dense ? 18 : 22,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  if (dataProvider.isAdmin) ...[
-                    const PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: 'banks',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.account_balance, size: 20),
-                          const SizedBox(width: 8),
-                          const Text('Banks'),
-                          const Spacer(),
-                          Text('${dataProvider.banks.length}'),
-                        ],
+                  for (var index = 0;
+                      index < _HomeScreenState._destinations.length;
+                      index++)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: dense ? 2 : 6),
+                      child: _RailButton(
+                        destination: _HomeScreenState._destinations[index],
+                        selected: selectedIndex == index,
+                        dense: dense,
+                        onTap: () => onSelected(index),
                       ),
                     ),
-                    PopupMenuItem(
-                      value: 'cards',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.credit_card, size: 20),
-                          const SizedBox(width: 8),
-                          const Text('Cards'),
-                          const Spacer(),
-                          Text('${dataProvider.cards.length}'),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'users',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.people, size: 20),
-                          const SizedBox(width: 8),
-                          const Text('Users'),
-                          const Spacer(),
-                          Text('${dataProvider.users.length}'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem(
-                      value: 'mccRules',
-                      child: Row(
-                        children: [
-                          Icon(Icons.rule_folder_outlined, size: 20),
-                          SizedBox(width: 8),
-                          Text('Расширенные настройки MCC'),
-                        ],
+                  const Spacer(),
+                  if (constraints.maxHeight >= 420) ...[
+                    const Divider(color: Color(0x446F91B8)),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      child: Text(
+                        'Семейное пространство',
+                        style: TextStyle(
+                          color: Color(0xFFB9CCE4),
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ],
-                  const PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: 'cashbackDate',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.event, size: 20),
-                        const SizedBox(width: 8),
-                        const Text('Cashback date'),
-                        const Spacer(),
-                        Text(
-                          _formatDate(dataProvider.cashbackEffectiveDate),
-                          style:
-                              TextStyle(color: Colors.grey[600], fontSize: 12),
-                        ),
-                      ],
-                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+}
+
+class _RailButton extends StatelessWidget {
+  const _RailButton({
+    required this.destination,
+    required this.selected,
+    required this.dense,
+    required this.onTap,
+  });
+
+  final _ShellDestination destination;
+  final bool selected;
+  final bool dense;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: selected ? const Color(0xFF2B5B91) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            height: dense ? 40 : 50,
+            child: Row(
+              children: [
+                const SizedBox(width: 14),
+                Icon(
+                  selected ? destination.selectedIcon : destination.icon,
+                  color: Colors.white,
+                  size: dense ? 20 : 22,
+                ),
+                const SizedBox(width: 14),
+                Text(
+                  destination.label,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   ),
-                  PopupMenuItem(
-                    value: 'cashbackDateToday',
-                    enabled: !dataProvider.usesCurrentCashbackDate,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.today, size: 20),
-                        const SizedBox(width: 8),
-                        const Text('Use today'),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  PopupMenuItem(
-                    enabled: false,
-                    child: Text(
-                      '${dataProvider.currentAuthUser?.username} · '
-                      '${dataProvider.currentAuthUser?.role}\n'
-                      'Server: ${dataProvider.serverIp}',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'logout',
-                    child: Row(
-                      children: [
-                        Icon(Icons.logout, size: 20),
-                        SizedBox(width: 8),
-                        Text('Выйти'),
-                      ],
-                    ),
-                  ),
-                ];
-              },
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-        body: TabBarView(
-          children: [
-            CashbackScreen(),
-            CardsScreen(),
-            MonthlyCashbackScreen(),
-            const PartnerOffersScreen(),
-            MoreScreen(sessionType: currentSessionType),
-          ],
+      );
+}
+
+class _BrandMark extends StatelessWidget {
+  const _BrandMark();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1D6FE8),
+          borderRadius: BorderRadius.circular(10),
         ),
-      ),
-    );
-  }
+        alignment: Alignment.center,
+        child: const Icon(Icons.auto_awesome, color: Colors.white, size: 19),
+      );
+}
+
+class _ShellDestination {
+  const _ShellDestination(this.label, this.icon, this.selectedIcon);
+
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
 }
