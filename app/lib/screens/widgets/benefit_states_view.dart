@@ -3,14 +3,28 @@ import 'package:flutter/material.dart';
 import '../../models/cashback_category_model.dart';
 import '../../providers/data_provider.dart';
 import '../../utils/category_info.dart';
+import '../../utils/identity_icons.dart';
 import '../cashback_category_detail_screen.dart';
 import 'cashback_limits_label.dart';
 
 class BenefitItemData {
-  const BenefitItemData({required this.category, required this.cardLabel});
+  const BenefitItemData({
+    required this.category,
+    required this.cardLabel,
+    this.bankName,
+    this.bankIconKey,
+    this.userName,
+    this.userIconKey,
+    this.lastFourDigits,
+  });
 
   final CashbackCategoryModel category;
   final String cardLabel;
+  final String? bankName;
+  final String? bankIconKey;
+  final String? userName;
+  final String? userIconKey;
+  final String? lastFourDigits;
 }
 
 class BenefitMccSearchResult {
@@ -104,6 +118,7 @@ class BenefitStatesView extends StatefulWidget {
     this.merchantResults = const [],
     this.snapshotUpdatedAt,
     this.onShellDestinationSelected,
+    this.onInternalDetailChanged,
   });
 
   final PrimaryDataPhase phase;
@@ -114,6 +129,7 @@ class BenefitStatesView extends StatefulWidget {
   final List<BenefitMerchantSearchResult> merchantResults;
   final Future<void> Function() onRefresh;
   final ValueChanged<int>? onShellDestinationSelected;
+  final ValueChanged<bool>? onInternalDetailChanged;
 
   @override
   State<BenefitStatesView> createState() => _BenefitStatesViewState();
@@ -125,6 +141,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   int? _selectedId;
   BenefitPurchaseResult? _selectedPurchaseResult;
   String? _selectedMerchantName;
+  bool _showAllCategories = false;
 
   @override
   void initState() {
@@ -139,6 +156,9 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     if (_selectedId != null &&
         !widget.items.any((item) => item.category.id == _selectedId)) {
       _selectedId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onInternalDetailChanged?.call(false);
+      });
     }
   }
 
@@ -215,6 +235,28 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
       selection: TextSelection.collapsed(offset: merchant.name.length),
     );
     _searchFocusNode.unfocus();
+    if (MediaQuery.sizeOf(context).width < 840) {
+      widget.onInternalDetailChanged?.call(true);
+    }
+  }
+
+  void _selectItem(BenefitItemData item) {
+    setState(() => _selectedId = item.category.id);
+    if (MediaQuery.sizeOf(context).width < 840) {
+      widget.onInternalDetailChanged?.call(true);
+    }
+  }
+
+  bool get _hasInternalDetail =>
+      _selectedId != null || _selectedPurchaseResult != null;
+
+  void _closeInternalDetail() {
+    setState(() {
+      _selectedId = null;
+      _selectedPurchaseResult = null;
+      _selectedMerchantName = null;
+    });
+    widget.onInternalDetailChanged?.call(false);
   }
 
   @override
@@ -225,68 +267,74 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     final failedWithoutData =
         widget.phase == PrimaryDataPhase.failed && !hasData;
 
-    return SafeArea(
-      top: true,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _Header(isRefreshing: widget.phase == PrimaryDataPhase.refreshing),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: TextField(
-              key: const Key('benefit-search'),
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              enabled: !initialLoading && !failedWithoutData,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Что хотите купить?',
-                helperText: _selectedPurchaseResult != null
-                    ? 'Магазин · результат по текущему плану'
-                    : _searchController.text.trim().isEmpty
-                        ? 'Категория, MCC-код или конкретный магазин'
-                        : 'Найдено в категориях, MCC и магазинах',
-                prefixIcon: const Icon(Icons.search_outlined),
-                suffixIcon: _searchController.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Очистить запрос',
-                        onPressed: _clearQuery,
-                        icon: const Icon(Icons.close),
-                      ),
-                border: const OutlineInputBorder(),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 2,
+    return PopScope(
+      canPop: !_hasInternalDetail,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _hasInternalDetail) _closeInternalDetail();
+      },
+      child: SafeArea(
+        top: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _Header(isRefreshing: widget.phase == PrimaryDataPhase.refreshing),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: TextField(
+                key: const Key('benefit-search'),
+                controller: _searchController,
+                focusNode: _searchFocusNode,
+                enabled: !initialLoading && !failedWithoutData,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'Что хотите купить?',
+                  helperText: _selectedPurchaseResult != null
+                      ? 'Магазин · результат по текущему плану'
+                      : _searchController.text.trim().isEmpty
+                          ? 'Категория, MCC-код или конкретный магазин'
+                          : 'Найдено в категориях, MCC и магазинах',
+                  prefixIcon: const Icon(Icons.search_outlined),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Очистить запрос',
+                          onPressed: _clearQuery,
+                          icon: const Icon(Icons.close),
+                        ),
+                  border: const OutlineInputBorder(),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          if (widget.phase == PrimaryDataPhase.refreshing)
-            const LinearProgressIndicator(
-              key: Key('benefit-refresh-progress'),
-              semanticsLabel: 'Обновляем данные',
+            if (widget.phase == PrimaryDataPhase.refreshing)
+              const LinearProgressIndicator(
+                key: Key('benefit-refresh-progress'),
+                semanticsLabel: 'Обновляем данные',
+              ),
+            if (widget.phase == PrimaryDataPhase.failed && hasData)
+              _StaleBanner(
+                updatedAt: widget.snapshotUpdatedAt,
+                onRetry: widget.onRefresh,
+              ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (initialLoading) return const _LoadingState();
+                  if (failedWithoutData) {
+                    return _ErrorState(onRetry: widget.onRefresh);
+                  }
+                  return _buildReadyContent(constraints.maxWidth);
+                },
+              ),
             ),
-          if (widget.phase == PrimaryDataPhase.failed && hasData)
-            _StaleBanner(
-              updatedAt: widget.snapshotUpdatedAt,
-              onRetry: widget.onRefresh,
-            ),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                if (initialLoading) return const _LoadingState();
-                if (failedWithoutData) {
-                  return _ErrorState(onRetry: widget.onRefresh);
-                }
-                return _buildReadyContent(constraints.maxWidth);
-              },
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -313,8 +361,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
             child: _BenefitList(
               items: filtered,
               selectedId: _selectedId,
-              onSelected: (item) =>
-                  setState(() => _selectedId = item.category.id),
+              onSelected: _selectItem,
             ),
           ),
           const VerticalDivider(width: 1),
@@ -345,7 +392,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
         item: _selectedItem!,
         tiedItems: _tiedLeaders(_selectedItem!),
         onShellDestinationSelected: widget.onShellDestinationSelected,
-        onBack: () => setState(() => _selectedId = null),
+        onBack: _closeInternalDetail,
       );
     }
 
@@ -358,8 +405,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
           mccResults: filteredMcc,
           merchantResults: filteredMerchants,
           onMerchantSelected: _selectMerchant,
-          onCategorySelected: (item) =>
-              setState(() => _selectedId = item.category.id),
+          onCategorySelected: _selectItem,
         );
       }
       return _CompactBenefitOverview(
@@ -367,14 +413,18 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
         items: filtered,
         merchantResults: widget.merchantResults,
         onMerchantSelected: _selectMerchant,
-        onSelected: (item) => setState(() => _selectedId = item.category.id),
+        onSelected: _selectItem,
+        showAllCategories: _showAllCategories,
+        onToggleShowAll: () => setState(
+          () => _showAllCategories = !_showAllCategories,
+        ),
       );
     }
     return _BenefitList(
       key: const Key('benefit-compact-list'),
       items: filtered,
       columns: width >= 600 ? 2 : 1,
-      onSelected: (item) => setState(() => _selectedId = item.category.id),
+      onSelected: _selectItem,
     );
   }
 
@@ -1088,49 +1138,29 @@ class _Header extends StatelessWidget {
       'Ноябрь',
       'Декабрь',
     ];
-    if (largeText) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Semantics(
-          header: true,
-          label: isRefreshing ? 'Выгода, данные обновляются' : 'Выгода',
-          child: ExcludeSemantics(
-            child: Text(
-              'Выгода',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ),
-        ),
-      );
-    }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Flex(
+        direction: largeText ? Axis.vertical : Axis.horizontal,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment:
+            largeText ? CrossAxisAlignment.start : CrossAxisAlignment.center,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Семейное пространство',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+          Flexible(
+            fit: FlexFit.loose,
+            child: Semantics(
+              header: true,
+              label: isRefreshing ? 'Выгода, данные обновляются' : 'Выгода',
+              child: ExcludeSemantics(
+                child: Text(
+                  'Выгода',
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
-                const SizedBox(height: 2),
-                Semantics(
-                  header: true,
-                  label: isRefreshing ? 'Выгода, данные обновляются' : 'Выгода',
-                  child: ExcludeSemantics(
-                    child: Text(
-                      'Выгода',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
+          SizedBox(width: largeText ? 0 : 12, height: largeText ? 6 : 0),
+          if (!largeText) const Spacer(),
           DecoratedBox(
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -1394,12 +1424,16 @@ class _CompactBenefitOverview extends StatelessWidget {
     required this.merchantResults,
     required this.onMerchantSelected,
     required this.onSelected,
+    required this.showAllCategories,
+    required this.onToggleShowAll,
   });
 
   final List<BenefitItemData> items;
   final List<BenefitMerchantSearchResult> merchantResults;
   final ValueChanged<BenefitMerchantSearchResult> onMerchantSelected;
   final ValueChanged<BenefitItemData> onSelected;
+  final bool showAllCategories;
+  final VoidCallback onToggleShowAll;
 
   @override
   Widget build(BuildContext context) {
@@ -1416,13 +1450,20 @@ class _CompactBenefitOverview extends StatelessWidget {
               .reduce((left, right) => left > right ? left : right)));
 
     final recentMerchants = merchantResults.take(2).toList();
+    final visibleGroupCount =
+        showAllCategories || groups.length <= 4 ? groups.length : 4;
     return CustomScrollView(
       key: const PageStorageKey('benefit-compact-overview-scroll'),
       slivers: [
         SliverToBoxAdapter(
           child: _OverviewSectionHeader(
             title: 'Категории',
-            action: 'Показать все ${groups.length}',
+            action: groups.length > 4
+                ? showAllCategories
+                    ? 'Свернуть'
+                    : 'Показать все ${groups.length}'
+                : null,
+            onAction: groups.length > 4 ? onToggleShowAll : null,
           ),
         ),
         SliverPadding(
@@ -1439,7 +1480,7 @@ class _CompactBenefitOverview extends StatelessWidget {
                 items: groups[index],
                 onTap: () => onSelected(groups[index].first),
               ),
-              childCount: groups.length,
+              childCount: visibleGroupCount,
             ),
           ),
         ),
@@ -1475,10 +1516,15 @@ class _CompactBenefitOverview extends StatelessWidget {
 }
 
 class _OverviewSectionHeader extends StatelessWidget {
-  const _OverviewSectionHeader({required this.title, required this.action});
+  const _OverviewSectionHeader({
+    required this.title,
+    this.action,
+    this.onAction,
+  });
 
   final String title;
-  final String action;
+  final String? action;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1493,13 +1539,16 @@ class _OverviewSectionHeader extends StatelessWidget {
                     ),
               ),
             ),
-            Text(
-              action,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
-            ),
+            if (action != null)
+              TextButton(
+                key: const Key('benefit-toggle-all-categories'),
+                onPressed: onAction,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(48, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: Text(action!),
+              ),
           ],
         ),
       );
@@ -1656,32 +1705,87 @@ class _CompactCategoryCard extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              Wrap(
-                spacing: 4,
-                runSpacing: 4,
+              Column(
                 children: [
-                  for (final item in sorted.take(2))
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        '${_formatPercent(item.category.cashbackPercent)}% '
-                        '${_cardMark(item.cardLabel)}',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: color,
-                              fontWeight: FontWeight.w800,
-                            ),
-                      ),
+                  for (final item in sorted.take(2)) ...[
+                    _CompactCardIdentity(
+                      item: item,
+                      accentColor: color,
+                      showLastFourDigits: items.length == 1,
                     ),
+                    if (item != sorted.take(2).last) const SizedBox(height: 3),
+                  ],
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactCardIdentity extends StatelessWidget {
+  const _CompactCardIdentity({
+    required this.item,
+    required this.accentColor,
+    required this.showLastFourDigits,
+  });
+
+  final BenefitItemData item;
+  final Color accentColor;
+  final bool showLastFourDigits;
+
+  @override
+  Widget build(BuildContext context) {
+    final bankName = item.bankName ?? _bankNameFromCardLabel(item.cardLabel);
+    final userName = item.userName ?? 'Владелец';
+    final digits = item.lastFourDigits;
+    final suffix =
+        showLastFourDigits && digits?.isNotEmpty == true ? ' · •$digits' : '';
+    return Semantics(
+      label: '$bankName, $userName$suffix, '
+          '${_formatPercent(item.category.cashbackPercent)} процентов',
+      child: ExcludeSemantics(
+        child: Container(
+          height: 24,
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Row(
+            children: [
+              BankIconBadge(
+                iconKey: item.bankIconKey,
+                bankName: bankName,
+                size: 18,
+              ),
+              const SizedBox(width: 3),
+              UserIconBadge(
+                iconKey: item.userIconKey,
+                userName: userName,
+                size: 18,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  '$bankName · $userName$suffix',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 3),
+              Text(
+                '${_formatPercent(item.category.cashbackPercent)}%',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: accentColor,
+                      fontWeight: FontWeight.w900,
+                    ),
               ),
             ],
           ),
@@ -1700,18 +1804,9 @@ String _cardsWord(int count) {
   return 'карт';
 }
 
-String _cardMark(String label) {
-  final normalized = label.toLowerCase();
-  if (normalized.contains('альфа')) return 'А';
-  if (normalized.contains('т-банк') || normalized.contains('тинькофф')) {
-    return 'Т';
-  }
-  if (normalized.contains('втб')) return 'ВТБ';
-  if (normalized.contains('сбер')) return 'СБ';
-  final words = label
-      .split(RegExp(r'\s+'))
-      .where((word) => word.isNotEmpty && !RegExp(r'^\d+$').hasMatch(word));
-  return words.isEmpty ? 'К' : words.first.characters.first.toUpperCase();
+String _bankNameFromCardLabel(String label) {
+  final digits = RegExp(r'[•·]?\s*\d{4}\s*$');
+  return label.replaceFirst(digits, '').trim();
 }
 
 class _BenefitListCard extends StatelessWidget {
@@ -1758,8 +1853,30 @@ class _BenefitListCard extends StatelessWidget {
                     Text(category.name,
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 4),
-                    Text(item.cardLabel,
-                        style: Theme.of(context).textTheme.bodySmall),
+                    Row(
+                      children: [
+                        BankIconBadge(
+                          iconKey: item.bankIconKey,
+                          bankName: item.bankName,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 4),
+                        UserIconBadge(
+                          iconKey: item.userIconKey,
+                          userName: item.userName,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            item.cardLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -1914,9 +2031,23 @@ class _DetailCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                BankIconBadge(
+                  iconKey: item.bankIconKey,
+                  bankName: item.bankName,
+                  size: 32,
+                ),
+                const SizedBox(width: 6),
+                UserIconBadge(
+                  iconKey: item.userIconKey,
+                  userName: item.userName,
+                  size: 32,
+                ),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Text(item.cardLabel,
-                      style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    item.cardLabel,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Text(

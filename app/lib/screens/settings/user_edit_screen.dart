@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
 import '../../models/user_model.dart';
+import '../../utils/identity_icons.dart';
 
 class UserEditScreen extends StatefulWidget {
   final UserModel? existingUser;
@@ -16,6 +17,7 @@ class UserEditScreen extends StatefulWidget {
 class _UserEditScreenState extends State<UserEditScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
+  late String _iconKey;
 
   @override
   void initState() {
@@ -23,6 +25,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
     _nameController = TextEditingController(
       text: widget.existingUser?.name ?? '',
     );
+    _iconKey = widget.existingUser?.iconKey ?? 'boy';
   }
 
   @override
@@ -40,7 +43,10 @@ class _UserEditScreenState extends State<UserEditScreen> {
 
     try {
       if (widget.existingUser == null) {
-        await dataProvider.addUser(_nameController.text);
+        await dataProvider.addUser(
+          _nameController.text,
+          iconKey: _iconKey,
+        );
         if (!mounted) return;
         scaffoldMessenger.showSnackBar(
           const SnackBar(content: Text('User added successfully')),
@@ -49,6 +55,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
         await dataProvider.updateUser(
           widget.existingUser!.id,
           _nameController.text,
+          iconKey: _iconKey,
         );
         if (!mounted) return;
         scaffoldMessenger.showSnackBar(
@@ -117,34 +124,67 @@ class _UserEditScreenState extends State<UserEditScreen> {
             ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'User Name',
-                  border: OutlineInputBorder(),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              children: [
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'User Name',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter a user name';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a user name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _saveUser,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Иконка пользователя',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                 ),
-                child: const Text('Save User'),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final option in userIconOptions)
+                        ChoiceChip(
+                          key: ValueKey('user-icon-${option.key}'),
+                          selected: _iconKey == option.key,
+                          onSelected: (_) =>
+                              setState(() => _iconKey = option.key),
+                          avatar: UserIconBadge(
+                            iconKey: option.key,
+                            userName: option.label,
+                            size: 28,
+                          ),
+                          label: Text(option.label),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: _saveUser,
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                  ),
+                  child: const Text('Save User'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

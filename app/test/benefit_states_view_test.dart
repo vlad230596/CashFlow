@@ -23,6 +23,60 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('system back returns from compact detail to the overview',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 800));
+    await tester.pumpWidget(_app(items: _items));
+
+    await tester.tap(find.text('Аптеки'));
+    await tester.pump();
+    expect(find.byKey(const Key('benefit-compact-detail')), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+
+    expect(find.byKey(const Key('benefit-compact-list')), findsOneWidget);
+    expect(find.byKey(const Key('benefit-compact-detail')), findsNothing);
+  });
+
+  testWidgets('show all categories expands and collapses the compact grid',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    final items = List.generate(
+      6,
+      (index) => BenefitItemData(
+        category: CashbackCategoryModel(
+          id: 100 + index,
+          name: 'Категория $index',
+          startDate: DateTime(2026, 9),
+          endDate: DateTime(2026, 10),
+          isSelected: true,
+          isBankConfirmed: true,
+          cashbackPercent: 6 - index.toDouble(),
+          cardId: index + 1,
+        ),
+        cardLabel: 'Анна · Т-Банк · •100$index',
+        bankName: 'Т-Банк',
+        bankIconKey: 'tbank',
+        userName: 'Анна',
+        userIconKey: 'girl',
+        lastFourDigits: '100$index',
+      ),
+    );
+    await tester.pumpWidget(_app(items: items));
+
+    expect(find.text('Категория 4'), findsNothing);
+    await tester.tap(find.text('Показать все 6'));
+    await tester.pump();
+
+    expect(find.text('Категория 4'), findsOneWidget);
+    expect(find.text('Свернуть'), findsOneWidget);
+
+    await tester.tap(find.text('Свернуть'));
+    await tester.pump();
+    expect(find.text('Категория 4'), findsNothing);
+  });
+
   testWidgets('expanded layout keeps master and detail visible',
       (tester) async {
     await _setViewport(tester, const Size(1100, 800));
@@ -70,6 +124,22 @@ void main() {
     expect(find.text('Аптеки'), findsOneWidget);
     expect(find.text('Карта семьи •1234'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('identity badges fit a small phone and landscape in dark mode',
+      (tester) async {
+    for (final size in [const Size(375, 667), const Size(844, 390)]) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      await tester.pumpWidget(
+        _app(items: _identityItems, themeMode: ThemeMode.dark),
+      );
+      await tester.pump();
+      expect(find.text('Аптеки'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
   });
 
   testWidgets('compact search groups categories, MCC codes and merchants',
@@ -150,8 +220,12 @@ Widget _app({
   List<BenefitMerchantSearchResult> merchantResults = const [],
   Future<void> Function()? onRefresh,
   double textScale = 1,
+  ThemeMode themeMode = ThemeMode.light,
 }) =>
     MaterialApp(
+      theme: ThemeData.light(useMaterial3: true),
+      darkTheme: ThemeData.dark(useMaterial3: true),
+      themeMode: themeMode,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(
           textScaler: TextScaler.linear(textScale),
@@ -215,6 +289,27 @@ final _searchItems = [
       cardId: 1,
     ),
     cardLabel: 'Альфа-Банк •1234',
+  ),
+];
+
+final _identityItems = [
+  BenefitItemData(
+    category: CashbackCategoryModel(
+      id: 31,
+      name: 'Аптеки',
+      startDate: DateTime(2026, 9),
+      endDate: DateTime(2026, 10),
+      isSelected: true,
+      isBankConfirmed: true,
+      cashbackPercent: 7,
+      cardId: 31,
+    ),
+    cardLabel: 'Анна · Т-Банк · •1234',
+    bankName: 'Т-Банк',
+    bankIconKey: 'tbank',
+    userName: 'Анна',
+    userIconKey: 'girl',
+    lastFourDigits: '1234',
   ),
 ];
 

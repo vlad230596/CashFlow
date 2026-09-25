@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
+import '../../utils/identity_icons.dart';
 import 'bank_edit_screen.dart';
 
 class BanksSettingsScreen extends StatelessWidget {
@@ -41,7 +42,10 @@ class BanksSettingsScreen extends StatelessWidget {
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
-                leading: const Icon(Icons.account_balance),
+                leading: BankIconBadge(
+                  iconKey: bank.iconKey,
+                  bankName: bank.name,
+                ),
                 title: Text(bank.name!),
                 subtitle: Text(bank.description ?? ""),
                 trailing: IconButton(
@@ -50,7 +54,8 @@ class BanksSettingsScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => BankEditScreen(existingBank: bank),
+                        builder: (context) =>
+                            BankEditScreen(existingBank: bank),
                       ),
                     );
                   },

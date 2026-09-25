@@ -12,6 +12,8 @@ import '../models/user_model.dart';
 import '../models/cashback_category_model.dart';
 import '../models/mcc_rule_model.dart';
 import '../models/partner_offer_model.dart';
+import '../models/subscription_model.dart';
+import '../services/subscription_notification_service.dart';
 
 enum PrimaryDataPhase { initialLoading, ready, refreshing, failed }
 
@@ -115,11 +117,14 @@ class DataProvider with ChangeNotifier {
     String? apiBaseUrl,
     FlutterSecureStorage? secureStorage,
     http.Client? httpClient,
+    SubscriptionNotificationService? subscriptionNotificationService,
   })  : apiBaseUrl = apiBaseUrl ?? defaultApiBaseUrl,
         _secureStorage = secureStorage ??
             const FlutterSecureStorage(
               aOptions: AndroidOptions(migrateWithBackup: true),
-            ) {
+            ),
+        _subscriptionNotifications = subscriptionNotificationService ??
+            LocalSubscriptionNotificationService() {
     final innerClient = httpClient ?? http.Client();
     _rawClient = innerClient;
     _client = _AuthenticatedClient(
@@ -128,6 +133,11 @@ class DataProvider with ChangeNotifier {
       _clearAuthentication,
       _saveSessionExpiration,
     );
+    _notificationTapSubscription =
+        _subscriptionNotifications.notificationTaps.listen((id) {
+      pendingSubscriptionNotificationId = id;
+      notifyListeners();
+    });
   }
 
   static const _configuredApiBaseUrl = String.fromEnvironment(
@@ -144,6 +154,8 @@ class DataProvider with ChangeNotifier {
   final FlutterSecureStorage _secureStorage;
   late final http.Client _rawClient;
   late final http.Client _client;
+  final SubscriptionNotificationService _subscriptionNotifications;
+  late final StreamSubscription<int> _notificationTapSubscription;
   String? _accessToken;
   DateTime? _sessionExpiresAt;
   final Map<int, int> _selectionMutationVersions = {};
@@ -165,11 +177,15 @@ class DataProvider with ChangeNotifier {
   List<CashbackCategoryModel> cashbackCategories = [];
   List<CashbackCategoryModel> activeCashbackCategories = [];
   List<PartnerOffer> partnerOffers = [];
+  List<SubscriptionModel> subscriptions = [];
   PrimaryDataPhase primaryDataPhase = PrimaryDataPhase.initialLoading;
   String? primaryDataError;
   DateTime? dataSnapshotUpdatedAt;
   bool partnerOffersLoading = false;
   String? partnerOffersError;
+  bool subscriptionsLoading = false;
+  String? subscriptionsError;
+  int? pendingSubscriptionNotificationId;
   String? _partnerOffersRating;
   String? lastUpdated;
   DateTime? _cashbackDateOverride;
@@ -182,6 +198,16 @@ class DataProvider with ChangeNotifier {
       cashbackCategories.isNotEmpty ||
       activeCashbackCategories.isNotEmpty;
 
+  List<SubscriptionModel> get activeSubscriptions => subscriptions
+      .where((subscription) => !subscription.isArchived)
+      .toList(growable: false)
+    ..sort(
+        (left, right) => left.nextPaymentDate.compareTo(right.nextPaymentDate));
+
+  List<SubscriptionModel> get archivedSubscriptions => subscriptions
+      .where((subscription) => subscription.isArchived)
+      .toList(growable: false);
+
   Uri _apiUri(String path) => Uri.parse(
         '${apiBaseUrl.replaceFirst(RegExp(r'/$'), '')}/api/$path',
       );
@@ -189,16 +215,22 @@ class DataProvider with ChangeNotifier {
   Future<void> _clearAuthentication([String? token]) async {
     // A late 401 from an old request must not erase a newer login.
     if (token != null && token != _accessToken) return;
+    final subscriptionsCacheKey = _subscriptionsCacheKey;
     _accessToken = null;
     _sessionExpiresAt = null;
     currentAuthUser = null;
     partnerOffers = [];
     partnerOffersError = null;
+    subscriptions = [];
+    subscriptionsError = null;
     try {
       await Future.wait([
         _secureStorage.delete(key: _accessTokenKey),
         _secureStorage.delete(key: _authIdentityKey),
         _secureStorage.delete(key: _sessionExpiresAtKey),
+        if (subscriptionsCacheKey != null)
+          _removeSubscriptionsCache(subscriptionsCacheKey),
+        _synchronizeSubscriptionNotifications(),
       ]);
     } finally {
       notifyListeners();
@@ -302,6 +334,7 @@ class DataProvider with ChangeNotifier {
         payload['user'] as Map<String, dynamic>,
       );
       await _persistAuthentication();
+      await _loadSubscriptionsCache();
       await _loadPartnerOffersCache();
       notifyListeners();
       await fetchAllData();
@@ -451,9 +484,19 @@ class DataProvider with ChangeNotifier {
 
   Future<void> initialize() async {
     authReady = false;
+    try {
+      await _subscriptionNotifications.initialize();
+    } catch (error) {
+      debugPrint('Could not initialize subscription notifications: $error');
+    }
     await loadLocalData();
+    await _synchronizeSubscriptionNotifications();
     final restored = await _restoreAuthentication();
-    if (restored) await _loadPartnerOffersCache();
+    if (restored) {
+      await _loadSubscriptionsCache();
+      await _loadPartnerOffersCache();
+      await _synchronizeSubscriptionNotifications();
+    }
     authReady = true;
     notifyListeners();
     if (restored) {
@@ -544,16 +587,21 @@ class DataProvider with ChangeNotifier {
         "cashback",
         CashbackCategoryModel.fromJson,
       );
+      final fetchedSubscriptions = await _receiveSubscriptions('all');
 
       banks = fetchedBanks;
       users = fetchedUsers;
       cards = fetchedCards;
       activeCashbackCategories = fetchedActiveCashbackCategories;
       cashbackCategories = fetchedCashbackCategories;
+      subscriptions = fetchedSubscriptions
+          .map(_mergeCachedSubscriptionDetails)
+          .toList(growable: false);
       dataSnapshotUpdatedAt = DateTime.now();
       lastUpdated = dataSnapshotUpdatedAt.toString();
       primaryDataPhase = PrimaryDataPhase.ready;
       await _saveDataLocally();
+      await _synchronizeSubscriptionNotifications();
       await fetchPartnerOffers();
       notifyListeners();
       return true;
@@ -609,6 +657,8 @@ class DataProvider with ChangeNotifier {
 
   Future<void> loadLocalData() async {
     final prefs = await SharedPreferences.getInstance();
+    // Remove the pre-user-scoping key from early development builds.
+    await prefs.remove('subscriptions');
     try {
       final cachedBanks = prefs.getString('banks');
       final cachedUsers = prefs.getString('users');
@@ -688,12 +738,297 @@ class DataProvider with ChangeNotifier {
             .map((cashbackCategory) =>
                 CashbackCategoryModel.toJson(cashbackCategory))
             .toList()));
+    final subscriptionsCacheKey = _subscriptionsCacheKey;
+    if (subscriptionsCacheKey != null) {
+      prefs.setString(
+        subscriptionsCacheKey,
+        json.encode(
+          subscriptions
+              .map((subscription) => subscription.toJson())
+              .toList(growable: false),
+        ),
+      );
+    }
     if (dataSnapshotUpdatedAt != null) {
       prefs.setString(
         'dataSnapshotUpdatedAt',
         dataSnapshotUpdatedAt!.toIso8601String(),
       );
     }
+  }
+
+  Future<List<SubscriptionModel>> _receiveSubscriptions(String status) async {
+    final response = await _client.get(
+      _apiUri('subscriptions?status=$status'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Failed to load subscriptions'),
+      );
+    }
+    final payload = json.decode(response.body);
+    final items = payload is List
+        ? payload
+        : (payload as Map<String, dynamic>)['items'] as List? ?? const [];
+    return items
+        .map((item) => SubscriptionModel.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<bool> fetchSubscriptions({String status = 'all'}) async {
+    subscriptionsLoading = true;
+    subscriptionsError = null;
+    notifyListeners();
+    try {
+      final fetched = await _receiveSubscriptions(status);
+      final merged =
+          fetched.map(_mergeCachedSubscriptionDetails).toList(growable: false);
+      if (status == 'all') {
+        subscriptions = merged;
+      } else {
+        final archived = status == 'archived';
+        subscriptions = [
+          ...subscriptions.where(
+            (subscription) => subscription.isArchived != archived,
+          ),
+          ...merged,
+        ];
+      }
+      await _saveDataLocally();
+      await _synchronizeSubscriptionNotifications();
+      return true;
+    } catch (error) {
+      subscriptionsError = error.toString();
+      debugPrint('Error fetching subscriptions: $error');
+      return false;
+    } finally {
+      subscriptionsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<SubscriptionModel> fetchSubscription(int id) async {
+    return fetchSubscriptionDetail(id);
+  }
+
+  Future<SubscriptionModel> fetchSubscriptionDetail(int id) async {
+    final response = await _client.get(_apiUri('subscriptions/$id'));
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Failed to load subscription'),
+      );
+    }
+    final subscription = SubscriptionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+    await _storeSubscription(subscription);
+    return subscription;
+  }
+
+  SubscriptionModel _mergeCachedSubscriptionDetails(
+    SubscriptionModel subscription,
+  ) {
+    final existing =
+        subscriptions.where((item) => item.id == subscription.id).firstOrNull;
+    if (existing == null) return subscription;
+    return subscription.copyWith(
+      payments: subscription.payments.isEmpty
+          ? existing.payments
+          : subscription.payments,
+      activePeriods: subscription.activePeriods.isEmpty
+          ? existing.activePeriods
+          : subscription.activePeriods,
+    );
+  }
+
+  Future<SubscriptionModel> createSubscription(
+    SubscriptionModel subscription,
+  ) async {
+    final response = await _client.post(
+      _apiUri('subscriptions'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(
+        subscription.toMutationJson(includeLastPayment: true),
+      ),
+    );
+    if (response.statusCode != 201) {
+      throw Exception(
+        _responseError(response, 'Failed to create subscription'),
+      );
+    }
+    final created = SubscriptionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+    await _storeSubscription(created);
+    return created;
+  }
+
+  Future<SubscriptionModel> updateSubscription(
+    SubscriptionModel subscription,
+  ) async {
+    final id = subscription.id;
+    if (id == null) {
+      throw ArgumentError('A saved subscription is required for update');
+    }
+    final response = await _client.put(
+      _apiUri('subscriptions/$id'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(subscription.toMutationJson()),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Failed to update subscription'),
+      );
+    }
+    final updated = SubscriptionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+    await _storeSubscription(updated);
+    return updated;
+  }
+
+  Future<SubscriptionModel> archiveSubscription(int id) async {
+    final response = await _client.post(
+      _apiUri('subscriptions/$id/archive'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Failed to archive subscription'),
+      );
+    }
+    final archived = SubscriptionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+    await _storeSubscription(archived);
+    await _subscriptionNotifications.cancelSubscription(id);
+    return archived;
+  }
+
+  Future<SubscriptionModel> restoreSubscription(
+    int id, {
+    required DateTime nextPaymentDate,
+    int? cardId,
+    double? expectedAmount,
+    String? currency,
+  }) async {
+    final response = await _client.post(
+      _apiUri('subscriptions/$id/restore'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'next_payment_date': _subscriptionApiDate(nextPaymentDate),
+        if (cardId != null) 'card_id': cardId,
+        if (expectedAmount != null)
+          'expected_amount': expectedAmount.toStringAsFixed(2),
+        if (currency != null) 'currency': currency,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Failed to restore subscription'),
+      );
+    }
+    final restored = SubscriptionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+    await _storeSubscription(restored);
+    return restored;
+  }
+
+  Future<SubscriptionModel> confirmSubscriptionPayment(
+    int id, {
+    required DateTime paidAt,
+    double? amount,
+    String? currency,
+    int? cardId,
+  }) async {
+    final response = await _client.post(
+      _apiUri('subscriptions/$id/payments'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'paid_at': _subscriptionApiDate(paidAt),
+        if (amount != null) 'amount': amount.toStringAsFixed(2),
+        if (currency != null) 'currency': currency,
+        if (cardId != null) 'card_id': cardId,
+      }),
+    );
+    if (response.statusCode != 201) {
+      throw Exception(
+        _responseError(response, 'Failed to confirm subscription payment'),
+      );
+    }
+    final updated = SubscriptionModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+    await _storeSubscription(updated);
+    return updated;
+  }
+
+  Future<bool> requestSubscriptionNotificationPermission() async {
+    if (!subscriptions.any((subscription) => subscription.id != null)) {
+      return false;
+    }
+    return _subscriptionNotifications.requestPermission();
+  }
+
+  int? consumePendingSubscriptionNotificationId() {
+    final result = pendingSubscriptionNotificationId ??
+        _subscriptionNotifications.consumePendingSubscriptionId();
+    pendingSubscriptionNotificationId = null;
+    if (result != null) notifyListeners();
+    return result;
+  }
+
+  Future<void> _storeSubscription(SubscriptionModel subscription) async {
+    final id = subscription.id;
+    if (id == null) return;
+    final index = subscriptions.indexWhere((item) => item.id == id);
+    if (index == -1) {
+      subscriptions = [...subscriptions, subscription];
+    } else {
+      subscriptions = [...subscriptions]..[index] = subscription;
+    }
+    await _saveDataLocally();
+    await _synchronizeSubscriptionNotifications();
+    notifyListeners();
+  }
+
+  Future<void> _synchronizeSubscriptionNotifications() async {
+    try {
+      await _subscriptionNotifications.synchronize(subscriptions);
+    } catch (error) {
+      debugPrint('Could not schedule subscription notifications: $error');
+    }
+  }
+
+  static String _subscriptionApiDate(DateTime value) {
+    final local = value.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')}';
+  }
+
+  String? get _subscriptionsCacheKey {
+    final authUserId = currentAuthUser?.id;
+    return authUserId == null ? null : 'subscriptions:$authUserId';
+  }
+
+  Future<void> _loadSubscriptionsCache() async {
+    final key = _subscriptionsCacheKey;
+    if (key == null) return;
+    final cached = (await SharedPreferences.getInstance()).getString(key);
+    if (cached == null) return;
+    try {
+      subscriptions = (json.decode(cached) as List)
+          .map((item) =>
+              SubscriptionModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (error) {
+      debugPrint('Could not load subscriptions cache: $error');
+    }
+  }
+
+  Future<void> _removeSubscriptionsCache(String key) async {
+    await (await SharedPreferences.getInstance()).remove(key);
   }
 
   String? get _partnerOffersCacheKey {
@@ -826,20 +1161,30 @@ class DataProvider with ChangeNotifier {
     }
   }
 
-  Future<void> addBank(String name, String description) async {
-    final item = BankModel(name: name, description: description);
+  Future<void> addBank(
+    String name,
+    String description, {
+    String iconKey = 'generic',
+  }) async {
+    final item =
+        BankModel(name: name, description: description, iconKey: iconKey);
     final result = await addItemToServer(
         "banks", item, BankModel.fromJson, BankModel.toJson);
     banks.add(result);
     notifyListeners();
   }
 
-  Future<void> updateBank(int id, String name, String description) async {
+  Future<void> updateBank(
+    int id,
+    String name,
+    String description, {
+    String iconKey = 'generic',
+  }) async {
     try {
       final updated = await updateItemOnServer(
           'banks',
           id,
-          BankModel(name: name, description: description),
+          BankModel(name: name, description: description, iconKey: iconKey),
           BankModel.fromJson,
           BankModel.toJson);
       banks[banks.indexWhere((bank) => bank.id == id)] = updated;
@@ -861,20 +1206,20 @@ class DataProvider with ChangeNotifier {
     }
   }
 
-  Future<void> addUser(String name) async {
+  Future<void> addUser(String name, {String iconKey = 'boy'}) async {
     try {
       final response = await _client.post(
         _apiUri('users'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'name': name,
+          'icon_key': iconKey,
         }),
       );
 
       if (response.statusCode == 201) {
-        final newUser = UserModel(
-          id: json.decode(response.body)['id'],
-          name: name,
+        final newUser = UserModel.fromJson(
+          json.decode(response.body) as Map<String, dynamic>,
         );
         users.add(newUser);
         notifyListeners();
@@ -887,22 +1232,26 @@ class DataProvider with ChangeNotifier {
     }
   }
 
-  Future<void> updateUser(int id, String name) async {
+  Future<void> updateUser(
+    int id,
+    String name, {
+    String iconKey = 'boy',
+  }) async {
     try {
       final response = await _client.put(
         _apiUri('users/$id'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({
           'name': name,
+          'icon_key': iconKey,
         }),
       );
 
       if (response.statusCode == 200) {
         final index = users.indexWhere((user) => user.id == id);
         if (index != -1) {
-          users[index] = UserModel(
-            id: id,
-            name: name,
+          users[index] = UserModel.fromJson(
+            json.decode(response.body) as Map<String, dynamic>,
           );
           notifyListeners();
         }
@@ -1279,5 +1628,12 @@ class DataProvider with ChangeNotifier {
     } else if (activeIndex != -1) {
       activeCashbackCategories.removeAt(activeIndex);
     }
+  }
+
+  @override
+  void dispose() {
+    _notificationTapSubscription.cancel();
+    _client.close();
+    super.dispose();
   }
 }

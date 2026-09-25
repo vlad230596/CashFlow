@@ -66,6 +66,40 @@ void main() {
     expect(find.byIcon(Icons.download_for_offline_outlined), findsOneWidget);
   });
 
+  testWidgets('system back restores the previously selected shell tab',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => DataProvider(),
+        child: const MaterialApp(home: HomeScreen()),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('shell-destination-План')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('shell-destination-Ещё')));
+    await tester.pump();
+    expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        4);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        1);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        0);
+  });
+
   testWidgets('wide short layout uses the rail without overflow',
       (tester) async {
     tester.view.physicalSize = const Size(900, 270);

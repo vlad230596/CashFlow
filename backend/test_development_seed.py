@@ -45,6 +45,9 @@ def test_seed_creates_canonical_dataset(seeded_database):
     assert AuthUser.query.one().role == 'admin'
     assert Bank.query.count() == 6
     assert CardUser.query.count() == 3
+    assert Bank.query.filter_by(name='Т-Банк').one().icon_key == 'tbank'
+    assert CardUser.query.filter(CardUser.name.contains('Анна')).one().icon_key == 'girl'
+    assert CardUser.query.filter(CardUser.name.contains('Михаил')).one().icon_key == 'boy'
     assert BankCard.query.filter_by(is_active=False).count() == 1
     assert CashbackCategory.query.filter_by(category_type='stackable_bonus').count() == 96
 

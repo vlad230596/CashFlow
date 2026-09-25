@@ -1,11 +1,13 @@
 import base64
+import calendar
 import hashlib
 import hmac
 import json
 import os
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -15,6 +17,7 @@ from flask import Flask, Response, g, jsonify, request, url_for
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_, select, text
+from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
@@ -59,12 +62,14 @@ class Bank(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), unique=True, nullable=False)
     description = db.Column(db.Text)
+    icon_key = db.Column(db.String(24), nullable=False, default='generic')
 
     def to_dict(self):
         return {
             'id': self.id,
             'name': self.name,
-            'description': self.description
+            'description': self.description,
+            'icon_key': self.icon_key,
         }
 
 
@@ -72,11 +77,13 @@ class Bank(db.Model):
 class CardUser(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
+    icon_key = db.Column(db.String(24), nullable=False, default='boy')
 
     def to_dict(self):
         return {
             'id': self.id,
-            'name': self.name
+            'name': self.name,
+            'icon_key': self.icon_key,
         }
 
 
@@ -359,6 +366,99 @@ class AuthSession(db.Model):
     )
     created_at = db.Column(db.DateTime(timezone=True), nullable=False)
     expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class Subscription(db.Model):
+    __tablename__ = 'subscription'
+    __table_args__ = (
+        db.CheckConstraint(
+            "kind IN ('subscription', 'trial')",
+            name='ck_subscription_kind',
+        ),
+        db.CheckConstraint(
+            "billing_interval_unit IN ('day', 'week', 'month', 'year')",
+            name='ck_subscription_interval_unit',
+        ),
+        db.CheckConstraint(
+            'billing_interval_count > 0',
+            name='ck_subscription_interval_count',
+        ),
+        db.CheckConstraint('expected_amount > 0', name='ck_subscription_amount'),
+        db.Index('ix_subscription_owner_archived', 'auth_user_id', 'archived_at'),
+        db.Index('ix_subscription_owner_next_payment', 'auth_user_id', 'next_payment_date'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    auth_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('auth_user.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    name = db.Column(db.String(200), nullable=False)
+    kind = db.Column(db.String(16), nullable=False, default='subscription')
+    expected_amount = db.Column(db.Numeric(18, 2), nullable=False)
+    currency = db.Column(db.String(3), nullable=False)
+    card_id = db.Column(db.Integer, db.ForeignKey('bank_card.id'), nullable=False)
+    billing_interval_count = db.Column(db.Integer, nullable=False)
+    billing_interval_unit = db.Column(db.String(8), nullable=False)
+    next_payment_date = db.Column(db.Date, nullable=False)
+    reminder_days_json = db.Column(db.Text, nullable=False, default='[]')
+    archived_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class SubscriptionPayment(db.Model):
+    __tablename__ = 'subscription_payment'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'subscription_id',
+            'paid_at',
+            name='uq_subscription_payment_subscription_paid',
+        ),
+        db.CheckConstraint('amount > 0', name='ck_subscription_payment_amount'),
+        db.Index(
+            'ix_subscription_payment_subscription_paid',
+            'subscription_id',
+            'paid_at',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    subscription_id = db.Column(
+        db.Integer,
+        db.ForeignKey('subscription.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    amount = db.Column(db.Numeric(18, 2), nullable=False)
+    currency = db.Column(db.String(3), nullable=False)
+    card_id = db.Column(db.Integer, db.ForeignKey('bank_card.id'), nullable=False)
+    paid_at = db.Column(db.Date, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class SubscriptionActivePeriod(db.Model):
+    __tablename__ = 'subscription_active_period'
+    __table_args__ = (
+        db.CheckConstraint(
+            'ended_at IS NULL OR ended_at >= started_at',
+            name='ck_subscription_active_period_order',
+        ),
+        db.Index(
+            'ix_subscription_active_period_subscription_started',
+            'subscription_id',
+            'started_at',
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    subscription_id = db.Column(
+        db.Integer,
+        db.ForeignKey('subscription.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    started_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    ended_at = db.Column(db.DateTime(timezone=True))
 
 
 class AuthLoginAttempt(db.Model):
@@ -703,6 +803,10 @@ def _required_role():
         or request.path.startswith('/api/partner-offers/hide-rules')
     ):
         return 'viewer'
+    if request.path.startswith('/api/subscriptions'):
+        # Subscriptions are personal resources and every query below is scoped
+        # to the authenticated user, so viewers may manage their own records.
+        return 'viewer'
     if request.method in ('GET', 'HEAD'):
         return 'viewer'
     if request.path.startswith(('/api/banks', '/api/users', '/api/cards')):
@@ -1005,6 +1109,17 @@ def seed_development_command(admin_username, reset, reference_date):
     )
 
 # Роуты для банков
+BANK_ICON_KEYS = {'generic', 'tbank', 'alfa', 'vtb', 'sber', 'yandex', 'ozon'}
+USER_ICON_KEYS = {'boy', 'girl', 'person', 'family'}
+
+
+def _icon_key(payload, allowed, default):
+    value = payload.get('icon_key', default)
+    if value not in allowed:
+        raise ValueError('Unsupported icon_key')
+    return value
+
+
 @app.route('/api/banks', methods=['GET', 'POST'])
 def banks():
     if request.method == 'POST':
@@ -1012,9 +1127,14 @@ def banks():
         if 'name' not in data:
             return jsonify({'error': 'Bank name is required'}), 400
 
+        try:
+            icon_key = _icon_key(data, BANK_ICON_KEYS, 'generic')
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
         bank = Bank(
             name=data['name'],
-            description=data.get('description')
+            description=data.get('description'),
+            icon_key=icon_key,
         )
         db.session.add(bank)
         db.session.commit()
@@ -1022,6 +1142,32 @@ def banks():
 
     banks = Bank.query.all()
     return jsonify([bank.to_dict() for bank in banks])
+
+
+@app.route('/api/banks/<int:bank_id>', methods=['GET', 'PUT', 'DELETE'])
+def bank_detail(bank_id):
+    bank = db.session.get(Bank, bank_id)
+    if bank is None:
+        return jsonify({'error': 'Bank not found'}), 404
+    if request.method == 'GET':
+        return jsonify(bank.to_dict())
+    if request.method == 'DELETE':
+        db.session.delete(bank)
+        db.session.commit()
+        return '', 204
+
+    data = request.get_json(silent=True) or {}
+    try:
+        if 'icon_key' in data:
+            bank.icon_key = _icon_key(data, BANK_ICON_KEYS, bank.icon_key)
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    if 'name' in data:
+        bank.name = data['name']
+    if 'description' in data:
+        bank.description = data['description']
+    db.session.commit()
+    return jsonify(bank.to_dict())
 
 
 # Роуты для владельцев карт
@@ -1032,15 +1178,41 @@ def users():
         if 'name' not in data:
             return jsonify({'error': 'Name is required'}), 400
 
-        user = CardUser(
-            name=data['name']
-        )
+        try:
+            icon_key = _icon_key(data, USER_ICON_KEYS, 'boy')
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
+        user = CardUser(name=data['name'], icon_key=icon_key)
         db.session.add(user)
         db.session.commit()
         return jsonify(user.to_dict()), 201
 
     users = CardUser.query.all()
     return jsonify([user.to_dict() for user in users])
+
+
+@app.route('/api/users/<int:user_id>', methods=['GET', 'PUT', 'DELETE'])
+def user_detail(user_id):
+    user = db.session.get(CardUser, user_id)
+    if user is None:
+        return jsonify({'error': 'User not found'}), 404
+    if request.method == 'GET':
+        return jsonify(user.to_dict())
+    if request.method == 'DELETE':
+        db.session.delete(user)
+        db.session.commit()
+        return '', 204
+
+    data = request.get_json(silent=True) or {}
+    try:
+        if 'icon_key' in data:
+            user.icon_key = _icon_key(data, USER_ICON_KEYS, user.icon_key)
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    if 'name' in data:
+        user.name = data['name']
+    db.session.commit()
+    return jsonify(user.to_dict())
 
 
 # Роуты для банковских карт
@@ -1242,6 +1414,469 @@ def cashback_category_detail(category_id):
         db.session.delete(category)
         db.session.commit()
         return jsonify({'message': 'Cashback category deleted successfully'}), 200
+
+
+SUBSCRIPTION_KINDS = {'subscription', 'trial'}
+SUBSCRIPTION_INTERVAL_UNITS = {'day', 'week', 'month', 'year'}
+
+
+def _subscription_date(value, field_name):
+    if not isinstance(value, str):
+        raise ValueError(f'{field_name} must be a date in YYYY-MM-DD format')
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f'{field_name} must be a date in YYYY-MM-DD format') from error
+    if value != parsed.isoformat():
+        raise ValueError(f'{field_name} must be a date in YYYY-MM-DD format')
+    return parsed
+
+
+def _subscription_amount(value, field_name='expected_amount'):
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f'{field_name} must be a positive amount with at most 2 decimals')
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError) as error:
+        raise ValueError(
+            f'{field_name} must be a positive amount with at most 2 decimals'
+        ) from error
+    if not amount.is_finite() or amount <= 0 or amount.as_tuple().exponent < -2:
+        raise ValueError(f'{field_name} must be a positive amount with at most 2 decimals')
+    if amount > Decimal('9999999999999999.99'):
+        raise ValueError(f'{field_name} is too large')
+    return amount.quantize(Decimal('0.01'))
+
+
+def _subscription_currency(value, field_name='currency'):
+    if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z]{3}', value.strip()):
+        raise ValueError(f'{field_name} must be a 3-letter currency code')
+    return value.strip().upper()
+
+
+def _subscription_interval(value):
+    if not isinstance(value, dict):
+        raise ValueError('billing_interval must contain count and unit')
+    count = value.get('count')
+    unit = value.get('unit')
+    if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 1000:
+        raise ValueError('billing_interval.count must be an integer from 1 to 1000')
+    if unit not in SUBSCRIPTION_INTERVAL_UNITS:
+        raise ValueError('billing_interval.unit must be day, week, month, or year')
+    return count, unit
+
+
+def _subscription_reminder_days(value, *, kind, interval_count, interval_unit):
+    if value is None:
+        if kind == 'trial':
+            return [3, 1]
+        if interval_unit == 'year' or (
+            interval_unit == 'month' and interval_count >= 12
+        ):
+            return [30, 7, 1]
+        return [7, 1]
+    if not isinstance(value, list) or any(
+        isinstance(day, bool) or not isinstance(day, int) or not 0 <= day <= 3650
+        for day in value
+    ):
+        raise ValueError('reminder_days must be a list of integers from 0 to 3650')
+    if len(value) > 20:
+        raise ValueError('reminder_days cannot contain more than 20 values')
+    return sorted(set(value), reverse=True)
+
+
+def _subscription_card(card_id, field_name='card_id'):
+    if isinstance(card_id, bool) or not isinstance(card_id, int):
+        raise ValueError(f'{field_name} must be an integer')
+    card = db.session.get(BankCard, card_id)
+    if card is None:
+        raise LookupError('Card not found')
+    return card
+
+
+def _add_subscription_interval(start, count, unit):
+    if unit == 'day':
+        return start + timedelta(days=count)
+    if unit == 'week':
+        return start + timedelta(weeks=count)
+    months = count if unit == 'month' else count * 12
+    month_index = start.month - 1 + months
+    year = start.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(start.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _money_json(value):
+    return format(Decimal(value), '.2f')
+
+
+def _subscription_payment_to_dict(payment):
+    return {
+        'id': payment.id,
+        'amount': _money_json(payment.amount),
+        'currency': payment.currency,
+        'card_id': payment.card_id,
+        'paid_at': payment.paid_at.isoformat(),
+        'created_at': _iso_datetime(payment.created_at),
+    }
+
+
+def _subscription_period_to_dict(period):
+    return {
+        'id': period.id,
+        'started_at': _iso_datetime(period.started_at),
+        'ended_at': _iso_datetime(period.ended_at),
+    }
+
+
+def _subscription_to_dict(subscription, *, include_history=False):
+    last_payment = SubscriptionPayment.query.filter_by(
+        subscription_id=subscription.id
+    ).order_by(
+        SubscriptionPayment.paid_at.desc(),
+        SubscriptionPayment.id.desc(),
+    ).first()
+    result = {
+        'id': subscription.id,
+        'name': subscription.name,
+        'kind': subscription.kind,
+        'expected_amount': _money_json(subscription.expected_amount),
+        'currency': subscription.currency,
+        'card_id': subscription.card_id,
+        'billing_interval': {
+            'count': subscription.billing_interval_count,
+            'unit': subscription.billing_interval_unit,
+        },
+        'next_payment_date': subscription.next_payment_date.isoformat(),
+        'reminder_days': json.loads(subscription.reminder_days_json),
+        'is_archived': subscription.archived_at is not None,
+        'archived_at': _iso_datetime(subscription.archived_at),
+        'created_at': _iso_datetime(subscription.created_at),
+        'updated_at': _iso_datetime(subscription.updated_at),
+        'last_payment': (
+            _subscription_payment_to_dict(last_payment) if last_payment else None
+        ),
+    }
+    if include_history:
+        payments = SubscriptionPayment.query.filter_by(
+            subscription_id=subscription.id
+        ).order_by(
+            SubscriptionPayment.paid_at.desc(),
+            SubscriptionPayment.id.desc(),
+        ).all()
+        periods = SubscriptionActivePeriod.query.filter_by(
+            subscription_id=subscription.id
+        ).order_by(SubscriptionActivePeriod.started_at).all()
+        result['payments'] = [
+            _subscription_payment_to_dict(payment) for payment in payments
+        ]
+        result['active_periods'] = [
+            _subscription_period_to_dict(period) for period in periods
+        ]
+    return result
+
+
+def _owned_subscription(subscription_id):
+    return Subscription.query.filter_by(
+        id=subscription_id,
+        auth_user_id=g.auth_user.id,
+    ).first()
+
+
+def _subscription_json_payload():
+    if not request.is_json:
+        return None, (jsonify({'error': 'JSON request required'}), 415)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return None, (jsonify({'error': 'JSON object required'}), 400)
+    return payload, None
+
+
+@app.route('/api/subscriptions', methods=['GET', 'POST'])
+def subscriptions():
+    if request.method == 'GET':
+        status = request.args.get('status', 'active')
+        if status not in {'active', 'archived', 'all'}:
+            return jsonify({'error': 'status must be active, archived, or all'}), 400
+        query = Subscription.query.filter_by(auth_user_id=g.auth_user.id)
+        if status == 'active':
+            query = query.filter(Subscription.archived_at.is_(None))
+        elif status == 'archived':
+            query = query.filter(Subscription.archived_at.is_not(None))
+        items = query.order_by(
+            Subscription.next_payment_date,
+            Subscription.name,
+        ).all()
+        return jsonify({
+            'items': [_subscription_to_dict(item) for item in items],
+            'total': len(items),
+        })
+
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        name = payload.get('name')
+        if not isinstance(name, str) or not name.strip() or len(name.strip()) > 200:
+            raise ValueError('name must contain 1 to 200 characters')
+        kind = payload.get('kind', 'subscription')
+        if kind not in SUBSCRIPTION_KINDS:
+            raise ValueError('kind must be subscription or trial')
+        amount = _subscription_amount(payload.get('expected_amount'))
+        currency = _subscription_currency(payload.get('currency'))
+        card = _subscription_card(payload.get('card_id'))
+        interval_count, interval_unit = _subscription_interval(
+            payload.get('billing_interval')
+        )
+        reminders = _subscription_reminder_days(
+            payload.get('reminder_days'),
+            kind=kind,
+            interval_count=interval_count,
+            interval_unit=interval_unit,
+        )
+        last_payload = payload.get('last_payment')
+        if last_payload is not None and not isinstance(last_payload, dict):
+            raise ValueError('last_payment must be an object')
+        last_paid_at = None
+        last_amount = None
+        last_currency = None
+        last_card = None
+        if last_payload is not None:
+            last_paid_at = _subscription_date(last_payload.get('paid_at'), 'last_payment.paid_at')
+            if last_paid_at > date.today():
+                raise ValueError('last_payment.paid_at cannot be in the future')
+            last_amount = _subscription_amount(
+                last_payload.get('amount', amount),
+                'last_payment.amount',
+            )
+            last_currency = _subscription_currency(
+                last_payload.get('currency', currency),
+                'last_payment.currency',
+            )
+            last_card = _subscription_card(
+                last_payload.get('card_id', card.id),
+                'last_payment.card_id',
+            )
+        explicit_next = payload.get('next_payment_date')
+        if explicit_next is not None:
+            next_payment_date = _subscription_date(
+                explicit_next,
+                'next_payment_date',
+            )
+        elif last_paid_at is not None:
+            next_payment_date = _add_subscription_interval(
+                last_paid_at,
+                interval_count,
+                interval_unit,
+            )
+        else:
+            raise ValueError('next_payment_date or last_payment is required')
+    except LookupError as error:
+        return jsonify({'error': str(error)}), 404
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+
+    now = _utc_now()
+    subscription = Subscription(
+        auth_user_id=g.auth_user.id,
+        name=name.strip(),
+        kind=kind,
+        expected_amount=amount,
+        currency=currency,
+        card_id=card.id,
+        billing_interval_count=interval_count,
+        billing_interval_unit=interval_unit,
+        next_payment_date=next_payment_date,
+        reminder_days_json=json.dumps(reminders),
+        created_at=now,
+        updated_at=now,
+    )
+    db.session.add(subscription)
+    db.session.flush()
+    db.session.add(SubscriptionActivePeriod(subscription_id=subscription.id, started_at=now))
+    if last_paid_at is not None:
+        db.session.add(SubscriptionPayment(
+            subscription_id=subscription.id,
+            amount=last_amount,
+            currency=last_currency,
+            card_id=last_card.id,
+            paid_at=last_paid_at,
+            created_at=now,
+        ))
+    db.session.commit()
+    return jsonify(_subscription_to_dict(subscription, include_history=True)), 201
+
+
+@app.route('/api/subscriptions/<int:subscription_id>', methods=['GET', 'PUT'])
+def subscription_detail(subscription_id):
+    subscription = _owned_subscription(subscription_id)
+    if subscription is None:
+        return jsonify({'error': 'Subscription not found'}), 404
+    if request.method == 'GET':
+        return jsonify(_subscription_to_dict(subscription, include_history=True))
+
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        if 'name' in payload:
+            name = payload['name']
+            if not isinstance(name, str) or not name.strip() or len(name.strip()) > 200:
+                raise ValueError('name must contain 1 to 200 characters')
+            subscription.name = name.strip()
+        if 'kind' in payload:
+            if payload['kind'] not in SUBSCRIPTION_KINDS:
+                raise ValueError('kind must be subscription or trial')
+            subscription.kind = payload['kind']
+        if 'expected_amount' in payload:
+            subscription.expected_amount = _subscription_amount(payload['expected_amount'])
+        if 'currency' in payload:
+            subscription.currency = _subscription_currency(payload['currency'])
+        if 'card_id' in payload:
+            subscription.card_id = _subscription_card(payload['card_id']).id
+        if 'billing_interval' in payload:
+            count, unit = _subscription_interval(payload['billing_interval'])
+            subscription.billing_interval_count = count
+            subscription.billing_interval_unit = unit
+        if 'next_payment_date' in payload:
+            subscription.next_payment_date = _subscription_date(
+                payload['next_payment_date'],
+                'next_payment_date',
+            )
+        if 'reminder_days' in payload:
+            reminders = _subscription_reminder_days(
+                payload['reminder_days'],
+                kind=subscription.kind,
+                interval_count=subscription.billing_interval_count,
+                interval_unit=subscription.billing_interval_unit,
+            )
+            subscription.reminder_days_json = json.dumps(reminders)
+    except LookupError as error:
+        return jsonify({'error': str(error)}), 404
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    subscription.updated_at = _utc_now()
+    db.session.commit()
+    return jsonify(_subscription_to_dict(subscription, include_history=True))
+
+
+@app.post('/api/subscriptions/<int:subscription_id>/archive')
+def archive_subscription(subscription_id):
+    subscription = _owned_subscription(subscription_id)
+    if subscription is None:
+        return jsonify({'error': 'Subscription not found'}), 404
+    if subscription.archived_at is not None:
+        return jsonify({'error': 'Subscription is already archived'}), 409
+    now = _utc_now()
+    current_period = SubscriptionActivePeriod.query.filter_by(
+        subscription_id=subscription.id,
+        ended_at=None,
+    ).order_by(SubscriptionActivePeriod.started_at.desc()).first()
+    if current_period is not None:
+        current_period.ended_at = now
+    subscription.archived_at = now
+    subscription.updated_at = now
+    db.session.commit()
+    return jsonify(_subscription_to_dict(subscription, include_history=True))
+
+
+@app.post('/api/subscriptions/<int:subscription_id>/restore')
+def restore_subscription(subscription_id):
+    subscription = _owned_subscription(subscription_id)
+    if subscription is None:
+        return jsonify({'error': 'Subscription not found'}), 404
+    if subscription.archived_at is None:
+        return jsonify({'error': 'Subscription is already active'}), 409
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        subscription.next_payment_date = _subscription_date(
+            payload.get('next_payment_date'),
+            'next_payment_date',
+        )
+        if 'card_id' in payload:
+            subscription.card_id = _subscription_card(payload['card_id']).id
+        if 'expected_amount' in payload:
+            subscription.expected_amount = _subscription_amount(payload['expected_amount'])
+        if 'currency' in payload:
+            subscription.currency = _subscription_currency(payload['currency'])
+    except LookupError as error:
+        return jsonify({'error': str(error)}), 404
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    now = _utc_now()
+    subscription.archived_at = None
+    subscription.updated_at = now
+    db.session.add(SubscriptionActivePeriod(subscription_id=subscription.id, started_at=now))
+    db.session.commit()
+    return jsonify(_subscription_to_dict(subscription, include_history=True))
+
+
+@app.post('/api/subscriptions/<int:subscription_id>/payments')
+def confirm_subscription_payment(subscription_id):
+    subscription = _owned_subscription(subscription_id)
+    if subscription is None:
+        return jsonify({'error': 'Subscription not found'}), 404
+    if subscription.archived_at is not None:
+        return jsonify({'error': 'Archived subscription cannot accept payments'}), 409
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        paid_at = _subscription_date(payload.get('paid_at'), 'paid_at')
+        if paid_at > date.today():
+            raise ValueError('paid_at cannot be in the future')
+        amount = _subscription_amount(
+            payload.get('amount', subscription.expected_amount),
+            'amount',
+        )
+        currency = _subscription_currency(
+            payload.get('currency', subscription.currency),
+        )
+        card = _subscription_card(payload.get('card_id', subscription.card_id))
+    except LookupError as error:
+        return jsonify({'error': str(error)}), 404
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    duplicate = SubscriptionPayment.query.filter_by(
+        subscription_id=subscription.id,
+        paid_at=paid_at,
+    ).first()
+    if duplicate is not None:
+        return jsonify({'error': 'Payment for this date already exists'}), 409
+    now = _utc_now()
+    payment = SubscriptionPayment(
+        subscription_id=subscription.id,
+        amount=amount,
+        currency=currency,
+        card_id=card.id,
+        paid_at=paid_at,
+        created_at=now,
+    )
+    subscription.expected_amount = amount
+    subscription.currency = currency
+    subscription.card_id = card.id
+    subscription.next_payment_date = _add_subscription_interval(
+        paid_at,
+        subscription.billing_interval_count,
+        subscription.billing_interval_unit,
+    )
+    subscription.updated_at = now
+    db.session.add(payment)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        duplicate = SubscriptionPayment.query.filter_by(
+            subscription_id=subscription.id,
+            paid_at=paid_at,
+        ).first()
+        if duplicate is not None:
+            return jsonify({'error': 'Payment for this date already exists'}), 409
+        raise
+    return jsonify(_subscription_to_dict(subscription, include_history=True)), 201
 
 
 MCC_PATTERN = re.compile(r'^\d{4}$')

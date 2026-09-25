@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
+import '../../utils/identity_icons.dart';
 import 'user_edit_screen.dart';
 
 class UsersSettingsScreen extends StatelessWidget {
@@ -41,7 +42,11 @@ class UsersSettingsScreen extends StatelessWidget {
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
-                leading: const Icon(Icons.person),
+                leading: UserIconBadge(
+                  iconKey: user.iconKey,
+                  userName: user.name,
+                  size: 36,
+                ),
                 title: Text(user.name),
                 trailing: IconButton(
                   icon: const Icon(Icons.edit),
@@ -49,7 +54,8 @@ class UsersSettingsScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => UserEditScreen(existingUser: user),
+                        builder: (context) =>
+                            UserEditScreen(existingUser: user),
                       ),
                     );
                   },

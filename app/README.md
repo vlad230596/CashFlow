@@ -6,6 +6,8 @@ coordinate monthly category selections, and review personal partner offers.
 
 The client targets mobile, web, and desktop layouts. Product scope and redesign
 requirements are documented in [`../docs/product-design-brief.md`](../docs/product-design-brief.md).
+The recommended workflow for checking mobile layouts at fixed viewport sizes is
+documented in [`../docs/mobile-ui-validation.md`](../docs/mobile-ui-validation.md).
 
 ## Getting Started
 

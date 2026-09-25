@@ -20,18 +20,18 @@ class SeedDataExistsError(RuntimeError):
 
 
 BANKS = (
-    ('Т-Банк', 'Синтетический профиль банка для DEV.'),
-    ('Альфа-Банк', 'Синтетический профиль банка для DEV.'),
-    ('ВТБ', 'Синтетический профиль банка для DEV.'),
-    ('Сбер', 'Синтетический профиль банка для DEV.'),
-    ('Яндекс Банк', 'Синтетический профиль банка для DEV.'),
-    ('Ozon Банк', 'Синтетический профиль банка для DEV.'),
+    ('Т-Банк', 'Синтетический профиль банка для DEV.', 'tbank'),
+    ('Альфа-Банк', 'Синтетический профиль банка для DEV.', 'alfa'),
+    ('ВТБ', 'Синтетический профиль банка для DEV.', 'vtb'),
+    ('Сбер', 'Синтетический профиль банка для DEV.', 'sber'),
+    ('Яндекс Банк', 'Синтетический профиль банка для DEV.', 'yandex'),
+    ('Ozon Банк', 'Синтетический профиль банка для DEV.', 'ozon'),
 )
 
 CARD_USERS = (
-    'Тест — Анна',
-    'Тест — Михаил',
-    'Тест — Семейные расходы',
+    ('Тест — Анна', 'girl'),
+    ('Тест — Михаил', 'boy'),
+    ('Тест — Семейные расходы', 'family'),
 )
 
 CARDS = (
@@ -144,12 +144,15 @@ def seed_development_data(
             ))
 
         banks = {}
-        for name, description in BANKS:
-            bank = Bank(name=name, description=description)
+        for name, description, icon_key in BANKS:
+            bank = Bank(name=name, description=description, icon_key=icon_key)
             db.session.add(bank)
             banks[name] = bank
 
-        card_users = [CardUser(name=name) for name in CARD_USERS]
+        card_users = [
+            CardUser(name=name, icon_key=icon_key)
+            for name, icon_key in CARD_USERS
+        ]
         db.session.add_all(card_users)
         db.session.flush()
 
