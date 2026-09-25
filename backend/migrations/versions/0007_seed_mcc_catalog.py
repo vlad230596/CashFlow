@@ -5,7 +5,7 @@ Revises: 0006_restore_legacy_confirmation
 """
 
 import sqlalchemy as sa
-from alembic import op
+from alembic import context, op
 
 from mcc_catalog import load_bundled_mcc_catalog, upsert_mcc_catalog
 
@@ -26,6 +26,9 @@ mcc_code = sa.table(
 
 def upgrade():
     rows = load_bundled_mcc_catalog()
+    if context.is_offline_mode():
+        op.bulk_insert(mcc_code, rows)
+        return
     upsert_mcc_catalog(op.get_bind(), mcc_code, rows)
 
 

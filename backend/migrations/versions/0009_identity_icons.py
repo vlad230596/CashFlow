@@ -16,11 +16,21 @@ depends_on = None
 def upgrade():
     op.add_column(
         'bank',
-        sa.Column('icon_key', sa.String(length=24), nullable=True),
+        sa.Column(
+            'icon_key',
+            sa.String(length=24),
+            nullable=False,
+            server_default='generic',
+        ),
     )
     op.add_column(
         'card_user',
-        sa.Column('icon_key', sa.String(length=24), nullable=True),
+        sa.Column(
+            'icon_key',
+            sa.String(length=24),
+            nullable=False,
+            server_default='boy',
+        ),
     )
     op.execute("""
         UPDATE bank
@@ -43,22 +53,6 @@ def upgrade():
             ELSE 'person'
         END
     """)
-    with op.batch_alter_table('bank') as batch:
-        batch.alter_column(
-            'icon_key',
-            existing_type=sa.String(length=24),
-            nullable=False,
-            server_default='generic',
-        )
-    with op.batch_alter_table('card_user') as batch:
-        batch.alter_column(
-            'icon_key',
-            existing_type=sa.String(length=24),
-            nullable=False,
-            server_default='boy',
-        )
-
-
 def downgrade():
     with op.batch_alter_table('card_user') as batch:
         batch.drop_column('icon_key')
