@@ -11,7 +11,9 @@ import 'package:provider/provider.dart';
 
 void main() {
   test('parses the normalized API representation without changing units', () {
-    final offer = PartnerOffer.fromJson(_offerJson());
+    final offer = PartnerOffer.fromJson(
+      _offerJson(endsAt: '2026-09-30T00:00:00+03:00'),
+    );
 
     expect(offer.name, 'Магазин А');
     expect(offer.rateLabel, 'до 10%');
@@ -161,6 +163,7 @@ Map<String, dynamic> _offerJson({
   String bankName = 'Альфа-Банк',
   String name = 'Магазин А',
   bool details = false,
+  String? endsAt,
 }) =>
     {
       'id': id,
@@ -178,7 +181,8 @@ Map<String, dynamic> _offerJson({
         'rate_label': 'до 10%',
         'collected_at': '2026-09-16T08:00:00Z',
         'starts_at': '2026-09-01T00:00:00Z',
-        'ends_at': '2026-09-30T00:00:00+03:00',
+        'ends_at': endsAt ??
+            DateTime.now().add(const Duration(days: 5)).toIso8601String(),
         'validity_label': 'До 30 сентября',
         'icon_url': null,
         'limits': [
