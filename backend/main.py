@@ -2851,7 +2851,15 @@ def _parse_partner_datetime(value, field_name, required=False):
     if not isinstance(value, str):
         raise ValueError(f'{field_name} must be an ISO date')
     try:
-        parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if field_name in {'startDate', 'endDate'} and re.fullmatch(
+            r'\d{2}\.\d{2}\.\d{4}', value,
+        ):
+            parsed = datetime.strptime(value, '%d.%m.%Y')
+            parsed = parsed.replace(tzinfo=timezone(timedelta(hours=3)))
+            if field_name == 'endDate':
+                parsed += timedelta(days=1)
+        else:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
     except ValueError as error:
         raise ValueError(f'{field_name} must be an ISO date') from error
     if parsed.tzinfo is None:

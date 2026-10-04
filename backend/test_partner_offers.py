@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 import main as main_module
@@ -112,6 +114,31 @@ def _import(client, headers, offers, complete=False):
             "collector_version": "test-1",
         },
     )
+
+
+def test_import_accepts_extension_calendar_dates(client):
+    admin = _login(client, 'admin', 'correct horse battery staple')
+    raw = {**_offer(), 'startDate': '01.10.2026', 'endDate': '31.10.2026'}
+    response = _import(client, admin, [raw])
+    assert response.status_code == 200, response.get_json()
+    assert _import(client, admin, [raw]).status_code == 200
+    with app.app_context():
+        snapshot = PartnerOfferSnapshot.query.one()
+        assert main_module._as_utc(snapshot.starts_at) == datetime(
+            2026, 9, 30, 21, tzinfo=timezone.utc,
+        )
+        assert main_module._as_utc(snapshot.ends_at) == datetime(
+            2026, 10, 31, 21, tzinfo=timezone.utc,
+        )
+
+
+def test_import_rejects_impossible_calendar_date(client):
+    admin = _login(client, 'admin', 'correct horse battery staple')
+    response = _import(client, admin, [{**_offer(), 'endDate': '31.02.2026'}])
+    assert response.status_code == 400
+    with app.app_context():
+        assert PartnerOffer.query.count() == 0
+        assert PartnerOfferSnapshot.query.count() == 0
 
 
 def test_limit_parser_preserves_unit_and_scope():
