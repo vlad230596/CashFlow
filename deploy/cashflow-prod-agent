@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Restricted production operations for the cashflow-prod-agent SSH key.
+#
+# Installed as /usr/local/sbin/cashflow-prod-agent and reached only through the forced command
+# of that key in /home/cashflow-agent/.ssh/authorized_keys. It offers no shell, no logs (they
+# may contain personal data) and nothing beyond the commands below.
+set -Eeuo pipefail
+
+umask 077
+
+readonly APP_DIR='/opt/cashflow'
+readonly COMPOSE_FILE='compose.prod.yaml'
+readonly RELEASE_ENV='.release.env'
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: cashflow-prod-agent COMMAND
+  status                           containers and the deployed version
+  alembic-current                  current database revision
+  import-bank-mcc-rules [--draft]  import bundled bank MCC rules (published unless --draft)
+EOF
+  exit 64
+}
+
+cd "$APP_DIR"
+test -f "$COMPOSE_FILE"
+compose=(docker compose --env-file .env --env-file "$RELEASE_ENV" -f "$COMPOSE_FILE")
+
+command="${1:-}"
+shift || true
+
+case "$command" in
+  status)
+    [[ $# -eq 0 ]] || usage
+    "${compose[@]}" ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'
+    grep -E '^(APP_VERSION|BUILD_DATE)=' "$RELEASE_ENV" || true
+    ;;
+  alembic-current)
+    [[ $# -eq 0 ]] || usage
+    "${compose[@]}" exec -T backend uv run --no-sync alembic current
+    ;;
+  import-bank-mcc-rules)
+    if [[ $# -eq 0 ]]; then
+      "${compose[@]}" exec -T backend uv run --no-sync flask --app main import-bank-mcc-rules
+    elif [[ $# -eq 1 && "$1" == '--draft' ]]; then
+      "${compose[@]}" exec -T backend uv run --no-sync flask --app main \
+        import-bank-mcc-rules --draft
+    else
+      usage
+    fi
+    ;;
+  *)
+    usage
+    ;;
+esac

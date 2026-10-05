@@ -143,6 +143,18 @@ chmod 600 /home/cashflow-agent/.ssh/authorized_keys
 The private key stays on the workstation as `%USERPROFILE%\.ssh\cashflow-dev-agent-ed25519`.
 Revoke it by deleting `/home/cashflow-agent/.ssh/authorized_keys`.
 
+A second key, `cashflow-prod-agent-ed25519`, gets `deploy/cashflow-prod-agent` (`status`,
+`alembic-current`, `import-bank-mcc-rules` in `/opt/cashflow`; no logs). Install the script as
+`/usr/local/sbin/cashflow-prod-agent`, allow it in the same sudoers file
+(`cashflow-agent ALL=(root) NOPASSWD: /usr/local/sbin/cashflow-dev-agent *, /usr/local/sbin/cashflow-prod-agent *`)
+and append its own forced-command line to `authorized_keys`:
+
+```text
+restrict,command="sudo -n /usr/local/sbin/cashflow-prod-agent $SSH_ORIGINAL_COMMAND" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMdd0ZgFv6sjeSBcshCgxc/nzXp/4z6kiL5nhYJIcE9f cashflow-prod-agent DESKTOP-4IQKB4I 2026-10-05
+```
+
+Each key can run only its own script. Revoke the production key by deleting its line.
+
 ## Branches and component checks
 
 Ongoing changes land on `dev`. Pull requests into `dev` or `main` and pushes to either branch run

@@ -76,6 +76,10 @@ Other SSH keys have narrower roles and are not the default for data questions:
   `alembic-current`, `import-bank-mcc-rules`. It cannot reach production or open a
   shell. Use it for development operations the user has asked for, for example:
   `ssh -i ~/.ssh/cashflow-dev-agent-ed25519 -o HostKeyAlias=5.45.117.224 cashflow-agent@cash-flow-app.duckdns.org status`.
+- `cashflow-prod-agent-ed25519` (same user, its own forced command) runs only
+  `deploy/cashflow-prod-agent` in `/opt/cashflow`: `status`, `alembic-current`,
+  `import-bank-mcc-rules`. No logs and no shell. `import-bank-mcc-rules` changes
+  production data, so run it only when the user explicitly asks for it.
 
 ## Legacy and generated local data
 

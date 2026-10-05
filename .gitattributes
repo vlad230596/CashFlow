@@ -1,2 +1,3 @@
 # Installed on the Linux VDS as-is; must keep LF line endings on every checkout.
 deploy/cashflow-dev-agent text eol=lf
+deploy/cashflow-prod-agent text eol=lf
