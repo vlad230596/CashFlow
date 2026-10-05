@@ -21,7 +21,8 @@ from main import (
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
+    monkeypatch.setattr(main_module, '_utc_now', lambda: datetime(2026, 9, 20, tzinfo=timezone.utc))
     app.config.update(TESTING=True, CASHFLOW_SESSION_TTL_HOURS=12)
     with app.app_context():
         db.create_all()
@@ -160,6 +161,70 @@ def test_limit_parser_preserves_unit_and_scope():
         "RUB",
         "unknown",
     )
+
+
+def test_deadline_filter_is_default_and_all_results_are_paginated(client, monkeypatch):
+    admin = _login(client, 'admin', 'correct horse battery staple')
+    expired = {**_offer('expired'), 'expirationLabel': 'Последний день'}
+    unknown = {**_offer('unknown'), 'expirationLabel': None}
+    upcoming = {**_offer('upcoming'), 'startDate': '2026-09-25T00:00:00Z'}
+    assert _import(client, admin, [expired, unknown, upcoming]).status_code == 200
+    payload = client.get('/api/partner-offers', headers=admin).get_json()
+    assert payload['total'] == 1
+    assert payload['items'][0]['snapshot']['ends_at'] is None
+    all_rows = client.get(
+        '/api/partner-offers?active_only=false&limit=1&offset=1', headers=admin,
+    ).get_json()
+    assert all_rows['total'] == 3
+    assert len(all_rows['items']) == 1
+    assert client.get('/api/partner-offers?active_only=oops', headers=admin).status_code == 400
+    monkeypatch.setattr(
+        main_module, '_utc_now',
+        lambda: datetime(2026, 9, 16, 21, tzinfo=timezone.utc),
+    )
+    # End at midnight Moscow is exclusive, even at the exact boundary.
+    assert client.get('/api/partner-offers', headers=admin).get_json()['total'] == 1
+
+
+def test_reimport_uses_file_date_and_preserves_preferences(client):
+    admin = _login(client, 'admin', 'correct horse battery staple')
+    raw = {**_offer(), 'expirationLabel': 'Последний день'}
+    assert _import(client, admin, [raw]).status_code == 200
+    assert _import(client, admin, [raw]).status_code == 200
+    with app.app_context():
+        assert PartnerOfferSnapshot.query.count() == 1
+        snapshot = PartnerOfferSnapshot.query.one()
+        assert main_module._as_utc(snapshot.ends_at) == datetime(
+            2026, 9, 16, 21, tzinfo=timezone.utc,
+        )
+    document = _document([raw])
+    document['generatedAt'] = '2026-09-17T08:00:00Z'
+    response = client.post('/api/partner-offers/import', headers=admin, json={
+        'card_user_id': 1, 'document': document,
+    })
+    assert response.status_code == 200
+    with app.app_context():
+        assert PartnerOffer.query.count() == 1
+        assert PartnerOfferSnapshot.query.count() == 2
+
+
+def test_legacy_repair_is_preview_by_default(client):
+    admin = _login(client, 'admin', 'correct horse battery staple')
+    assert _import(client, admin, [_offer()]).status_code == 200
+    with app.app_context():
+        snapshot = PartnerOfferSnapshot.query.one()
+        snapshot.ends_at = None
+        db.session.commit()
+    runner = app.test_cli_runner()
+    assert runner.invoke(args=['repair-partner-deadlines']).exit_code == 0
+    with app.app_context():
+        assert PartnerOfferSnapshot.query.one().ends_at is None
+    result = runner.invoke(args=['repair-partner-deadlines', '--apply'])
+    assert result.exit_code == 0
+    assert 'Repaired: 1' in result.output
+    assert 'Repaired: 0' in runner.invoke(
+        args=['repair-partner-deadlines', '--apply'],
+    ).output
 
 
 def test_partner_icon_uses_same_origin_proxy(client, monkeypatch):

@@ -1100,6 +1100,7 @@ class DataProvider with ChangeNotifier {
       final fetched = <PartnerOffer>[];
       do {
         final parameters = <String, String>{
+          'active_only': 'true',
           'limit': '$pageSize',
           'offset': '$offset',
           if (rating != null) 'rating': rating,

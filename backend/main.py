@@ -25,8 +25,11 @@ from canonical_categories import (
     normalize_category_name,
     resolve_canonical_by_name,
 )
+from partner_validity import offer_deadline, parse_offer_date
 
 app = Flask(__name__)
+# Local-development fallback only. Deployed environments must always provide
+# CASHFLOW_DATABASE_URL; a nearby cards.db is never a production replica.
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'CASHFLOW_DATABASE_URL',
     'sqlite:///cards.db',
@@ -3288,19 +3291,20 @@ def _parse_partner_datetime(value, field_name, required=False):
     if not isinstance(value, str):
         raise ValueError(f'{field_name} must be an ISO date')
     try:
-        if field_name in {'startDate', 'endDate'} and re.fullmatch(
-            r'\d{2}\.\d{2}\.\d{4}', value,
-        ):
-            parsed = datetime.strptime(value, '%d.%m.%Y')
-            parsed = parsed.replace(tzinfo=timezone(timedelta(hours=3)))
-            if field_name == 'endDate':
-                parsed += timedelta(days=1)
+        if field_name in {'startDate', 'endDate'}:
+            parsed, calendar_date = parse_offer_date(value)
+            if calendar_date:
+                parsed = parsed.replace(tzinfo=timezone(timedelta(hours=3)))
+                if field_name == 'endDate':
+                    parsed += timedelta(days=1)
         else:
             parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
     except ValueError as error:
         raise ValueError(f'{field_name} must be an ISO date') from error
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=(
+            timezone(timedelta(hours=3)) if field_name == 'startDate' else timezone.utc
+        ))
     return parsed.astimezone(timezone.utc)
 
 
@@ -3629,8 +3633,15 @@ def import_partner_offers():
                     counters['updated_offers'] += 1
 
                 seen_offer_ids.add(offer.id)
-                raw_content = _canonical_json(raw)
-                content_hash = _sha256_json(_partner_content(raw))
+                raw_content = _canonical_json({
+                    **raw,
+                    '_cashflowGeneratedAt': document_collected_at.isoformat(),
+                })
+                resolved_end = offer_deadline(raw, document_collected_at)
+                content_hash = _sha256_json({
+                    **_partner_content(raw),
+                    '_resolved_end': resolved_end.isoformat() if resolved_end else None,
+                })
                 snapshot = PartnerOfferSnapshot.query.filter_by(
                     offer_id=offer.id,
                     content_hash=content_hash,
@@ -3640,7 +3651,7 @@ def import_partner_offers():
                     if isinstance(percent, bool) or not isinstance(percent, (int, float)):
                         percent = None
                     starts_at = _parse_partner_datetime(raw.get('startDate'), 'startDate')
-                    ends_at = _parse_partner_datetime(raw.get('endDate'), 'endDate')
+                    ends_at = resolved_end
                     details_collected_at = _parse_partner_datetime(
                         raw.get('detailCollectedAt') or raw.get('conditionsCollectedAt'),
                         'detailCollectedAt',
@@ -3661,7 +3672,7 @@ def import_partner_offers():
                         validity_label=(
                             raw.get('validityLabel') or raw.get('expirationLabel')
                         ),
-                        validity_precision='exact' if starts_at or ends_at else 'unknown',
+                        validity_precision='exact' if ends_at else 'unknown',
                         preview_text=raw.get('previewText'),
                         conditions=raw.get('conditions'),
                         steps_json=_canonical_json(_json_array(raw.get('steps'))),
@@ -3767,6 +3778,18 @@ def list_partner_offers():
             & (PartnerOfferPreference.auth_user_id == g.auth_user.id),
         )
     )
+    active_only = request.args.get('active_only', 'true')
+    if active_only not in ('true', 'false'):
+        return jsonify({'error': 'active_only must be true or false'}), 400
+    if active_only == 'true':
+        now = _utc_now()
+        query = query.filter(or_(
+            PartnerOfferSnapshot.ends_at.is_(None),
+            PartnerOfferSnapshot.ends_at > now,
+        ), or_(
+            PartnerOfferSnapshot.starts_at.is_(None),
+            PartnerOfferSnapshot.starts_at <= now,
+        ))
     if request.args.get('include_unavailable') != 'true':
         query = query.filter(PartnerOffer.is_available == True)
     if request.args.get('bank_id'):
@@ -3867,6 +3890,39 @@ def import_bank_mcc_rules(paths, publish, create_missing_banks):
         click.echo(f'{"created" if created else "unchanged"} {label}: revision {revision.id}, '
                    f'{revision.status}')
     click.echo(', '.join(f'{key}: {value}' for key, value in counts.items()))
+
+
+@app.cli.command('repair-partner-deadlines')
+@click.option('--apply', is_flag=True, help='Persist repairs; default is a read-only preview.')
+def repair_partner_deadlines(apply):
+    """Recover deadlines without deleting offers or personal preferences."""
+    changed = 0
+    uncertain = 0
+    for snapshot in PartnerOfferSnapshot.query.yield_per(100):
+        raw = json.loads(snapshot.raw_json)
+        generated_at = raw.get('_cashflowGeneratedAt')
+        anchor = (
+            _parse_partner_datetime(generated_at, 'generatedAt')
+            if generated_at else _as_utc(snapshot.collected_at)
+        )
+        resolved = offer_deadline(raw, anchor)
+        if resolved is None:
+            continue
+        previous = _as_utc(snapshot.ends_at) if snapshot.ends_at else None
+        if resolved == previous:
+            continue
+        changed += 1
+        if not generated_at and not raw.get('endDate'):
+            uncertain += 1
+        if apply:
+            snapshot.ends_at = resolved
+            snapshot.validity_precision = (
+                'exact' if generated_at or raw.get('endDate') else 'inferred'
+            )
+    if apply:
+        db.session.commit()
+    click.echo(f'{"Repaired" if apply else "Would repair"}: {changed}; '
+               f'using legacy collection dates: {uncertain}')
 
 
 @app.get('/api/partner-offers/<int:offer_id>')

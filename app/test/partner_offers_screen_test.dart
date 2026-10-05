@@ -10,6 +10,32 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 
 void main() {
+  testWidgets('hides expired cached offers and labels unknown deadlines',
+      (tester) async {
+    final expired = _offerJson(name: 'Просроченное');
+    (expired['snapshot'] as Map<String, dynamic>)['ends_at'] =
+        DateTime.now().subtract(const Duration(days: 1)).toIso8601String();
+    final unknown = _offerJson(id: 2, name: 'Без срока');
+    (unknown['snapshot'] as Map<String, dynamic>)['ends_at'] = null;
+    final provider = DataProvider(
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((_) async => http.Response('{}', 404)),
+    )..partnerOffers = [
+        PartnerOffer.fromJson(expired),
+        PartnerOffer.fromJson(unknown),
+      ];
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: provider,
+      child: const MaterialApp(home: Scaffold(body: PartnerOffersScreen())),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Просроченное'), findsNothing);
+    expect(find.text('Без срока'), findsWidgets);
+    expect(find.text('Срок неизвестен'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+    provider.dispose();
+  });
+
   test('parses the normalized API representation without changing units', () {
     final offer = PartnerOffer.fromJson(
       _offerJson(endsAt: '2026-09-30T00:00:00+03:00'),
@@ -182,7 +208,10 @@ Map<String, dynamic> _offerJson({
         'collected_at': '2026-09-16T08:00:00Z',
         'starts_at': '2026-09-01T00:00:00Z',
         'ends_at': endsAt ??
-            DateTime.now().add(const Duration(days: 5)).toIso8601String(),
+            DateTime.now()
+                .add(const Duration(days: 15))
+                .toUtc()
+                .toIso8601String(),
         'validity_label': 'До 30 сентября',
         'icon_url': null,
         'limits': [

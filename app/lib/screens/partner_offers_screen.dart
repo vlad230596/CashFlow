@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -28,9 +30,19 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
   int? _ownerId;
   int? _selectedOfferId;
   bool _showHidden = false;
+  Timer? _deadlineTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _deadlineTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
+    _deadlineTimer?.cancel();
     _searchController.dispose();
     _listController.dispose();
     super.dispose();
@@ -208,6 +220,11 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
     final query = _searchController.text.trim().toLowerCase();
     final now = DateTime.now();
     final result = offers.where((offer) {
+      if (!offer.isAvailable ||
+          (offer.startsAt != null && offer.startsAt!.isAfter(now)) ||
+          (offer.endsAt != null && !offer.endsAt!.isAfter(now))) {
+        return false;
+      }
       if (!_showHidden &&
           ((_segment == _OfferSegment.interesting &&
                   offer.preference != 'interesting') ||
@@ -1529,14 +1546,17 @@ String _deadlineText(PartnerOffer offer, DateTime now) {
   }
   final end = offer.endsAt?.toLocal();
   if (end == null) {
-    return offer.validityLabel == null
-        ? 'Срок не указан в источнике'
-        : 'Срок: ${offer.validityLabel}';
+    return 'Срок неизвестен';
   }
-  final days = _daysUntil(end, now)!;
+  if (!end.isAfter(now)) return 'Завершено';
+  final lastDay = end
+      .toUtc()
+      .add(const Duration(hours: 3))
+      .subtract(const Duration(microseconds: 1));
+  final days = _daysUntil(end.subtract(const Duration(microseconds: 1)), now)!;
   if (days < 0) return 'Завершено';
-  if (days == 0) return 'Последний день · до ${_formatDate(end)}';
-  return 'Осталось ${_daysLabel(days)} · до ${_formatDate(end)}';
+  if (days == 0) return 'Последний день · до ${_formatDate(lastDay)}';
+  return 'Осталось ${_daysLabel(days)} · до ${_formatDate(lastDay)}';
 }
 
 bool _isEndingSoon(PartnerOffer offer, DateTime now) {
@@ -1546,9 +1566,10 @@ bool _isEndingSoon(PartnerOffer offer, DateTime now) {
 
 int? _daysUntil(DateTime? value, DateTime now) {
   if (value == null) return null;
-  final local = value.toLocal();
-  return DateTime(local.year, local.month, local.day)
-      .difference(DateTime(now.year, now.month, now.day))
+  final local = value.toUtc().add(const Duration(hours: 3));
+  final moscowNow = now.toUtc().add(const Duration(hours: 3));
+  return DateTime.utc(local.year, local.month, local.day)
+      .difference(DateTime.utc(moscowNow.year, moscowNow.month, moscowNow.day))
       .inDays;
 }
 
