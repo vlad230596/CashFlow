@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'plan_confirmation_screen.dart';
 
+import '../models/canonical_category_model.dart';
 import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
@@ -62,7 +63,8 @@ ParsedCashbackCategoryLine parseCashbackCategoryLine(String line) {
   );
 }
 
-/// Temporary name-based grouping until MCC codes become structured data.
+/// Name-based grouping for offers the server has not linked to a canonical
+/// category (brand offers, «Все покупки», data cached before the catalogue).
 ///
 /// The UI keeps the original bank title visible and explicitly describes this
 /// match as approximate.
@@ -168,6 +170,39 @@ int cashbackCategorySortPriority(String categoryName) {
   }
 }
 
+/// Groups plan offers by unified (canonical) categories.
+///
+/// An offer covers every canonical category the server linked it to, so a
+/// bank's «Кафе и рестораны» that includes fast food appears under both
+/// needs. Offers without links (brand offers, «Все покупки», data cached
+/// before the catalogue existed) keep the name-based grouping.
+@visibleForTesting
+class CashbackNeedCatalog {
+  CashbackNeedCatalog(List<CanonicalCategoryModel> categories)
+      : _byKey = {for (final item in categories) item.key: item},
+        _byTitle = {for (final item in categories) item.title: item};
+
+  final Map<String, CanonicalCategoryModel> _byKey;
+  final Map<String, CanonicalCategoryModel> _byTitle;
+
+  List<String> titlesFor(CashbackCategoryModel offer) {
+    final titles = [
+      for (final key in offer.canonicalKeys)
+        if (_byKey[key] case final category?) category.title,
+    ];
+    return titles.isNotEmpty
+        ? titles
+        : [normalizedCashbackCategoryName(offer.name)];
+  }
+
+  String primaryTitle(CashbackCategoryModel offer) => titlesFor(offer).first;
+
+  int priority(String title) =>
+      _byTitle[title]?.defaultPriority ?? cashbackCategorySortPriority(title);
+
+  List<String> aliases(String title) => _byTitle[title]?.aliases ?? const [];
+}
+
 enum _MonthlyView { categories, banks }
 
 enum _CategoryFilter { all, uncovered, duplicates }
@@ -224,6 +259,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   bool _mobileReviewingPlan = false;
   String _query = '';
   bool _sendingToChrome = false;
+  CashbackNeedCatalog _needs = CashbackNeedCatalog(const []);
 
   @override
   void initState() {
@@ -308,8 +344,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   List<_CategoryGroup> _categoryGroups(DataProvider dataProvider) {
     final grouped = <String, List<CashbackCategoryModel>>{};
     for (final category in _periodCategories(dataProvider)) {
-      final title = normalizedCashbackCategoryName(category.name);
-      grouped.putIfAbsent(title, () => []).add(category);
+      for (final title in _needs.titlesFor(category)) {
+        grouped.putIfAbsent(title, () => []).add(category);
+      }
     }
 
     final groups = grouped.entries.map((entry) {
@@ -329,13 +366,15 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
       if (_query.isEmpty) return true;
       final query = _query.toLowerCase();
       return group.title.toLowerCase().contains(query) ||
+          _needs
+              .aliases(group.title)
+              .any((alias) => alias.toLowerCase().contains(query)) ||
           group.offers.any((offer) => offer.name.toLowerCase().contains(query));
     }).toList();
 
     groups.sort((a, b) {
-      final priorityComparison = cashbackCategorySortPriority(
-        a.title,
-      ).compareTo(cashbackCategorySortPriority(b.title));
+      final priorityComparison =
+          _needs.priority(a.title).compareTo(_needs.priority(b.title));
       if (priorityComparison != 0) return priorityComparison;
       return a.title.compareTo(b.title);
     });
@@ -570,15 +609,15 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   @override
   Widget build(BuildContext context) {
     final dataProvider = Provider.of<DataProvider>(context);
+    _needs = CashbackNeedCatalog(dataProvider.canonicalCategories);
     final periodCategories = _periodCategories(dataProvider);
     final visibleGroups = _categoryGroups(dataProvider);
     final totalGroups = <String>{
-      for (final category in periodCategories)
-        normalizedCashbackCategoryName(category.name),
+      for (final category in periodCategories) ..._needs.titlesFor(category),
     }.length;
     final coveredGroups = <String>{
       for (final category in periodCategories)
-        if (category.isSelected) normalizedCashbackCategoryName(category.name),
+        if (category.isSelected) ..._needs.titlesFor(category),
     }.length;
 
     return LayoutBuilder(
@@ -631,11 +670,10 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     DataProvider dataProvider,
     List<_CategoryGroup> allGroups,
   ) {
-    final requiredGroups = allGroups
-        .where((group) => cashbackCategorySortPriority(group.title) <= 50)
-        .toList();
+    final requiredGroups =
+        allGroups.where((group) => _needs.priority(group.title) <= 50).toList();
     final groups = allGroups.where((group) {
-      final priority = cashbackCategorySortPriority(group.title);
+      final priority = _needs.priority(group.title);
       return switch (_mobileNeedFilter) {
         _MobileNeedFilter.required => priority <= 50,
         _MobileNeedFilter.frequent => priority > 50 && priority <= 80,
@@ -644,9 +682,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     }).toList()
       ..sort((a, b) {
         if (a.isCovered != b.isCovered) return a.isCovered ? 1 : -1;
-        return cashbackCategorySortPriority(
-          a.title,
-        ).compareTo(cashbackCategorySortPriority(b.title));
+        return _needs.priority(a.title).compareTo(_needs.priority(b.title));
       });
     final coveredRequired =
         requiredGroups.where((group) => group.isCovered).length;
@@ -814,11 +850,10 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     final periodCategories = _periodCategories(dataProvider)
         .where((category) => category.isSelectable)
         .toList();
-    final required = allGroups
-        .where((group) => cashbackCategorySortPriority(group.title) <= 50)
-        .toList();
+    final required =
+        allGroups.where((group) => _needs.priority(group.title) <= 50).toList();
     final frequent = allGroups.where((group) {
-      final priority = cashbackCategorySortPriority(group.title);
+      final priority = _needs.priority(group.title);
       return priority > 50 && priority <= 80;
     }).toList();
     final occupied = periodCategories.where((category) => category.isSelected);
@@ -1197,7 +1232,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   }
 
   String _mobileNeedKind(String title) {
-    final priority = cashbackCategorySortPriority(title);
+    final priority = _needs.priority(title);
     if (priority <= 50) return 'обязательная потребность';
     if (priority <= 80) return 'частая потребность';
     return 'остальная потребность';
@@ -1210,16 +1245,21 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
       };
 
   IconData _mobileCategoryIcon(String title) {
-    return switch (normalizedCashbackCategoryName(title)) {
-      'Продукты и супермаркеты' => Icons.shopping_cart_outlined,
-      'Путешествия' => Icons.flight_outlined,
-      'АЗС и топливо' => Icons.local_gas_station_outlined,
-      'Кафе и рестораны' => Icons.restaurant_outlined,
+    return switch (title) {
+      'Супермаркеты и продукты' ||
+      'Продукты и супермаркеты' =>
+        Icons.shopping_cart_outlined,
+      'Авиабилеты' || 'Путешествия' => Icons.flight_outlined,
+      'АЗС' || 'АЗС и топливо' => Icons.local_gas_station_outlined,
+      'Кафе, рестораны и бары' ||
+      'Кафе и рестораны' =>
+        Icons.restaurant_outlined,
+      'Фастфуд' => Icons.fastfood_outlined,
       'Одежда и обувь' => Icons.checkroom_outlined,
       'Аптеки' => Icons.local_pharmacy_outlined,
       'Дом и ремонт' => Icons.handyman_outlined,
-      'Такси и каршеринг' => Icons.local_taxi_outlined,
-      _ => Icons.category_outlined,
+      'Такси' || 'Такси и каршеринг' => Icons.local_taxi_outlined,
+      _ => CategoryInfo.getCategoryIcon(title),
     };
   }
 
@@ -1523,7 +1563,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             selected.cardId,
           );
     final filteredGroups = _categoryGroups(dataProvider).where((candidate) {
-      final priority = cashbackCategorySortPriority(candidate.title);
+      final priority = _needs.priority(candidate.title);
       return switch (_mobileNeedFilter) {
         _MobileNeedFilter.required => priority <= 50,
         _MobileNeedFilter.frequent => priority > 50 && priority <= 80,
@@ -2540,8 +2580,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                     separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final category = categories[index];
-                      final groupTitle =
-                          normalizedCashbackCategoryName(category.name);
+                      final groupTitle = _needs.primaryTitle(category);
                       return ListTile(
                         dense: true,
                         leading: Icon(
@@ -2594,11 +2633,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                                 title: groupTitle,
                                 offers: _periodCategories(dataProvider)
                                     .where(
-                                      (offer) =>
-                                          normalizedCashbackCategoryName(
-                                            offer.name,
-                                          ) ==
-                                          groupTitle,
+                                      (offer) => _needs
+                                          .titlesFor(offer)
+                                          .contains(groupTitle),
                                     )
                                     .toList(),
                               ),
@@ -2644,8 +2681,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     }
     final duplicateCount = <String, int>{};
     for (final category in periodCategories.where((item) => item.isSelected)) {
-      final title = normalizedCashbackCategoryName(category.name);
-      duplicateCount[title] = (duplicateCount[title] ?? 0) + 1;
+      for (final title in _needs.titlesFor(category)) {
+        duplicateCount[title] = (duplicateCount[title] ?? 0) + 1;
+      }
     }
     final duplicates = duplicateCount.values.where((count) => count > 1).length;
 

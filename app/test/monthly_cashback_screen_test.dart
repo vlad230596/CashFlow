@@ -1,4 +1,5 @@
 import 'package:cashflow/models/bank_model.dart';
+import 'package:cashflow/models/canonical_category_model.dart';
 import 'package:cashflow/models/card_model.dart';
 import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/models/user_model.dart';
@@ -155,6 +156,73 @@ void main() {
     expect(find.byIcon(Icons.shopping_cart_outlined), findsOneWidget);
     expect(find.textContaining('Не закрыто: Такси'), findsOneWidget);
     expect(find.text('Перейти к подтверждению'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a broad bank offer covers every canonical need it includes',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final now = DateTime.now();
+    final month = DateTime(now.year, now.day <= 20 ? now.month : now.month + 1);
+    final provider = DataProvider()
+      ..banks = [BankModel(id: 1, name: 'Первый банк', description: '')]
+      ..users = [UserModel(id: 1, name: 'Анна')]
+      ..cards = [
+        CardModel(
+          id: 1,
+          bankId: 1,
+          userId: 1,
+          lastFourDigits: '1111',
+          maxCashbackCategories: 3,
+        ),
+      ]
+      ..canonicalCategories = const [
+        CanonicalCategoryModel(
+          key: 'restaurants',
+          title: 'Кафе, рестораны и бары',
+          groupKey: 'food',
+          groupTitle: 'Еда',
+          aliases: ['кафе'],
+          defaultPriority: 20,
+        ),
+        CanonicalCategoryModel(
+          key: 'fastfood',
+          title: 'Фастфуд',
+          groupKey: 'food',
+          groupTitle: 'Еда',
+          aliases: ['быстрое питание'],
+          defaultPriority: 25,
+        ),
+      ]
+      ..cashbackCategories = [
+        CashbackCategoryModel(
+          id: 1,
+          name: 'Кафе и рестораны',
+          startDate: month,
+          endDate: DateTime(month.year, month.month + 1),
+          isSelected: true,
+          isBankConfirmed: true,
+          cashbackPercent: 5,
+          cardId: 1,
+          canonicalKeys: const ['restaurants', 'fastfood'],
+        ),
+      ];
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: provider,
+        child: const MaterialApp(home: MonthlyCashbackScreen()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Кафе, рестораны и бары'), findsOneWidget);
+    expect(find.text('Фастфуд'), findsOneWidget);
+    expect(find.text('2 из 2'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

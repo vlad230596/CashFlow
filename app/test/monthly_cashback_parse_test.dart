@@ -1,3 +1,5 @@
+import 'package:cashflow/models/canonical_category_model.dart';
+import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/screens/monthly_cashback_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -89,5 +91,56 @@ void main() {
       'Кино',
       'Магазин Ромашка',
     ]);
+  });
+
+  group('CashbackNeedCatalog', () {
+    const catalogue = [
+      CanonicalCategoryModel(
+        key: 'restaurants',
+        title: 'Кафе, рестораны и бары',
+        groupKey: 'food',
+        groupTitle: 'Еда',
+        aliases: ['кафе', 'бары'],
+        defaultPriority: 20,
+      ),
+      CanonicalCategoryModel(
+        key: 'fastfood',
+        title: 'Фастфуд',
+        groupKey: 'food',
+        groupTitle: 'Еда',
+        aliases: ['быстрое питание'],
+        defaultPriority: 25,
+      ),
+    ];
+    CashbackCategoryModel offer(String name, [List<String> keys = const []]) =>
+        CashbackCategoryModel(
+          id: 1,
+          name: name,
+          startDate: DateTime(2026, 10),
+          endDate: DateTime(2026, 11),
+          isSelected: false,
+          cashbackPercent: 5,
+          cardId: 1,
+          canonicalKeys: keys,
+        );
+
+    test('a broad offer covers every linked canonical category', () {
+      final needs = CashbackNeedCatalog(catalogue);
+      expect(
+        needs.titlesFor(offer('Кафе и рестораны', ['restaurants', 'fastfood'])),
+        ['Кафе, рестораны и бары', 'Фастфуд'],
+      );
+      expect(needs.priority('Фастфуд'), 25);
+      expect(needs.aliases('Кафе, рестораны и бары'), contains('бары'));
+    });
+
+    test('offers without links keep the name-based grouping', () {
+      final needs = CashbackNeedCatalog(catalogue);
+      expect(needs.titlesFor(offer('Лекарства')), ['Аптеки']);
+      expect(needs.titlesFor(offer('Магазин Ромашка')), ['Магазин ромашка']);
+      expect(needs.priority('Аптеки'), cashbackCategorySortPriority('Аптеки'));
+      // Unknown keys (an older cached catalogue) fall back the same way.
+      expect(needs.titlesFor(offer('Лекарства', ['pharmacy'])), ['Аптеки']);
+    });
   });
 }

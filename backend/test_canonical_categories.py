@@ -1,10 +1,11 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
 from canonical_categories import (
     compute_canonical_links,
     load_bundled_canonical_categories,
+    resolve_canonical_by_name,
     upsert_canonical_categories,
 )
 from main import (
@@ -12,9 +13,12 @@ from main import (
     AuthSession,
     AuthUser,
     Bank,
+    BankCard,
     BankRuleRevision,
     CanonicalCategory,
     CanonicalCategoryMcc,
+    CardUser,
+    CashbackCategory,
     MccCode,
     _token_digest,
     _utc_now,
@@ -260,3 +264,47 @@ def test_import_skips_banks_that_are_not_configured(client_and_headers):
     assert result.exit_code == 0, result.output
     assert 'skipped ozon.json:ozon' in result.output
     assert 'created: 5, unchanged: 0, published: 0, skipped: 1' in result.output
+
+
+@pytest.mark.parametrize(('name', 'expected'), [
+    ('Фастфуд, кафе и рестораны', ['restaurants', 'fastfood']),
+    ('Вет клиники и зоомагазины', ['pets']),
+    ('Авиа в Тревел', ['airline']),
+    ('Путешествия', ['airline', 'hotels', 'rail', 'travel_agency']),
+    ('Красота', ['beauty_salons', 'cosmetics']),
+    ('Онлайн-кинотеатры', ['online_cinema']),
+    ('Пятёрочка', []),
+    ('Все покупки', []),
+])
+def test_offer_names_suggest_canonical_categories(name, expected):
+    assert resolve_canonical_by_name(name) == expected
+
+
+def test_personal_offers_inherit_bank_rule_links(client_and_headers):
+    client, headers, banks = client_and_headers
+    upload_and_publish(client, headers, snapshot(banks['vtb']))
+    owner = CardUser(name='Синтетический владелец')
+    db.session.add(owner)
+    db.session.flush()
+    cards = {}
+    for key in ('vtb', 'ozon'):
+        card = BankCard(payment_system='Мир', card_type='virtual', last_four_digits='0000',
+                        bank_id=banks[key], user_id=owner.id)
+        db.session.add(card)
+        db.session.flush()
+        cards[key] = card.id
+    start, end = datetime(2026, 10, 1), datetime(2026, 11, 1)
+    for card_key, name in (('vtb', 'Кафе и рестораны'), ('ozon', 'Кафе и рестораны'),
+                           ('ozon', 'Пятёрочка')):
+        db.session.add(CashbackCategory(name=name, start_date=start, end_date=end,
+                                        cashback_percent=5, card_id=cards[card_key]))
+    db.session.commit()
+
+    offers = client.get('/api/cashback', headers=headers).get_json()
+
+    keys = {(item['card_id'], item['name']): item['canonical_keys'] for item in offers}
+    # VTB's published category includes 5814, so its offer also covers fast food.
+    assert keys[(cards['vtb'], 'Кафе и рестораны')] == ['restaurants', 'fastfood']
+    # Ozon has no rules here: the name rules decide, and a brand stays unmapped.
+    assert keys[(cards['ozon'], 'Кафе и рестораны')] == ['restaurants']
+    assert keys[(cards['ozon'], 'Пятёрочка')] == []

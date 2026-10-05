@@ -13,14 +13,18 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import click
-from flask import Flask, Response, g, jsonify, request, url_for
+from flask import Flask, Response, g, has_request_context, jsonify, request, url_for
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from canonical_categories import compute_canonical_links
+from canonical_categories import (
+    compute_canonical_links,
+    normalize_category_name,
+    resolve_canonical_by_name,
+)
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
@@ -150,7 +154,8 @@ class CashbackCategory(db.Model):
             'is_bank_confirmed': self.is_bank_confirmed,
             'max_cashback_amount': self.max_cashback_amount,
             'min_purchase_amount': self.min_purchase_amount,
-            'card_id': self.card_id
+            'card_id': self.card_id,
+            'canonical_keys': _offer_canonical_keys(self),
         }
 
 
@@ -2795,6 +2800,66 @@ def _canonical_category_to_dict(category, core_mcc=None):
     if core_mcc is not None:
         result['core_mcc'] = core_mcc
     return result
+
+
+def _build_offer_canonical_resolver():
+    """Map personal offers to canonical categories.
+
+    An offer whose bank has published rules with a category of the same name inherits that
+    category's links (the precise path, by MCC). Otherwise name rules suggest keys. Rules are
+    matched by name across the bank's current published revisions, because category meaning
+    rarely changes between months while offers span the whole year.
+    """
+    sort_order = dict(db.session.query(CanonicalCategory.key, CanonicalCategory.sort_order))
+    if not sort_order:
+        return lambda offer: []
+    card_banks = dict(db.session.query(BankCard.id, BankCard.bank_id))
+    rows = (
+        db.session.query(
+            BankCashbackProgram.bank_id,
+            BankRuleRevision.id,
+            BankCategoryRevision.original_name,
+            BankCategoryCanonicalLink.canonical_key,
+        )
+        .join(BankRuleRevision, BankRuleRevision.program_id == BankCashbackProgram.id)
+        .join(BankCategoryRevision, BankCategoryRevision.rule_revision_id == BankRuleRevision.id)
+        .join(
+            BankCategoryCanonicalLink,
+            BankCategoryCanonicalLink.category_revision_id == BankCategoryRevision.id,
+        )
+        .filter(
+            BankRuleRevision.status == 'published',
+            BankRuleRevision.superseded_at.is_(None),
+        )
+        .order_by(BankRuleRevision.valid_from, BankRuleRevision.id)
+        .all()
+    )
+    by_name = {}
+    for bank_id, revision_id, name, key in rows:
+        slot = (bank_id, normalize_category_name(name))
+        current = by_name.get(slot)
+        if current is None or current[0] != revision_id:
+            # A later revision of the same name replaces the earlier links.
+            current = (revision_id, [])
+            by_name[slot] = current
+        current[1].append(key)
+
+    def resolve(offer):
+        match = by_name.get((card_banks.get(offer.card_id), normalize_category_name(offer.name)))
+        keys = match[1] if match else resolve_canonical_by_name(offer.name)
+        return sorted((key for key in set(keys) if key in sort_order), key=sort_order.get)
+
+    return resolve
+
+
+def _offer_canonical_keys(offer):
+    if not has_request_context():
+        return _build_offer_canonical_resolver()(offer)
+    resolver = g.get('offer_canonical_resolver')
+    if resolver is None:
+        resolver = _build_offer_canonical_resolver()
+        g.offer_canonical_resolver = resolver
+    return resolver(offer)
 
 
 @app.get('/api/canonical-categories')

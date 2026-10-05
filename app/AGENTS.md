@@ -90,7 +90,8 @@ Known endpoints:
 - `PUT /api/cashback/{id}` for category selection updates
 - `GET /api/active_cashback`
 - `GET /api/mcc/{code}/bank-rules?as_of=` (per bank: category, exclusion kind and status)
-- `GET /api/canonical-categories`
+- `GET /api/canonical-categories` (cached as `canonicalCategories`; cashback offers carry
+  `canonical_keys`, and the plan groups offers by these unified categories)
 - `GET /api/canonical-categories/{key}/bank-categories?as_of=`
 - `POST /api/auth/login`
 - `GET /api/auth/me`

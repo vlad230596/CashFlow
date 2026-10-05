@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/card_model.dart';
 import '../models/bank_model.dart';
 import '../models/user_model.dart';
+import '../models/canonical_category_model.dart';
 import '../models/cashback_category_model.dart';
 import '../models/mcc_rule_model.dart';
 import '../models/partner_offer_model.dart';
@@ -176,6 +177,7 @@ class DataProvider with ChangeNotifier {
   List<CardModel> cards = [];
   List<CashbackCategoryModel> cashbackCategories = [];
   List<CashbackCategoryModel> activeCashbackCategories = [];
+  List<CanonicalCategoryModel> canonicalCategories = [];
   List<PartnerOffer> partnerOffers = [];
   List<SubscriptionModel> subscriptions = [];
   PrimaryDataPhase primaryDataPhase = PrimaryDataPhase.initialLoading;
@@ -600,6 +602,7 @@ class DataProvider with ChangeNotifier {
       dataSnapshotUpdatedAt = DateTime.now();
       lastUpdated = dataSnapshotUpdatedAt.toString();
       primaryDataPhase = PrimaryDataPhase.ready;
+      await fetchCanonicalCategories();
       await _saveDataLocally();
       await _synchronizeSubscriptionNotifications();
       await fetchPartnerOffers();
@@ -612,6 +615,19 @@ class DataProvider with ChangeNotifier {
       primaryDataError = 'Не удалось обновить данные';
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Loads the unified category catalogue. Failures keep the cached list, so
+  /// an older server without the endpoint only disables canonical grouping.
+  Future<void> fetchCanonicalCategories() async {
+    try {
+      canonicalCategories = await receiveFromServer(
+        'canonical-categories',
+        CanonicalCategoryModel.fromJson,
+      );
+    } catch (e) {
+      debugPrint('Error fetching canonical categories: $e');
     }
   }
 
@@ -666,6 +682,7 @@ class DataProvider with ChangeNotifier {
       final cachedCashbackCategories = prefs.getString('cashbackCategories');
       final cachedActiveCashbackCategories =
           prefs.getString('activeCashbackCategories');
+      final cachedCanonicalCategories = prefs.getString('canonicalCategories');
       final cachedCashbackEffectiveDate =
           prefs.getString('cashbackEffectiveDate');
       final cachedDataSnapshotUpdatedAt =
@@ -709,6 +726,12 @@ class DataProvider with ChangeNotifier {
                 CashbackCategoryModel.fromJson(item as Map<String, dynamic>))
             .toList();
       }
+      if (cachedCanonicalCategories != null) {
+        canonicalCategories = (json.decode(cachedCanonicalCategories) as List)
+            .map((item) =>
+                CanonicalCategoryModel.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
       if (hasUsableDataSnapshot) {
         primaryDataPhase = PrimaryDataPhase.ready;
       }
@@ -731,6 +754,11 @@ class DataProvider with ChangeNotifier {
         json.encode(cashbackCategories
             .map((cashbackCategory) =>
                 CashbackCategoryModel.toJson(cashbackCategory))
+            .toList()));
+    prefs.setString(
+        'canonicalCategories',
+        json.encode(canonicalCategories
+            .map((category) => CanonicalCategoryModel.toJson(category))
             .toList()));
     prefs.setString(
         'activeCashbackCategories',

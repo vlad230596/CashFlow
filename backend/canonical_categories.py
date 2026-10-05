@@ -7,6 +7,7 @@ every canonical category whose core it substantially covers, so a broad bank cat
 """
 
 import json
+import re
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -92,6 +93,87 @@ def compute_canonical_links(codes, categories):
             relation = 'narrower'
         links.append({'key': key, 'relation': relation, 'coverage': round(coverage, 4)})
     return sorted(links, key=lambda item: item['key'])
+
+
+TRAVEL = ('airline', 'hotels', 'rail', 'travel_agency')
+
+# Fallback for personal offers whose bank has no published rules with the same category name.
+# Every matching rule contributes its keys, so "Фастфуд, кафе и рестораны" gets both entries.
+# Brand offers ("Пятёрочка") and "all purchases" intentionally match nothing.
+NO_CANONICAL = re.compile(r'осаго|каско|страхов|все покупки|^на вс[её]|за вс[её] покупки')
+# A generic travel word adds the whole travel set only when no specific travel kind matched,
+# so "Авиа в Тревел" stays an airline offer.
+GENERIC_TRAVEL = re.compile(r'путешеств|travel|тревел')
+NAME_RULES = [
+    (r'супермаркет|продукт|гипермаркет|groceries', ('groceries',)),
+    (r'кафе|ресторан|\bбар(ы)?\b', ('restaurants',)),
+    (r'фастфуд|фаст фуд|быстр\w* питан', ('fastfood',)),
+    (r'алкогол', ('alcohol',)),
+    (r'аптек|лекарств', ('pharmacy',)),
+    (r'медицин|(?<!вет )(?<!вет)клиник|стоматолог|анализ', ('medical',)),
+    (r'^здоровье$', ('pharmacy', 'medical')),
+    (r'космет|парфюм', ('cosmetics',)),
+    (r'салон|\bспа\b|\bspa\b|парикмахер', ('beauty_salons',)),
+    (r'^красота$|^красота и уход$|бьюти', ('beauty_salons', 'cosmetics')),
+    (r'одежд|обув|fashion', ('clothing',)),
+    (r'электрон|техник|гаджет', ('electronics',)),
+    (r'маркетплейс', ('marketplaces',)),
+    (r'ювелир|украшен|бижутер', ('jewelry',)),
+    (r'^цвет|\bцветы\b|флорист', ('flowers',)),
+    (r'хобби|подар|сувенир|творчеств|музык', ('hobby',)),
+    (r'duty free|дьюти', ('duty_free',)),
+    (r'дом и ремонт|товары для дома|ремонт|мебел|стройматериал', ('home',)),
+    (r'детск|для детей|^дети$|игруш|малыш', ('kids',)),
+    (r'животн|питом|зоо|ветеринар|ветклиник', ('pets',)),
+    (r'химчист|прачечн|бытов\w* услуг', ('household_services',)),
+    (r'жкх|жку|коммунал', ('utilities',)),
+    (r'связ|интернет|мобильн|телевиден', ('telecom',)),
+    (r'азс|топлив|заправ', ('fuel',)),
+    (r'автоуслуг|автосервис|автомойк|шиномонтаж', ('auto_services',)),
+    (r'автозапчаст|запчаст', ('auto_parts',)),
+    (r'^авто$', ('auto_services', 'auto_parts', 'toll_roads')),
+    (r'платн\w* дорог|парковк', ('toll_roads',)),
+    (r'транспорт|метро|автобус', ('transport',)),
+    (r'такси|яндекс go|yandex go|uber', ('taxi',)),
+    (r'каршер|аренд\w* авто|прокат авто', ('car_rental',)),
+    (r'самокат|кикшер', ('scooters',)),
+    (r'авиа', ('airline',)),
+    (r'отел|гостиниц', ('hotels',)),
+    (r'\bж ?д\b|железнодорож|поезд', ('rail',)),
+    (r'\bтур(ы|агент|ист)', ('travel_agency',)),
+    (r'^(?!.*онлайн).*(кино|театр)', ('cinema_theater',)),
+    (r'онлайн кинотеатр', ('online_cinema',)),
+    (r'цифров', ('digital',)),
+    (r'развлеч|впечатлен', ('entertainment',)),
+    (r'активн\w* отдых', ('fitness', 'entertainment')),
+    (r'искусств|музе|выстав', ('culture',)),
+    (r'книг|канцтовар|канцеляр', ('books',)),
+    (r'спорттовар|спортивн\w* товар', ('sports_goods',)),
+    (r'фитнес|тренировк|спортклуб|спортзал', ('fitness',)),
+    (r'^спорт$|спорт и фитнес', ('sports_goods', 'fitness')),
+    (r'образован|обучен|курс|школ|университет|репетитор', ('education',)),
+    (r'налог|штраф', ('fines_taxes',)),
+]
+_COMPILED_NAME_RULES = [(re.compile(pattern), keys) for pattern, keys in NAME_RULES]
+
+
+def normalize_category_name(value):
+    text = str(value or '').lower().replace('ё', 'е')
+    return re.sub(r'[^a-zа-я0-9]+', ' ', text).strip()
+
+
+def resolve_canonical_by_name(name):
+    """Return canonical keys suggested by an offer name, or an empty list."""
+    normalized = normalize_category_name(name)
+    if NO_CANONICAL.search(normalized):
+        return []
+    keys = []
+    for pattern, rule_keys in _COMPILED_NAME_RULES:
+        if pattern.search(normalized):
+            keys.extend(key for key in rule_keys if key not in keys)
+    if GENERIC_TRAVEL.search(normalized) and not set(keys) & set(TRAVEL):
+        keys.extend(TRAVEL)
+    return keys
 
 
 def upsert_canonical_categories(connection, category_table, core_table, rows):

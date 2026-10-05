@@ -13,6 +13,11 @@ class CashbackCategoryModel {
   final double? maxCashbackAmount;
   final double? minPurchaseAmount;
 
+  /// Canonical categories this offer covers, resolved by the server from the
+  /// bank's MCC rules or the offer name. Empty for brand offers and
+  /// «all purchases»; a broad offer can cover several categories.
+  final List<String> canonicalKeys;
+
   CashbackCategoryModel({
     required this.id,
     required this.name,
@@ -27,6 +32,7 @@ class CashbackCategoryModel {
     this.isBankConfirmed = false,
     this.maxCashbackAmount,
     this.minPurchaseAmount,
+    this.canonicalKeys = const [],
   });
 
   bool get isStackableBonus => categoryType == 'stackable_bonus';
@@ -54,6 +60,8 @@ class CashbackCategoryModel {
           : json['is_selected'] == true,
       maxCashbackAmount: (json['max_cashback_amount'] as num?)?.toDouble(),
       minPurchaseAmount: (json['min_purchase_amount'] as num?)?.toDouble(),
+      canonicalKeys:
+          List<String>.from(json['canonical_keys'] as List? ?? const []),
     );
   }
 
@@ -72,6 +80,7 @@ class CashbackCategoryModel {
       'is_bank_confirmed': model.isBankConfirmed,
       'max_cashback_amount': model.maxCashbackAmount,
       'min_purchase_amount': model.minPurchaseAmount,
+      'canonical_keys': model.canonicalKeys,
     };
   }
 
@@ -89,6 +98,7 @@ class CashbackCategoryModel {
     bool? isBankConfirmed,
     double? maxCashbackAmount,
     double? minPurchaseAmount,
+    List<String>? canonicalKeys,
     bool clearMaxCashbackAmount = false,
     bool clearMinPurchaseAmount = false,
   }) {
@@ -110,6 +120,7 @@ class CashbackCategoryModel {
       minPurchaseAmount: clearMinPurchaseAmount
           ? null
           : minPurchaseAmount ?? this.minPurchaseAmount,
+      canonicalKeys: canonicalKeys ?? this.canonicalKeys,
     );
   }
 }
