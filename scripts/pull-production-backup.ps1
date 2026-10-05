@@ -3,7 +3,10 @@ param(
     [string] $Destination = 'D:\Backups\CashFlow\staging\cashflow.sql',
     [string] $SshKey = "$env:USERPROFILE\.ssh\cashflow-backup-pc1",
     [string] $KnownHostsFile = "$env:USERPROFILE\.ssh\known_hosts",
-    [Parameter(Mandatory = $true)][string] $Server,
+    [string] $Server = 'cash-flow-app.duckdns.org',
+    # The existing pinned host key is stored under the VDS address. Keep the
+    # public domain for routing while validating against that pinned identity.
+    [string] $HostKeyAlias = '5.45.117.224',
     [string] $SshUser = 'cashflow-backup'
 )
 
@@ -38,6 +41,7 @@ $sshArguments = @(
     '-o', 'BatchMode=yes',
     '-o', 'StrictHostKeyChecking=yes',
     '-o', "UserKnownHostsFile=$KnownHostsFile",
+    '-o', "HostKeyAlias=$HostKeyAlias",
     '-o', 'ConnectTimeout=20',
     "$SshUser@$Server"
 )

@@ -1,0 +1,17 @@
+{
+  "workspace": "D:/Projects/CashFlow",
+  "app_root": "D:/Projects/CashFlow/app",
+  "is_react_native": false,
+  "is_flutter": true,
+  "is_native_ios": false,
+  "is_native_android": false,
+  "platforms": ["android", "ios", "web", "windows", "linux", "macos"],
+  "backend": "Flask/Python, uv, pytest, Alembic",
+  "argent_available": true,
+  "running_targets_at_inspection": ["chromium-cdp-9222"],
+  "available_android_avds": ["CashFlow_Medium_API_36", "Medium_Phone_API_36"],
+  "metro_port": null,
+  "flutter_helper": "app/scripts/setup_vscode_flutter_env.ps1",
+  "backend_checks": ["uv run ruff check .", "uv run pytest -q", "uv lock --check"],
+  "production_api_default": "https://cash-flow-app.duckdns.org:8443"
+}

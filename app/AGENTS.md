@@ -2,14 +2,16 @@
 
 ## Project Overview
 
-CashFlow is a Flutter application for tracking bank cards and cashback categories. The app keeps a local cache of data and synchronizes with a backend API over HTTP.
+CashFlow is a Flutter family cashback assistant. It manages cards, cashback categories, monthly plans, bank confirmation, partner offers, MCC rules, and personal subscription renewals. The app keeps account-scoped local caches and synchronizes with a backend API over HTTP.
 
 Main user flows:
 
 - View active cashback categories, sorted by cashback percent.
-- View cards and their active cashback categories.
+- Build a manual monthly selection plan and confirm selections imported from banks.
+- Review and classify personal partner offers.
+- Track subscription renewals and confirmed payments; schedule local reminders on Android.
 - Manage banks, users, and cards from settings screens.
-- Manage monthly cashback category selection per card.
+- Import and publish MCC rule revisions from administrative screens.
 
 ## Tech Stack
 
@@ -27,10 +29,12 @@ Main user flows:
 - `lib/main.dart` initializes Flutter, restores authentication, and registers `DataProvider`.
 - `lib/providers/data_provider.dart` owns application state, backend calls, local cache, and mutations.
 - `lib/models/` contains plain model classes with `fromJson` factories and static `toJson` methods.
-- `lib/screens/home_screen.dart` defines the tabbed app shell and settings menu.
-- `lib/screens/cashback_screen.dart` shows searchable active cashback categories.
-- `lib/screens/cards_screen.dart` shows cards with related active categories.
+- `lib/screens/home_screen.dart` defines the five-destination adaptive shell: Benefit, Plan, Offers, Subscriptions, and More.
+- `lib/screens/cashback_screen.dart` shows searchable active cashback categories and benefit states.
 - `lib/screens/monthly_cashback_screen.dart` handles monthly category selection and bulk category entry.
+- `lib/screens/partner_offers_screen.dart` shows the account-scoped partner offer catalogue.
+- `lib/screens/subscriptions_screen.dart` manages renewals, payments, and archive state.
+- `lib/screens/more_screen.dart` contains refresh, import, date, administration, session, and logout actions.
 - `lib/screens/settings/` contains CRUD screens for banks, users, and cards.
 - `lib/utils/category_info.dart` maps category names to Material icons and colors.
 - `test/widget_test.dart` contains a current smoke test that starts `MyApp` with `DataProvider`.
@@ -42,7 +46,7 @@ Main user flows:
 - On startup, `main.dart` creates `DataProvider`, calls `initialize()`, then registers it before `runApp`.
 - `DataProvider.initialize()` loads local cached data, restores the bearer session from secure
   storage, and starts `fetchAllData()` only for an authenticated user.
-- `fetchAllData()` loads banks, users, cards, active cashback, and all cashback categories from the backend.
+- `fetchAllData()` loads banks, users, cards, active cashback, cashback categories, partner offers, and subscriptions from the backend.
 - Fetched data is cached to `SharedPreferences`.
 - UI screens read state through `Provider.of<DataProvider>(context)` or `Consumer<DataProvider>`.
 - Mutating methods call the backend first, update in-memory lists, then call `notifyListeners()`.
@@ -53,6 +57,8 @@ Current cached keys:
 - `users`
 - `cards`
 - `activeCashbackCategories`
+- `partnerOffers:{authUserId}`
+- `subscriptions:{authUserId}`
 
 ## Backend Contract
 
@@ -89,10 +95,25 @@ Known endpoints:
 - `POST /api/cashback`
 - `PUT /api/cashback/{id}` for category selection updates
 - `GET /api/active_cashback`
+- `POST /api/cashback/import`
+- `GET /api/partner-offers`
+- `GET /api/partner-offers/{id}`
+- `PUT /api/partner-offers/{id}/preference`
+- `POST /api/partner-offers/import`
+- `GET /api/subscriptions`
+- `POST /api/subscriptions`
+- `PUT /api/subscriptions/{id}`
+- `POST /api/subscriptions/{id}/archive`
+- `POST /api/subscriptions/{id}/restore`
+- `POST /api/subscriptions/{id}/payments`
+- `GET /api/mcc/{code}`
 - `GET /api/mcc/{code}/bank-rules?as_of=` (per bank: category, exclusion kind and status)
 - `GET /api/canonical-categories` (cached as `canonicalCategories`; cashback offers carry
   `canonical_keys`, and the plan groups offers by these unified categories)
 - `GET /api/canonical-categories/{key}/bank-categories?as_of=`
+- `GET /api/admin/mcc-rule-revisions`
+- `POST /api/admin/mcc-rule-snapshots`
+- `POST /api/admin/mcc-rule-revisions/{id}/publish`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
 - `POST /api/auth/logout`
@@ -119,11 +140,12 @@ When changing backend contracts or model nullability, update the model, provider
 
 ## UI Conventions
 
-- The app uses Material widgets without a custom design system.
-- Navigation is currently direct `Navigator.push` with `MaterialPageRoute`.
+- The app uses a shared `CashFlowTheme` plus Material widgets.
+- The authenticated shell uses an `IndexedStack`; nested routes use `Navigator.push` with `MaterialPageRoute`.
 - Forms are implemented as stateful screens with `TextEditingController`s.
 - Settings lists use `RefreshIndicator` and fetch all data on pull-to-refresh.
-- Most user-facing text is currently English, with some Russian UI in monthly cashback flows.
+- Current product UI is primarily Russian; older settings and technical strings may still be English.
+- Layouts use compact `<600`, medium `600–839`, and expanded `>=840` width policies.
 - Some older Russian strings/comments may appear corrupted as mojibake in untouched source files.
 - Keep UI changes modest and consistent unless explicitly asked for a redesign.
 
@@ -132,6 +154,9 @@ When changing backend contracts or model nullability, update the model, provider
 - Treat corrupted Russian strings/comments as an explicit encoding/data-cleanup task, not as incidental formatting. Do not rewrite large files just to fix unrelated mojibake unless asked.
 - Some settings/edit screens still force unwrap nullable IDs or names from `BankModel`, `CardModel`, and `UserModel`.
 - `maxCashbackCategories` is shown and edited locally in `MonthlyCashbackScreen`, but changes are intentionally not persisted to the backend yet.
+- Automatic MCC import returns `501 automatic_source_not_configured`; the import review screen computes its preview locally because there is no server diff contract.
+- Subscription notifications are intentionally Android-only; web, iOS, and desktop still store subscription data but do not schedule local notifications.
+- The purchase-search UI is ahead of the backend domain model: operations, normalized merchants, MCC observations, and a universal recommendation endpoint do not exist yet.
 - `flutter analyze` and `flutter test` require Flutter/Dart to be available in PATH; the current sandbox shell may not have them configured.
 - Git may report dubious ownership in the sandbox for `D:/Projects/CashFlow`; avoid changing git config unless the user approves.
 
@@ -170,7 +195,7 @@ For one-off troubleshooting only, an explicit SDK path may be passed:
 .\scripts\setup_vscode_flutter_env.ps1 -FlutterSdkPath C:\path\to\flutter -Run "flutter --version"
 ```
 
-The backend must be reachable at the configured `serverIp` for refresh and mutation flows.
+The backend must be reachable at the configured `CASHFLOW_API_URL` for refresh and mutation flows.
 
 ## Working Guidelines For Agents
 
@@ -186,9 +211,11 @@ The backend must be reachable at the configured `serverIp` for refresh and mutat
 
 ## Open Questions
 
-- Is the backend repository available locally, and should agents inspect it when changing API-related code?
-- Should `serverIp` remain hardcoded, move to settings, or be configured through environment/build config?
-- Should the full app language stay mixed during transition, or should English settings screens be localized to Russian?
+- What source supplies operations and actual MCC observations for merchant recommendations?
+- How should merchant aliases and multiple observed MCC codes be normalized?
+- Which category states participate in the best-payment calculation?
+- How should family-space membership and per-card access relate to application accounts?
+- Should subscription notifications be extended beyond Android?
 - Should remaining corrupted Russian strings/comments be repaired as a separate cleanup task?
 - Should monthly `maxCashbackCategories` be persisted, and if yes, which endpoint owns that value?
-- Which platforms are actually supported targets: mobile only, desktop, web, or all generated Flutter platforms?
+- Release targets are Web and Android APK; decide whether iOS and desktop become supported acceptance targets rather than generated project scaffolding only.

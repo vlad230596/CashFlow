@@ -49,19 +49,31 @@ The VDS needs:
 `.env` follows `.env.production.example`. `APP_ORIGIN` is the complete HTTPS origin including
 `:8443`. Generate a unique PostgreSQL password; never reuse the OfficeCooking password.
 
-## Initial database and data transfer
+## Historical initial database and data transfer
+
+This section records the one-time production bootstrap performed from the
+2026-08-28 legacy SQLite snapshot. Do not repeat it to inspect or refresh
+production data. Production has continued through later Alembic migrations and
+the local `backend/instance/cards.db` is not a production replica.
 
 1. Create the isolated network and production directory.
-2. Start PostgreSQL and run `alembic upgrade head` from the immutable backend image.
+2. Start PostgreSQL and migrate it through `0002_authentication`, the revision
+   required by the historical importer.
 3. Copy `backend/instance/cards.db` temporarily over the setup SSH channel with mode `0600`.
 4. Run `scripts/migrate_sqlite_to_postgres.py` in a one-off backend container.
-5. Verify exact counts: 7 banks, 2 card owners, 12 cards, and 709 cashback categories.
-6. Create the first administrator interactively with
+5. Verify the historical snapshot counts: 7 banks, 2 card owners, 12 cards, and
+   709 cashback categories.
+6. Run `alembic upgrade head` from the immutable backend image.
+7. Create the first administrator interactively with
    `uv run --no-sync flask --app main set-auth-user USERNAME --role admin`.
-7. Remove the temporary SQLite file only after verification.
+8. Remove the temporary SQLite file only after verification.
 
 The migration importer refuses a non-empty target, so it cannot silently duplicate production
 data. The legacy `card_owner` and `carduser` tables are unused and intentionally excluded.
+
+For present-day read-only production inspection, use the restricted SSH export
+procedure documented in `AGENTS.md` and `BACKUPS.md`; never query the historical
+workspace SQLite file.
 
 ## Development dataset
 

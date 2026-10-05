@@ -53,11 +53,14 @@ revision=$(/usr/bin/docker exec "$container" \
   psql -X -A -t -U postgres -d restorecheck \
   -c 'select version_num from alembic_version')
 
-if [ "$table_count" -ne 8 ]; then
+readonly expected_table_count=29
+readonly expected_revision=0009_identity_icons
+
+if [ "$table_count" -ne "$expected_table_count" ]; then
   echo "unexpected restored public table count: $table_count" >&2
   exit 1
 fi
-if [ "$revision" != '0002_authentication' ]; then
+if [ "$revision" != "$expected_revision" ]; then
   echo "unexpected restored Alembic revision: $revision" >&2
   exit 1
 fi

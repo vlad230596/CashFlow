@@ -8,6 +8,8 @@ Backups use the same pull model as OfficeCooking but remain fully separate.
 - local staging: `D:\Backups\CashFlow\staging`;
 - local restic repository: `D:\Backups\CashFlow\repository`;
 - dedicated SSH key: `%USERPROFILE%\.ssh\cashflow-backup-pc1`;
+- SSH endpoint: `cash-flow-app.duckdns.org` with the pinned host-key alias
+  `5.45.117.224` from `%USERPROFILE%\.ssh\known_hosts`;
 - Backrest repository `cashflow-local` and plan `cashflow-daily`;
 - daily schedule: `03:30` local time with missed runs queued after the next Backrest start.
 
@@ -33,5 +35,6 @@ verification result is stored in
 
 At least once after setup and periodically thereafter, restore a copy of a plain SQL dump into
 an isolated PostgreSQL 17.6 container with `scripts/verify-backup-restore.sh`. The script expects
-eight public tables and Alembic revision `0002_authentication`; it deletes the supplied temporary
-dump after verification, so never pass the only retained backup copy.
+29 public tables and the current repository migration head `0009_identity_icons`; it deletes the
+supplied temporary dump after verification, so never pass the only retained backup copy. Update
+both the script and this document whenever a migration adds or removes tables or changes the head.

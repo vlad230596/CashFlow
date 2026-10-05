@@ -121,7 +121,8 @@ app.*.symbols
 # Backend-local environments, databases, and certificates.
 /backend/.idea/
 /backend/.venv/
-/backend/instance/
+/backend/instance/*
+!/backend/instance/README.md
 /backend/ssl/
 /backend/*.db
 
