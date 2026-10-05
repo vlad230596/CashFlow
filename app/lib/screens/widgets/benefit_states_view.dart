@@ -17,7 +17,7 @@ class BenefitItemData {
     this.bankIconKey,
     this.userName,
     this.userIconKey,
-    this.userEmoji,
+    this.userMarker,
     this.lastFourDigits,
   });
 
@@ -28,8 +28,8 @@ class BenefitItemData {
   final String? userName;
   final String? userIconKey;
 
-  /// Short visual marker of the card owner; see [personEmoji].
-  final String? userEmoji;
+  /// Short visual marker of the card owner; see [personMarker].
+  final PersonMarker? userMarker;
   final String? lastFourDigits;
 }
 
@@ -1663,7 +1663,7 @@ class _OfferChip extends StatelessWidget {
                     size: 18,
                   ),
                   const SizedBox(width: 2),
-                  _PersonEmoji(item: item, fontSize: 13),
+                  _OwnerMarker(item: item, size: 17),
                   const SizedBox(width: 3),
                   Text(
                     percent,
@@ -1682,24 +1682,48 @@ class _OfferChip extends StatelessWidget {
   }
 }
 
-class _PersonEmoji extends StatelessWidget {
-  const _PersonEmoji({required this.item, required this.fontSize});
+class _OwnerMarker extends StatelessWidget {
+  const _OwnerMarker({required this.item, required this.size});
 
   final BenefitItemData item;
-  final double fontSize;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    final emoji = item.userEmoji;
-    if (emoji == null) {
+    final marker = item.userMarker;
+    if (marker == null) {
       return UserIconBadge(
         iconKey: item.userIconKey,
         userName: item.userName,
-        size: fontSize + 5,
+        size: size,
       );
     }
-    return Text(emoji, style: TextStyle(fontSize: fontSize, height: 1));
+    return PersonMarkerBadge(
+      marker: marker,
+      userName: item.userName,
+      size: size,
+    );
   }
+}
+
+/// Spoken description of a card whose bank and owner are shown only as badges.
+String _cardSemanticsLabel(BenefitItemData item) {
+  final category = item.category;
+  final digits = item.lastFourDigits?.trim();
+  return [
+    item.bankName ?? _bankNameFromCardLabel(item.cardLabel),
+    'владелец ${item.userName ?? 'неизвестен'}',
+    if (digits?.isNotEmpty == true) 'карта •$digits',
+    '${category.isStackableBonus ? '+' : ''}'
+        '${_formatPercent(category.cashbackPercent)}%',
+  ].join(', ');
+}
+
+/// The card text shown next to the bank badge and owner marker: only the last
+/// four digits when known, because the badges already name the bank and owner.
+String _compactCardLabel(BenefitItemData item) {
+  final digits = item.lastFourDigits?.trim();
+  return digits?.isNotEmpty == true ? '•$digits' : item.cardLabel;
 }
 
 /// A search hit shown already opened: the category and every card for it.
@@ -1804,7 +1828,7 @@ class _OfferRow extends StatelessWidget {
                 size: 24,
               ),
               const SizedBox(width: 4),
-              _PersonEmoji(item: item, fontSize: 17),
+              _OwnerMarker(item: item, size: 21),
               const SizedBox(width: 8),
               Expanded(
                 child: Column(
@@ -2029,13 +2053,11 @@ class _BenefitListCard extends StatelessWidget {
                           size: 22,
                         ),
                         const SizedBox(width: 4),
-                        _PersonEmoji(item: item, fontSize: 16),
+                        _OwnerMarker(item: item, size: 20),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            item.lastFourDigits?.isNotEmpty == true
-                                ? '•${item.lastFourDigits}'
-                                : item.cardLabel,
+                            _compactCardLabel(item),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall,
@@ -2194,32 +2216,41 @@ class _DetailCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                BankIconBadge(
-                  iconKey: item.bankIconKey,
-                  bankName: item.bankName,
-                  size: 32,
-                ),
-                const SizedBox(width: 6),
-                _PersonEmoji(item: item, fontSize: 24),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    item.cardLabel,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  '${_formatPercent(category.cashbackPercent)}%',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w800,
+            Semantics(
+              container: true,
+              label: _cardSemanticsLabel(item),
+              child: ExcludeSemantics(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    BankIconBadge(
+                      iconKey: item.bankIconKey,
+                      bankName: item.bankName,
+                      size: 32,
+                    ),
+                    const SizedBox(width: 6),
+                    _OwnerMarker(item: item, size: 28),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _compactCardLabel(item),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '${_formatPercent(category.cashbackPercent)}%',
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
             const SizedBox(height: 12),
             Align(

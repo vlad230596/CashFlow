@@ -117,18 +117,128 @@ const userIconOptions = <UserIconOption>[
   ),
 ];
 
-/// Temporary per-person emoji until people can choose their own. Every person
-/// gets a different one, in the stable order of user ids, so cards are easy to
-/// tell apart at a glance.
-const personEmojiPalette = ['🐻', '🦊', '🐼', '🐱', '🦉', '🐸', '🐯', '🐨'];
+/// Short visual marker of a card owner: a coloured circle with a distinct
+/// glyph. It is drawn from the bundled Material Icons font, so it renders the
+/// same on Web (built with `--no-web-resources-cdn`) and Android without
+/// relying on a system or CDN emoji font.
+class PersonMarker {
+  const PersonMarker({
+    required this.label,
+    required this.icon,
+    required this.background,
+    required this.foreground,
+  });
 
-String personEmoji(int? userId, Iterable<int> allUserIds) {
-  if (userId == null) return '👤';
+  final String label;
+  final IconData icon;
+  final Color background;
+  final Color foreground;
+}
+
+/// Temporary per-person markers until people can choose their own. Every
+/// person gets a different one, in the stable order of user ids, so cards are
+/// easy to tell apart at a glance. Both the glyph and the colour differ.
+const personMarkerPalette = <PersonMarker>[
+  PersonMarker(
+    label: 'Лапка',
+    icon: Icons.pets_rounded,
+    background: Color(0xFF8D5A3B),
+    foreground: Colors.white,
+  ),
+  PersonMarker(
+    label: 'Зайчик',
+    icon: Icons.cruelty_free_rounded,
+    background: Color(0xFFF07C1E),
+    foreground: Colors.white,
+  ),
+  PersonMarker(
+    label: 'Птичка',
+    icon: Icons.flutter_dash_rounded,
+    background: Color(0xFF1E88E5),
+    foreground: Colors.white,
+  ),
+  PersonMarker(
+    label: 'Листик',
+    icon: Icons.eco_rounded,
+    background: Color(0xFF2E9D4F),
+    foreground: Colors.white,
+  ),
+  PersonMarker(
+    label: 'Звезда',
+    icon: Icons.star_rounded,
+    background: Color(0xFF7E57C2),
+    foreground: Colors.white,
+  ),
+  PersonMarker(
+    label: 'Цветок',
+    icon: Icons.local_florist_rounded,
+    background: Color(0xFFD81B60),
+    foreground: Colors.white,
+  ),
+  PersonMarker(
+    label: 'Молния',
+    icon: Icons.bolt_rounded,
+    background: Color(0xFF00897B),
+    foreground: Colors.white,
+  ),
+  PersonMarker(
+    label: 'Сердце',
+    icon: Icons.favorite_rounded,
+    background: Color(0xFF424242),
+    foreground: Colors.white,
+  ),
+];
+
+/// Marker for a card whose owner is unknown.
+const unknownPersonMarker = PersonMarker(
+  label: 'Владелец неизвестен',
+  icon: Icons.person_rounded,
+  background: Color(0xFFB0B7C3),
+  foreground: Colors.white,
+);
+
+PersonMarker personMarker(int? userId, Iterable<int> allUserIds) {
+  if (userId == null) return unknownPersonMarker;
   final ordered = allUserIds.toSet().toList()..sort();
   final index = ordered.indexOf(userId);
   return index < 0
-      ? '👤'
-      : personEmojiPalette[index % personEmojiPalette.length];
+      ? unknownPersonMarker
+      : personMarkerPalette[index % personMarkerPalette.length];
+}
+
+class PersonMarkerBadge extends StatelessWidget {
+  const PersonMarkerBadge({
+    super.key,
+    required this.marker,
+    this.userName,
+    this.size = 20,
+  });
+
+  final PersonMarker marker;
+  final String? userName;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        image: true,
+        label: 'Владелец ${userName ?? marker.label}',
+        child: ExcludeSemantics(
+          child: Container(
+            width: size,
+            height: size,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: marker.background,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              marker.icon,
+              size: size * .64,
+              color: marker.foreground,
+            ),
+          ),
+        ),
+      );
 }
 
 BankIconOption bankIconOption(String? key, {String? bankName}) {

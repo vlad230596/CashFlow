@@ -2,6 +2,7 @@ import 'package:cashflow/models/canonical_category_model.dart';
 import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
 import 'package:cashflow/screens/widgets/benefit_states_view.dart';
+import 'package:cashflow/utils/identity_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -61,7 +62,7 @@ void main() {
         bankIconKey: 'tbank',
         userName: 'Анна',
         userIconKey: 'girl',
-        userEmoji: '🦊',
+        userMarker: personMarkerPalette[1],
         lastFourDigits: '100$index',
       ),
     );
@@ -76,8 +77,8 @@ void main() {
       expect(find.text('Категория $index'), findsOneWidget);
     }
     expect(find.textContaining('Показать все'), findsNothing);
-    // Owners and banks are shown as emoji and badges, not as names.
-    expect(find.text('🦊'), findsWidgets);
+    // Owners and banks are shown as drawn markers and badges, not as names.
+    expect(find.byIcon(personMarkerPalette[1].icon), findsWidgets);
     expect(find.textContaining('Анна'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -192,6 +193,79 @@ void main() {
     }
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+  });
+
+  testWidgets('tied cards show only badges, owner marker and last digits',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(_app(items: _tiedItems));
+
+    await tester.tap(find.text('Аптеки'));
+    await tester.pump();
+
+    expect(find.text('Одинаковая выгода'), findsOneWidget);
+    expect(find.text('•1002'), findsOneWidget);
+    expect(find.text('•2003'), findsOneWidget);
+    expect(find.textContaining('Семейные расходы'), findsNothing);
+    expect(find.textContaining('Т-Банк'), findsNothing);
+    expect(find.byIcon(personMarkerPalette[0].icon), findsOneWidget);
+    expect(find.byIcon(personMarkerPalette[1].icon), findsOneWidget);
+    expect(
+      find.bySemanticsLabel('Т-Банк, владелец Тест, карта •1002, 5%'),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsLabel('Альфа-Банк, владелец Анна, карта •2003, 5%'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    semantics.dispose();
+  });
+
+  testWidgets('detail card falls back to the card label without digits',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(_app(items: _items));
+
+    await tester.tap(find.text('Аптеки'));
+    await tester.pump();
+
+    expect(find.text('Карта семьи •1234'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('owner marker is drawn from the bundled icon font',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PersonMarkerBadge(
+          marker: personMarkerPalette[2],
+          userName: 'Анна',
+        ),
+      ),
+    );
+
+    final icon = tester.widget<Icon>(find.byType(Icon));
+    expect(icon.icon, personMarkerPalette[2].icon);
+    expect(icon.icon!.fontFamily, 'MaterialIcons');
+    expect(find.byType(Text), findsNothing);
+    expect(find.bySemanticsLabel('Владелец Анна'), findsOneWidget);
+  });
+
+  test('every person gets a distinct marker in stable user-id order', () {
+    expect(personMarker(7, [7, 3, 5]), personMarkerPalette[2]);
+    expect(personMarker(3, [7, 3, 5]), personMarkerPalette[0]);
+    expect(personMarker(3, [5, 3, 3, 7]), personMarkerPalette[0]);
+    expect(personMarker(null, [1]), unknownPersonMarker);
+    expect(personMarker(9, [1]), unknownPersonMarker);
+    expect(personMarkerPalette.map((m) => m.icon).toSet(),
+        hasLength(personMarkerPalette.length));
+    expect(personMarkerPalette.map((m) => m.background).toSet(),
+        hasLength(personMarkerPalette.length));
+    for (final marker in [...personMarkerPalette, unknownPersonMarker]) {
+      expect(marker.icon.fontFamily, 'MaterialIcons');
+    }
   });
 
   testWidgets('compact search groups categories, MCC codes and merchants',
@@ -345,6 +419,55 @@ final _searchItems = [
   ),
 ];
 
+BenefitItemData _tiedItem({
+  required int id,
+  required String cardLabel,
+  required String bankName,
+  required String bankIconKey,
+  required String userName,
+  required int markerIndex,
+  required String digits,
+}) =>
+    BenefitItemData(
+      category: CashbackCategoryModel(
+        id: id,
+        name: 'Аптеки',
+        startDate: DateTime(2026, 9),
+        endDate: DateTime(2026, 10),
+        isSelected: true,
+        isBankConfirmed: true,
+        cashbackPercent: 5,
+        cardId: id,
+      ),
+      cardLabel: cardLabel,
+      bankName: bankName,
+      bankIconKey: bankIconKey,
+      userName: userName,
+      userMarker: personMarkerPalette[markerIndex],
+      lastFourDigits: digits,
+    );
+
+final _tiedItems = [
+  _tiedItem(
+    id: 51,
+    cardLabel: 'Тест — Семейные расходы Т-Банк · •1002',
+    bankName: 'Т-Банк',
+    bankIconKey: 'tbank',
+    userName: 'Тест',
+    markerIndex: 0,
+    digits: '1002',
+  ),
+  _tiedItem(
+    id: 52,
+    cardLabel: 'Анна — Альфа-Банк · •2003',
+    bankName: 'Альфа-Банк',
+    bankIconKey: 'alfa',
+    userName: 'Анна',
+    markerIndex: 1,
+    digits: '2003',
+  ),
+];
+
 final _identityItems = [
   BenefitItemData(
     category: CashbackCategoryModel(
@@ -472,6 +595,6 @@ final _canonicalItem = BenefitItemData(
   bankName: 'ВТБ',
   bankIconKey: 'vtb',
   userName: 'Влад',
-  userEmoji: '🐻',
+  userMarker: personMarkerPalette[0],
   lastFourDigits: '4321',
 );

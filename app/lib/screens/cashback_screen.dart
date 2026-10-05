@@ -28,7 +28,7 @@ class CashbackScreen extends StatelessWidget {
                   bankIconKey: _bankIconKey(provider, category.cardId),
                   userName: _userName(provider, category.cardId),
                   userIconKey: _userIconKey(provider, category.cardId),
-                  userEmoji: personEmoji(
+                  userMarker: personMarker(
                     provider.getCardById(category.cardId).userId,
                     userIds,
                   ),
