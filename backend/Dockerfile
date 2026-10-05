@@ -24,6 +24,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY main.py alembic.ini ./
 COPY development_seed.py ./
 COPY mcc_catalog.py ./
+COPY canonical_categories.py ./
 COPY data ./data
 COPY migrations ./migrations
 COPY scripts ./scripts

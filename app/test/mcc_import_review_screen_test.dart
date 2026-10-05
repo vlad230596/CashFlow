@@ -61,6 +61,7 @@ void main() {
     double textScale = 1,
     CashbackImportFile? file,
     MccSnapshotCreator? creator,
+    BankModel? targetBank,
   }) async {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
@@ -75,7 +76,7 @@ void main() {
           child: child!,
         ),
         home: MccImportReviewScreen(
-          bank: bank,
+          bank: targetBank ?? bank,
           initialFile: file,
           snapshotCreator: creator,
         ),
@@ -176,5 +177,57 @@ void main() {
 
     expect(find.text('Сводка ревизии'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('bank key in a bundled file resolves to the selected bank',
+      (tester) async {
+    Map<String, dynamic>? submitted;
+    await pumpScreen(
+      tester,
+      width: 1280,
+      targetBank: BankModel(id: 7, name: 'Озон', iconKey: 'ozon'),
+      file: CashbackImportFile(
+        name: 'ozon.json',
+        contents: json.encode({...validDocument(), 'bankId': 'ozon'}),
+      ),
+      creator: (document) async {
+        submitted = document;
+        return revision();
+      },
+    );
+
+    await tester.drag(
+      find.byKey(const ValueKey('mcc-import-summary-scroll')),
+      const Offset(0, -700),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Создать черновик'));
+    await tester.pumpAndSettle();
+
+    expect(submitted?['bankId'], 7);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('bank key for another bank blocks the import', (tester) async {
+    await pumpScreen(
+      tester,
+      width: 1280,
+      targetBank: BankModel(id: 7, name: 'ВТБ', iconKey: 'vtb'),
+      file: CashbackImportFile(
+        name: 'ozon.json',
+        contents: json.encode({...validDocument(), 'bankId': 'ozon'}),
+      ),
+    );
+
+    expect(find.textContaining('файл для банка «ozon»'), findsOneWidget);
+    await tester.drag(
+      find.byKey(const ValueKey('mcc-import-summary-scroll')),
+      const Offset(0, -700),
+    );
+    await tester.pumpAndSettle();
+    final button = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Создать черновик'),
+    );
+    expect(button.onPressed, isNull);
   });
 }

@@ -147,7 +147,12 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('Корневое значение должно быть объектом');
       }
-      result = _analyze(decoded, widget.baseRevision, widget.bank.id);
+      result = _analyze(
+        decoded,
+        widget.baseRevision,
+        widget.bank.id,
+        widget.bank.iconKey,
+      );
     } on FormatException catch (error) {
       result = _invalidAnalysis('JSON: ${error.message}');
     } catch (error) {
@@ -788,12 +793,14 @@ _ImportAnalysis _invalidAnalysis(String error) => _ImportAnalysis(
     );
 
 _ImportAnalysis _analyze(
-  Map<String, dynamic> document,
+  Map<String, dynamic> input,
   MccRuleRevisionModel? base,
   int? expectedBankId,
+  String? expectedBankKey,
 ) {
   final errors = <String>[];
   final warnings = <String>[];
+  var document = input;
   if (document['schemaVersion'] != 1) {
     errors.add('schemaVersion: ожидается значение 1.');
   }
@@ -801,8 +808,19 @@ _ImportAnalysis _analyze(
     errors.add('kind: ожидается bank_mcc_rules_snapshot.');
   }
   final bankId = document['bankId'];
-  if (bankId is! int) {
-    errors.add('bankId: укажите целочисленный идентификатор банка.');
+  if (bankId is String) {
+    // Bundled snapshots name the bank by key (ozon, vtb, …) because database ids differ
+    // between environments. The key must match the selected bank's icon key.
+    if (expectedBankId == null || bankId != expectedBankKey) {
+      errors.add(
+        'bankId: файл для банка «$bankId», а выбран банк с ключом '
+        '«${expectedBankKey ?? 'не задан'}».',
+      );
+    } else {
+      document = {...document, 'bankId': expectedBankId};
+    }
+  } else if (bankId is! int) {
+    errors.add('bankId: укажите идентификатор или ключ банка.');
   } else if (expectedBankId != null && bankId != expectedBankId) {
     errors.add('bankId: файл относится к другому банку ($bankId).');
   }

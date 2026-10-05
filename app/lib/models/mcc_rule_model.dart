@@ -38,6 +38,8 @@ class MccBankCategoryModel {
     required this.completeness,
     this.sourceExternalId,
     this.description,
+    this.kind = 'mcc',
+    this.manualCanonicalKeys,
   });
 
   final int id;
@@ -49,6 +51,12 @@ class MccBankCategoryModel {
   final List<String> excludedMcc;
   final List<MccRuleConditionModel> conditions;
   final String completeness;
+
+  /// mcc, all_purchases, payment_method, bank_service, partner or other.
+  final String kind;
+
+  /// Canonical categories assigned by hand; null when links were computed from MCC.
+  final List<String>? manualCanonicalKeys;
 
   factory MccBankCategoryModel.fromJson(Map<String, dynamic> json) =>
       MccBankCategoryModel(
@@ -69,6 +77,38 @@ class MccBankCategoryModel {
             )
             .toList(),
         completeness: json['completeness'] as String? ?? 'unknown',
+        kind: json['kind'] as String? ?? 'mcc',
+        manualCanonicalKeys: _manualCanonicalKeys(json['canonical']),
+      );
+
+  static List<String>? _manualCanonicalKeys(dynamic value) {
+    final manual = (value as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .where((link) => link['source'] == 'manual')
+        .map((link) => link['key'] as String)
+        .toList();
+    return manual.isEmpty ? null : manual;
+  }
+}
+
+class MccExclusionModel {
+  const MccExclusionModel({
+    required this.mcc,
+    required this.kind,
+    this.reason,
+  });
+
+  final String mcc;
+
+  /// always, unless_category or conditional.
+  final String kind;
+  final String? reason;
+
+  factory MccExclusionModel.fromJson(Map<String, dynamic> json) =>
+      MccExclusionModel(
+        mcc: json['mcc'] as String,
+        kind: json['kind'] as String? ?? 'always',
+        reason: json['reason'] as String?,
       );
 }
 
@@ -87,6 +127,7 @@ class MccRuleRevisionModel {
     required this.globalExcludedMcc,
     required this.conditions,
     required this.categories,
+    this.exclusions = const [],
     this.productScope,
     this.validTo,
     this.sourceUrl,
@@ -113,6 +154,9 @@ class MccRuleRevisionModel {
   final List<MccRuleConditionModel> conditions;
   final List<MccBankCategoryModel> categories;
 
+  /// Every program exclusion with its kind; [globalExcludedMcc] holds only "always".
+  final List<MccExclusionModel> exclusions;
+
   factory MccRuleRevisionModel.fromJson(Map<String, dynamic> json) {
     final program = json['program'] as Map<String, dynamic>;
     final source = json['source'] as Map<String, dynamic>;
@@ -136,6 +180,11 @@ class MccRuleRevisionModel {
       parserVersion: source['parser_version'] as String?,
       globalExcludedMcc:
           List<String>.from(json['global_excluded_mcc'] as List? ?? const []),
+      exclusions: (json['exclusions'] as List? ?? const [])
+          .map(
+            (item) => MccExclusionModel.fromJson(item as Map<String, dynamic>),
+          )
+          .toList(),
       conditions: (json['conditions'] as List? ?? const [])
           .map(
             (item) => MccRuleConditionModel.fromJson(

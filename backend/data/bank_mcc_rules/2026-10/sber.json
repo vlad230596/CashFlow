@@ -1,0 +1,1331 @@
+{
+ "schemaVersion": 1,
+ "kind": "bank_mcc_rules_snapshot",
+ "bankId": "sber",
+ "programKey": "sberspasibo",
+ "programName": "СберСпасибо — памятка об условиях программы",
+ "productScope": null,
+ "collectedAt": "2026-10-05T00:00:00+03:00",
+ "source": {
+  "type": "pdf",
+  "url": null,
+  "parserName": "manual-transcription",
+  "parserVersion": "2026-10-05"
+ },
+ "validity": {
+  "from": "2026-10-01",
+  "confidence": "unknown"
+ },
+ "completeness": "exact_mcc",
+ "globalExcludedMcc": [],
+ "exclusions": [
+  {
+   "mcc": [
+    "8398"
+   ],
+   "kind": "always",
+   "reason": "Благотворительность"
+  },
+  {
+   "mcc": [
+    "4468",
+    "5933",
+    "5968",
+    "6009",
+    "6050",
+    "6051",
+    "7277",
+    "7311",
+    "7372",
+    "7375",
+    "7389",
+    "7399",
+    "8911",
+    "8999",
+    "9950",
+    "9991",
+    "9999"
+   ],
+   "kind": "always",
+   "reason": "Бизнес-услуги"
+  },
+  {
+   "mcc": [
+    "7276",
+    "9211",
+    "9222",
+    "9223",
+    "9311",
+    "9313",
+    "9390",
+    "9399",
+    "9401",
+    "9405"
+   ],
+   "kind": "always",
+   "reason": "Государственные платежи и налоги"
+  },
+  {
+   "mcc": [
+    "4812",
+    "4813",
+    "4814",
+    "4815",
+    "4816",
+    "4821",
+    "4899",
+    "4900"
+   ],
+   "kind": "unless_category",
+   "reason": "ЖКХ, связь, интернет — в списке исключений, но для них есть категории «За оплату ЖКХ» и «Связь, Интернет и ТВ»; по разделу 5 бонусы идут только при выбранной категории"
+  },
+  {
+   "mcc": [
+    "7800",
+    "7801",
+    "7802",
+    "7995",
+    "9406",
+    "9754"
+   ],
+   "kind": "always",
+   "reason": "Лотереи, казино и азартные игры"
+  },
+  {
+   "mcc": [
+    "5262",
+    "5297",
+    "5298",
+    "5300",
+    "5964"
+   ],
+   "kind": "always",
+   "reason": "Маркетплейсы"
+  },
+  {
+   "mcc": [
+    "6211"
+   ],
+   "kind": "always",
+   "reason": "Инвестиции"
+  },
+  {
+   "mcc": [
+    "2791",
+    "5044",
+    "5045",
+    "5046",
+    "5047",
+    "5085",
+    "5099",
+    "5131",
+    "5169",
+    "5193",
+    "5199",
+    "5715"
+   ],
+   "kind": "always",
+   "reason": "Оптовая торговля"
+  },
+  {
+   "mcc": [
+    "4785",
+    "4829",
+    "6012",
+    "6529",
+    "6530",
+    "6531",
+    "6532",
+    "6533",
+    "6534",
+    "6535",
+    "6536",
+    "6537",
+    "6538",
+    "6539",
+    "6540",
+    "9400",
+    "9994",
+    "9995",
+    "9998"
+   ],
+   "kind": "always",
+   "reason": "Переводы людям"
+  },
+  {
+   "mcc": [
+    "4011",
+    "4214",
+    "4215",
+    "4729",
+    "4789",
+    "9402"
+   ],
+   "kind": "always",
+   "reason": "Перевозка, доставка"
+  },
+  {
+   "mcc": [
+    "6010",
+    "6011",
+    "9990",
+    "9996",
+    "9997"
+   ],
+   "kind": "always",
+   "reason": "Снятие наличных"
+  },
+  {
+   "mcc": [
+    "5993"
+   ],
+   "kind": "always",
+   "reason": "Табачные магазины"
+  },
+  {
+   "mcc": [
+    "5960",
+    "6300",
+    "6381",
+    "6399"
+   ],
+   "kind": "always",
+   "reason": "Услуги страхования"
+  },
+  {
+   "mcc": [
+    "8641",
+    "8651",
+    "8661",
+    "8675",
+    "8699"
+   ],
+   "kind": "always",
+   "reason": "Членские организации"
+  },
+  {
+   "mcc": [
+    "3990"
+   ],
+   "kind": "conditional",
+   "reason": "3990 — только сервисы Яндекса (Заправки, Такси, Uber, Еда, Учебник, Практикум, Здоровье)"
+  },
+  {
+   "mcc": [
+    "3991"
+   ],
+   "kind": "conditional",
+   "reason": "3991 — только сервисы Сбера, кроме СберСтрахования, СберЛогистики, СберРешений, 2ГИС Про"
+  },
+  {
+   "mcc": [
+    "6513"
+   ],
+   "kind": "conditional",
+   "reason": "6513 (недвижимость, аренда) — платёж не больше 1 млн ₽"
+  },
+  {
+   "mcc": [
+    "5511",
+    "5533"
+   ],
+   "kind": "conditional",
+   "reason": "5511, 5533 — покупки по категории не больше 1 млн ₽ в месяц"
+  },
+  {
+   "mcc": [
+    "4900",
+    "9222"
+   ],
+   "kind": "unless_category",
+   "reason": "4900 — только с категорией «За оплату ЖКХ» или «ЖКХ в Сбербанк Онлайн»; 9222 — только с категорией «Штрафы ГИБДД», кроме оплаты в СберБанк Онлайн"
+  },
+  {
+   "mcc": [
+    "3011",
+    "4511"
+   ],
+   "kind": "conditional",
+   "reason": "Авиабилеты 4511, 3011 — только СпасибоТревел или Аэрофлот, Нордвинд, ЮТэйр, Уральские авиалинии, Победа, S7"
+  },
+  {
+   "mcc": [
+    "4112"
+   ],
+   "kind": "conditional",
+   "reason": "Ж/д билеты 4112 — только в разделе «Тревел»"
+  },
+  {
+   "mcc": [
+    "7011"
+   ],
+   "kind": "conditional",
+   "reason": "Отели 7011 — только «Тревел» или Отелло, МРИЯ, Манжерок, СберУниверситет, корпоративный центр Сбера в Красной Поляне"
+  }
+ ],
+ "conditions": [
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Бонусы за каждые полные 100 ₽ покупки в выбранных категориях"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Категории выбираются каждый месяц; их число зависит от продуктов Сбера (карты, подписки, пакеты)"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Категория определяется по MCC или по способу оплаты (улыбка, SberPay NFC, Вжух)"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Лимит в месяц по продукту: 2 000 (Standard/Classic/Gold, СберКарта) — 5 000 (Platinum, кредитная, СберПрайм Старт) — 10 000 (СберПрайм) — 15 000 (СберПрайм+) — 20 000–50 000 (Премиальное обслуживание, СберПервый) — без лимита (Private Banking, Премиальное 5–6)"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Максимальная покупка, за которую дают бонусы, — 100 000 ₽ (у СберПервого и Премиального 4–6 без ограничения)"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Детская СберКарта — 3 000 бонусов в месяц независимо от других продуктов"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "При нескольких продуктах применяется самый выгодный"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Лимиты СпасибоТревел: 5 000 в месяц, Авиа/ЖД/Отели/Туры — по 3 000"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Начисление до 5 дней, в исключительных случаях до 40"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Нет бонусов с 6-й покупки у одного продавца за день"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Бонусы сгорают через 24 месяца без использования, через 12 месяцев без покупок, при неактивации категорий 6 месяцев"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Снятие наличных; оплата тарифов, подписок и пакетов Сбера, обслуживание карт, ценные бумаги"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Переводы, включая СБП; операции с цифровым рублём и цифровой валютой"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Платежи через СберБанк Онлайн; реклама; платежи по кредитам"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Покупки в кредит через «Покупай со Сбером»; оплата через Яндекс Сплит"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Корпоративные карты, «Аэрофлот Бонус», «МТС Бонус», «Подари жизнь», СберКарта Travel, Maestro, Visa Electron, Visa Digital, Momentum, Социальная Standard, МИР Моментальная, ПРО100"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Кредитные карты — за «На все покупки» и категории способа оплаты (кроме Private Banking и Премиального 4–6)"
+  },
+  {
+   "kind": "source_document",
+   "operator": null,
+   "value": null,
+   "originalText": "Источник: pamyatka.pdf"
+  },
+  {
+   "kind": "validity_note",
+   "operator": null,
+   "value": null,
+   "originalText": "Срок действия: без даты; краткий обзор, не оферта"
+  }
+ ],
+ "categories": [
+  {
+   "sourceKey": "supermarkety",
+   "name": "Супермаркеты",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "3991",
+    "5309",
+    "5311",
+    "5331",
+    "5399",
+    "5411",
+    "5412",
+    "5422",
+    "5441",
+    "5451",
+    "5499",
+    "5921",
+    "9751"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "azs",
+   "name": "АЗС",
+   "description": "Топливо, автомастерские, магазины и кафе при АЗС",
+   "includedMcc": [
+    "3990",
+    "3991",
+    "5172",
+    "5541",
+    "5542",
+    "5552",
+    "5983",
+    "9752"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Топливо, автомастерские, магазины и кафе при АЗС"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "avtozapchasti",
+   "name": "Автозапчасти",
+   "description": "5511 и 5533 — при сумме не более 1 млн ₽ в месяц",
+   "includedMcc": [
+    "5013",
+    "5271",
+    "5511",
+    "5531",
+    "5532",
+    "5533"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "5511 и 5533 — при сумме не более 1 млн ₽ в месяц"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "avtouslugi",
+   "name": "Автоуслуги",
+   "description": "Автосервисы, шиномонтаж, эвакуация, платные дороги, парковки, покупка авто и мото",
+   "includedMcc": [
+    "4784",
+    "5521",
+    "5551",
+    "5561",
+    "5571",
+    "5592",
+    "5598",
+    "5599",
+    "7511",
+    "7523",
+    "7531",
+    "7534",
+    "7535",
+    "7538",
+    "7542",
+    "7549"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Автосервисы, шиномонтаж, эвакуация, платные дороги, парковки, покупка авто и мото"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "shtrafy-gibdd",
+   "name": "Штрафы ГИБДД",
+   "description": "Кроме оплаты через СберБанк Онлайн (по разделу 5)",
+   "includedMcc": [
+    "9222"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Кроме оплаты через СберБанк Онлайн (по разделу 5)"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "kafe-i-restorany",
+   "name": "Кафе и рестораны",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "3991",
+    "5462",
+    "5811",
+    "5812",
+    "5813",
+    "5814"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "odezhda-i-obuv",
+   "name": "Одежда и обувь",
+   "description": null,
+   "includedMcc": [
+    "5137",
+    "5139",
+    "5611",
+    "5621",
+    "5631",
+    "5651",
+    "5661",
+    "5681",
+    "5691",
+    "5699",
+    "5931",
+    "5948",
+    "7296"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "tovary-dlya-doma",
+   "name": "Товары для дома",
+   "description": null,
+   "includedMcc": [
+    "0780",
+    "1520",
+    "1711",
+    "1740",
+    "1750",
+    "1761",
+    "1771",
+    "1799",
+    "2842",
+    "5021",
+    "5039",
+    "5051",
+    "5072",
+    "5074",
+    "5198",
+    "5200",
+    "5211",
+    "5231",
+    "5251",
+    "5261",
+    "5712",
+    "5713",
+    "5714",
+    "5718",
+    "5719",
+    "5950",
+    "5996",
+    "5998"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "tovary-dlya-detey",
+   "name": "Товары для детей",
+   "description": null,
+   "includedMcc": [
+    "5641",
+    "5945"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "pitomtsy",
+   "name": "Питомцы",
+   "description": null,
+   "includedMcc": [
+    "0742",
+    "5995"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "taksi-i-karshering",
+   "name": "Такси и каршеринг",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "3991",
+    "4121",
+    "7512"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "taksi",
+   "name": "Такси",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "4121"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "arenda-avto",
+   "name": "Аренда авто",
+   "description": null,
+   "includedMcc": [
+    "3351",
+    "3352",
+    "3353",
+    "3354",
+    "3355",
+    "3356",
+    "3357",
+    "3358",
+    "3359",
+    "3360",
+    "3361",
+    "3362",
+    "3363",
+    "3364",
+    "3365",
+    "3366",
+    "3367",
+    "3368",
+    "3369",
+    "3370",
+    "3371",
+    "3372",
+    "3373",
+    "3374",
+    "3375",
+    "3376",
+    "3377",
+    "3378",
+    "3379",
+    "3380",
+    "3381",
+    "3382",
+    "3383",
+    "3384",
+    "3385",
+    "3386",
+    "3387",
+    "3388",
+    "3389",
+    "3390",
+    "3391",
+    "3392",
+    "3393",
+    "3394",
+    "3395",
+    "3396",
+    "3397",
+    "3398",
+    "3400",
+    "3401",
+    "3402",
+    "3403",
+    "3404",
+    "3405",
+    "3406",
+    "3407",
+    "3408",
+    "3409",
+    "3410",
+    "3412",
+    "3413",
+    "3414",
+    "3415",
+    "3416",
+    "3417",
+    "3418",
+    "3419",
+    "3420",
+    "3421",
+    "3422",
+    "3423",
+    "3425",
+    "3426",
+    "3427",
+    "3428",
+    "3429",
+    "3430",
+    "3431",
+    "3432",
+    "3433",
+    "3434",
+    "3435",
+    "3436",
+    "3437",
+    "3438",
+    "3439",
+    "3441",
+    "3991",
+    "7512",
+    "7513",
+    "7519"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "kino-i-teatr",
+   "name": "Кино и театр",
+   "description": null,
+   "includedMcc": [
+    "3991",
+    "7832",
+    "7833",
+    "7841",
+    "7922"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "parfyumeriya-i-kosmetika",
+   "name": "Парфюмерия и косметика",
+   "description": null,
+   "includedMcc": [
+    "5977"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "yuvelirnye-izdeliya",
+   "name": "Ювелирные изделия",
+   "description": null,
+   "includedMcc": [
+    "5094",
+    "5944"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "tsifrovye-tovary",
+   "name": "Цифровые товары",
+   "description": null,
+   "includedMcc": [
+    "5734",
+    "5735",
+    "5815",
+    "5816",
+    "5817",
+    "5818"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "tsvety",
+   "name": "Цветы",
+   "description": null,
+   "includedMcc": [
+    "5193",
+    "5992"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "knigi",
+   "name": "Книги",
+   "description": null,
+   "includedMcc": [
+    "2741",
+    "5111",
+    "5192",
+    "5942",
+    "5943",
+    "5994"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "obrazovanie",
+   "name": "Образование",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "3991",
+    "8211",
+    "8220",
+    "8241",
+    "8244",
+    "8249",
+    "8299",
+    "8351"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "khobbi-i-razvlecheniya",
+   "name": "Хобби и развлечения",
+   "description": "Спортивные и музыкальные магазины, досуг и развлечения",
+   "includedMcc": [
+    "4457",
+    "5733",
+    "5735",
+    "5832",
+    "5937",
+    "5946",
+    "5947",
+    "5949",
+    "5970",
+    "5971",
+    "5972",
+    "7221",
+    "7333",
+    "7395",
+    "7911",
+    "7929",
+    "7932",
+    "7933",
+    "7991",
+    "7993",
+    "7994",
+    "7996",
+    "7998",
+    "7999"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Спортивные и музыкальные магазины, досуг и развлечения"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "salony-krasoty",
+   "name": "Салоны красоты",
+   "description": null,
+   "includedMcc": [
+    "7230",
+    "7297",
+    "7298"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "transport",
+   "name": "Транспорт",
+   "description": "Бонусы на любую сумму от 1 ₽",
+   "includedMcc": [
+    "4111",
+    "4131"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Бонусы на любую сумму от 1 ₽"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "elektronika-i-bytovaya-tekhnika",
+   "name": "Электроника и бытовая техника",
+   "description": null,
+   "includedMcc": [
+    "3991",
+    "5065",
+    "5722",
+    "5732",
+    "5997"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "meditsinskie-uslugi",
+   "name": "Медицинские услуги",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "4119",
+    "5975",
+    "5976",
+    "8011",
+    "8021",
+    "8031",
+    "8041",
+    "8042",
+    "8043",
+    "8044",
+    "8049",
+    "8050",
+    "8062",
+    "8071",
+    "8099"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "sport-i-fitnes",
+   "name": "Спорт и фитнес",
+   "description": null,
+   "includedMcc": [
+    "5655",
+    "5940",
+    "5941",
+    "7941",
+    "7992",
+    "7997"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "fitnes",
+   "name": "Фитнес",
+   "description": null,
+   "includedMcc": [
+    "7941",
+    "7992",
+    "7997"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "sportivnye-tovary",
+   "name": "Спортивные товары",
+   "description": null,
+   "includedMcc": [
+    "5655",
+    "5940",
+    "5941"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "apteki",
+   "name": "Аптеки",
+   "description": null,
+   "includedMcc": [
+    "3991",
+    "5122",
+    "5912"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "vpechatleniya",
+   "name": "Впечатления",
+   "description": "Концерты, парки аттракционов, бильярд и развлекательные клубы",
+   "includedMcc": [
+    "3991",
+    "7832",
+    "7922",
+    "7933",
+    "7991",
+    "7996",
+    "7998",
+    "7999"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Концерты, парки аттракционов, бильярд и развлекательные клубы"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "fastfud",
+   "name": "Фастфуд",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "3991",
+    "5814"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "restorany",
+   "name": "Рестораны",
+   "description": null,
+   "includedMcc": [
+    "3990",
+    "3991",
+    "5462",
+    "5811",
+    "5812",
+    "5813"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "za-oplatu-zhkkh",
+   "name": "За оплату ЖКХ",
+   "description": "Включая оплату в СберБанк Онлайн",
+   "includedMcc": [
+    "4900"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Включая оплату в СберБанк Онлайн"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "svyaz-internet-i-tv",
+   "name": "Связь, Интернет и ТВ",
+   "description": "Включая операции в СберБанк Онлайн",
+   "includedMcc": [
+    "4813",
+    "4814",
+    "4815",
+    "4816",
+    "4821",
+    "4899",
+    "7372",
+    "7375"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Включая операции в СберБанк Онлайн"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "na-vse-pokupki",
+   "name": "На все покупки",
+   "description": "Любые покупки, кроме исключений. Не действует для кредитных карт (кроме Private Banking и Премиального 4–6)",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Любые покупки, кроме исключений. Не действует для кредитных карт (кроме Private Banking и Премиального 4–6)"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "all_purchases"
+  },
+  {
+   "sourceKey": "zhkkh-v-sberbank-onlayn",
+   "name": "ЖКХ в Сбербанк Онлайн",
+   "description": "Оплата ЖКХ в СберБанк Онлайн",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Оплата ЖКХ в СберБанк Онлайн"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "utilities"
+   ]
+  },
+  {
+   "sourceKey": "transportnye-karty",
+   "name": "Транспортные карты",
+   "description": "Операции в СберБанк Онлайн",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Операции в СберБанк Онлайн"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "transport"
+   ]
+  },
+  {
+   "sourceKey": "marketpleys-osago",
+   "name": "Маркетплейс ОСАГО",
+   "description": "СберБанк Онлайн или офис банка",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "СберБанк Онлайн или офис банка"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service"
+  },
+  {
+   "sourceKey": "spasibotrevel",
+   "name": "СпасибоТревел",
+   "description": "Раздел «Тревел» на сайте программы; лимит 5 000 в месяц",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Раздел «Тревел» на сайте программы; лимит 5 000 в месяц"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "airline",
+    "hotels",
+    "rail",
+    "travel_agency"
+   ]
+  },
+  {
+   "sourceKey": "avia-na-spasibotrevel",
+   "name": "Авиа на СпасибоТревел",
+   "description": "Лимит 3 000 в месяц",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Лимит 3 000 в месяц"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "airline"
+   ]
+  },
+  {
+   "sourceKey": "zhd-na-spasibotrevel",
+   "name": "ЖД на СпасибоТревел",
+   "description": "Лимит 3 000 в месяц",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Лимит 3 000 в месяц"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "rail"
+   ]
+  },
+  {
+   "sourceKey": "oteli-na-spasibotrevel",
+   "name": "Отели на СпасибоТревел",
+   "description": "Лимит 3 000 в месяц",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Лимит 3 000 в месяц"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "hotels"
+   ]
+  },
+  {
+   "sourceKey": "tury-na-spasibotrevel",
+   "name": "Туры на СпасибоТревел",
+   "description": "Лимит 3 000 в месяц",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Лимит 3 000 в месяц"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "travel_agency"
+   ]
+  },
+  {
+   "sourceKey": "na-vse-za-oplatu-ulybkoy",
+   "name": "На всё за оплату улыбкой",
+   "description": "SberPay с биометрией",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "SberPay с биометрией"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "payment_method"
+  },
+  {
+   "sourceKey": "na-vse-po-sberpay-nfc",
+   "name": "На всё по SberPay NFC",
+   "description": "SberPay по NFC картой банка",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "SberPay по NFC картой банка"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "payment_method"
+  },
+  {
+   "sourceKey": "na-vse-za-oplatu-vzhukh",
+   "name": "На всё за оплату Вжух",
+   "description": "Оплата по Bluetooth",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Оплата по Bluetooth"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "payment_method"
+  }
+ ]
+}

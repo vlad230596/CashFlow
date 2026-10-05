@@ -84,6 +84,28 @@ cashback data. For non-interactive first-time setup, provide the password only t
 environment as `CASHFLOW_DEV_ADMIN_PASSWORD`; never commit it or pass it as a command-line
 argument.
 
+## Bank MCC rules
+
+Releases do not import bank rules automatically. Migration `0010_canonical_categories` only adds
+the unified categories. The bundled rule snapshots in `backend/data/bank_mcc_rules/` are loaded on
+explicit request, after the release containing them is deployed:
+
+- through the application: «Ещё → Настройки MCC → выбрать банк → Новый импорт», one file per bank,
+  review the preview, create the draft, then publish;
+- or from the running backend image, which publishes every bundled snapshot and skips banks that do
+  not exist:
+
+```bash
+cd /opt/cashflow-dev
+docker compose -p cashflow-dev --env-file .env --env-file .release.env \
+  -f compose.dev.yaml exec backend \
+  uv run --no-sync flask --app main import-bank-mcc-rules
+```
+
+In production the same `flask` command runs in `/opt/cashflow` with `compose.prod.yaml` and only
+on an explicit request. Both paths are idempotent: unchanged content does not create another
+revision.
+
 ## Branches and component checks
 
 Ongoing changes land on `dev`. Pull requests into `dev` or `main` and pushes to either branch run

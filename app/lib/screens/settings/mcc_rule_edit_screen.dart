@@ -172,6 +172,22 @@ class _MccRuleEditScreenState extends State<MccRuleEditScreen> {
         'Глобальные исключения',
       );
       final categoryDocuments = <Map<String, dynamic>>[];
+      // Fields the editor does not show are carried over from the base revision so that
+      // saving a copy keeps exclusion kinds, category kinds and manual canonical links.
+      final baseCategories = {
+        for (final item in widget.baseRevision?.categories ??
+            const <MccBankCategoryModel>[])
+          item.sourceKey: item,
+      };
+      final typedExclusions =
+          (widget.baseRevision?.exclusions ?? const <MccExclusionModel>[])
+              .where((item) => item.kind != 'always')
+              .map((item) => {
+                    'mcc': [item.mcc],
+                    'kind': item.kind,
+                    if (item.reason != null) 'reason': item.reason,
+                  })
+              .toList();
       for (final category in _categories) {
         final included =
             _parseMcc(category.includedMcc.text, category.name.text);
@@ -183,7 +199,12 @@ class _MccRuleEditScreenState extends State<MccRuleEditScreen> {
             '${category.name.text}: MCC ${overlap.first} одновременно включён и исключён',
           );
         }
+        final baseCategory = baseCategories[category.sourceKey.text.trim()];
         categoryDocuments.add({
+          if (baseCategory != null && baseCategory.kind != 'mcc')
+            'kind': baseCategory.kind,
+          if (baseCategory?.manualCanonicalKeys != null)
+            'canonicalKeys': baseCategory!.manualCanonicalKeys,
           'sourceKey': category.sourceKey.text.trim(),
           if (category.sourceExternalId != null)
             'sourceId': category.sourceExternalId,
@@ -227,6 +248,7 @@ class _MccRuleEditScreenState extends State<MccRuleEditScreen> {
         },
         'completeness': _completeness,
         'globalExcludedMcc': globalExcluded,
+        if (typedExclusions.isNotEmpty) 'exclusions': typedExclusions,
         'conditions': base?.conditions
                 .map((condition) => condition.toSnapshotJson())
                 .toList() ??

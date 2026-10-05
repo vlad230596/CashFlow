@@ -89,6 +89,9 @@ Known endpoints:
 - `POST /api/cashback`
 - `PUT /api/cashback/{id}` for category selection updates
 - `GET /api/active_cashback`
+- `GET /api/mcc/{code}/bank-rules?as_of=` (per bank: category, exclusion kind and status)
+- `GET /api/canonical-categories`
+- `GET /api/canonical-categories/{key}/bank-categories?as_of=`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
 - `POST /api/auth/logout`

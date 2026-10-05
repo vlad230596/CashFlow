@@ -1,0 +1,918 @@
+{
+ "schemaVersion": 1,
+ "kind": "bank_mcc_rules_snapshot",
+ "bankId": "yandex",
+ "programKey": "yandex-pay-points",
+ "programName": "Акция «Кешбэк баллами при использовании Яндекс Пэй», приложения 1–3",
+ "productScope": null,
+ "collectedAt": "2026-10-05T00:00:00+03:00",
+ "source": {
+  "type": "public_page",
+  "url": "https://yandex.ru/legal/card_and_pay_points/ru/",
+  "parserName": "manual-transcription",
+  "parserVersion": "2026-10-05"
+ },
+ "validity": {
+  "from": "2026-09-29",
+  "confidence": "exact"
+ },
+ "completeness": "exact_mcc",
+ "globalExcludedMcc": [],
+ "exclusions": [
+  {
+   "mcc": [
+    "1799",
+    "2791",
+    "3882",
+    "3991",
+    "4011",
+    "4214",
+    "4215",
+    "4225",
+    "4468",
+    "4722",
+    "4789",
+    "4812",
+    "4813",
+    "4814",
+    "4815",
+    "4816",
+    "4821",
+    "4829",
+    "4899",
+    "4900",
+    "5044",
+    "5045",
+    "5046",
+    "5047",
+    "5085",
+    "5099",
+    "5131",
+    "5169",
+    "5193",
+    "5199",
+    "5816",
+    "5817",
+    "5818",
+    "5933",
+    "5960",
+    "5962",
+    "5968",
+    "5972",
+    "6009",
+    "6010",
+    "6011",
+    "6012",
+    "6050",
+    "6051",
+    "6211",
+    "6300",
+    "6399",
+    "6529",
+    "6530",
+    "6531",
+    "6532",
+    "6533",
+    "6534",
+    "6535",
+    "6536",
+    "6537",
+    "6538",
+    "6539",
+    "6540",
+    "6542",
+    "6611",
+    "6740",
+    "7273",
+    "7277",
+    "7299",
+    "7311",
+    "7322",
+    "7372",
+    "7375",
+    "7392",
+    "7393",
+    "7399",
+    "7511",
+    "7800",
+    "7801",
+    "7802",
+    "7995",
+    "8111",
+    "8391",
+    "8398",
+    "8641",
+    "8651",
+    "8661",
+    "8699",
+    "8911",
+    "8999",
+    "9211",
+    "9222",
+    "9223",
+    "9311",
+    "9390",
+    "9399",
+    "9400",
+    "9402",
+    "9406",
+    "9411",
+    "9754",
+    "9999"
+   ],
+   "kind": "always",
+   "reason": "Приложение 1: MCC-исключения"
+  }
+ ],
+ "conditions": [
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Кешбэк баллами Плюса; категории выбираются каждый месяц в приложении Яндекс Пэй"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Число категорий, ставки и минимальная сумма покупки задаются на каждый месяц в интерфейсе"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Повышенные баллы — с 1-го числа месяца или с момента выбора (что позже) до конца месяца"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Единый лимит: 10 000 баллов в календарный месяц на все начисления по акции"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Если покупка подходит под несколько категорий, баллы не суммируются — берётся максимальная ставка"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Категории со ** не работают при оплате в Сервисах Яндекса (кроме пополнения «Тройки»)"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Базовый 1% у продавцов отменён с 01.12.2024"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Баллы целые, округление вниз"
+  },
+  {
+   "kind": "program_rule",
+   "operator": null,
+   "value": null,
+   "originalText": "Нет баллов за пополнения и переводы на счета и кошельки, даже если MCC попадает в категорию"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Пополнения и переводы на банковские счета, счета ЭДС и иные электронные средства платежа (п. 5.7.12)"
+  },
+  {
+   "kind": "exclusion_text",
+   "operator": null,
+   "value": null,
+   "originalText": "Операции по Счёту в Яндексе без Карты Яндекс Пэй, если правилами не предусмотрено иное"
+  },
+  {
+   "kind": "source_document",
+   "operator": null,
+   "value": null,
+   "originalText": "Источник: https://yandex.ru/legal/card_and_pay_points/ru/"
+  },
+  {
+   "kind": "validity_note",
+   "operator": null,
+   "value": null,
+   "originalText": "Срок действия: редакция от 29.09.2026, вступила в силу 29.09.2026"
+  }
+ ],
+ "categories": [
+  {
+   "sourceKey": "kafe-restorany-i-bary",
+   "name": "Кафе, рестораны и бары",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5462",
+    "5811",
+    "5812",
+    "5813",
+    "5814"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "obrazovanie",
+   "name": "Образование",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "8211",
+    "8220",
+    "8241",
+    "8244",
+    "8249",
+    "8299",
+    "8351",
+    "8493",
+    "8494"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "odezhda-i-obuv",
+   "name": "Одежда и обувь",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5137",
+    "5139",
+    "5611",
+    "5621",
+    "5631",
+    "5641",
+    "5651",
+    "5661",
+    "5681",
+    "5691",
+    "5697",
+    "5698",
+    "5699",
+    "5931",
+    "5948",
+    "5949",
+    "7296"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "razvlecheniya",
+   "name": "Развлечения",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "4457",
+    "7012",
+    "7221",
+    "7911",
+    "7922",
+    "7929",
+    "7932",
+    "7933",
+    "7991",
+    "7993",
+    "7994",
+    "7996",
+    "7998",
+    "7999",
+    "8664"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "gorodskoy-transport",
+   "name": "Городской транспорт",
+   "description": "Плюс пополнение «Тройки» через Сервисы Яндекса (п. 5.7.12). Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "4111",
+    "4131"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Плюс пополнение «Тройки» через Сервисы Яндекса (п. 5.7.12). Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "tsvety",
+   "name": "Цветы",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5992"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "apteki",
+   "name": "Аптеки",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5122",
+    "5292",
+    "5295",
+    "5912"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "tovary-dlya-doma",
+   "name": "Товары для дома",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "0780",
+    "1520",
+    "1711",
+    "1731",
+    "1740",
+    "1750",
+    "1761",
+    "1771",
+    "2842",
+    "5021",
+    "5039",
+    "5051",
+    "5072",
+    "5074",
+    "5198",
+    "5200",
+    "5211",
+    "5231",
+    "5251",
+    "5261",
+    "5415",
+    "5712",
+    "5713",
+    "5714",
+    "5718",
+    "5719",
+    "5932",
+    "5950",
+    "5996",
+    "7641",
+    "7692"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "krasota",
+   "name": "Красота",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5977",
+    "7230",
+    "7297",
+    "7298"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "sport-i-fitnes",
+   "name": "Спорт и фитнес",
+   "description": "Помечена *** — период действия по п. 5.3",
+   "includedMcc": [
+    "5655",
+    "5940",
+    "5941",
+    "7941",
+    "7992",
+    "7997"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Помечена *** — период действия по п. 5.3"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "meditsina",
+   "name": "Медицина",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "4119",
+    "5975",
+    "5976",
+    "8011",
+    "8021",
+    "8031",
+    "8041",
+    "8042",
+    "8043",
+    "8049",
+    "8050",
+    "8062",
+    "8071",
+    "8099"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "supermarkety",
+   "name": "Супермаркеты",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5297",
+    "5298",
+    "5300",
+    "5309",
+    "5331",
+    "5411",
+    "5412",
+    "5422",
+    "5441",
+    "5451",
+    "5499",
+    "5715"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "kino",
+   "name": "Кино",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "7829",
+    "7832",
+    "7841"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "avtouslugi",
+   "name": "Автоуслуги",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5521",
+    "5531",
+    "5532",
+    "5533",
+    "7531",
+    "7534",
+    "7535",
+    "7538",
+    "7542"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "onlayn-kinoteatry",
+   "name": "Онлайн-кинотеатры",
+   "description": "По названию продавца (Merchant name), 66 вариантов: Okko, IVI, Premier, Wink, KION, Start, Смотрим, Матч ТВ, Триколор, Амедиатека и др.",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "По названию продавца (Merchant name), 66 вариантов: Okko, IVI, Premier, Wink, KION, Start, Смотрим, Матч ТВ, Триколор, Амедиатека и др."
+    },
+    {
+     "kind": "merchant_names",
+     "operator": null,
+     "value": "Y.M*OKKO; IVI.RU; Y.M*PREMIER; WINK; YM*premier; KION; CP* START.RU; IVI.RU 6; OKKO LOYALTY; SBER*7841*OKKO_LOYALTY; Y.M*OKKO.TV; YM*okko; ROSTELECOM.WINK; KINO.1TV; KINO 1TV RU; SBER*7841*OKKO LOYALTY; IVI.RU 2; OKKO LOYALIT; start.ru; OKKO 2; PREMIER; SBER*7841*OKKO_LOYALIT; PREMIERZAL; SBER*7841*OKKO_2; YM*okko.tv; IVI; Y.M*premier g. moskva; SBER*7841*OKKO LOYALIT; YM*stat.premier-g; SBER*7841*OKKO 2; Y.M*okko g. sankt-pete; SMOTRIM; ООО \"ПРЕМЬЕР\"; Y.MMATCHTV; CP VIJU; Матч ТВ; TRICOLOR; YM*smotreshka; ООО \"КИОН\"; STS; MTS ECOSYSTEM; ROSTELECOM.RU; Y.M*MATCHTV; TRICOLOR TV; ТРИКОЛОР; 1tv.ru; ivi.ru; MRC*KION; CP* VIJU; SBER*8999*SBERPRIME1; ООО \"А СЕРИАЛ\"; Y.M*SMOTRESHKA; КИОН; SMOTRIM.; DOMASHNII; Amediateka; TVOЁ; tvoe.live; PODPISKA PREMIUM; YM*matchtv; OKKO; PREMER ZAL; 24H.TV; ООО \"СТАРТ.РУ\"",
+     "originalText": "Категория определяется по названию продавца (Merchant name)"
+    }
+   ],
+   "completeness": "text_only",
+   "canonicalKeys": [
+    "online_cinema"
+   ]
+  },
+  {
+   "sourceKey": "pitomtsy",
+   "name": "Питомцы",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "0742",
+    "5995"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "knigi",
+   "name": "Книги",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "2741",
+    "5111",
+    "5192",
+    "5942",
+    "5994"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "elektronika-i-bytovaya-tekhnika",
+   "name": "Электроника и бытовая техника",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5065",
+    "5722",
+    "5732",
+    "5978",
+    "5997",
+    "7379",
+    "7622",
+    "7623",
+    "7629",
+    "7699"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "yuvelirnye-izdeliya",
+   "name": "Ювелирные изделия",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5094",
+    "5944"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "platnye-dorogi-i-parkovki",
+   "name": "Платные дороги и парковки",
+   "description": "7033 по справочнику — кемпинги, но в документе он здесь. Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "4784",
+    "7033",
+    "7523"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "7033 по справочнику — кемпинги, но в документе он здесь. Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "yandeks-go",
+   "name": "Яндекс Go",
+   "description": "Сервис ООО «Яндекс.Такси»",
+   "includedMcc": [
+    "3990",
+    "4111",
+    "4121"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Сервис ООО «Яндекс.Такси»"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "tovary-dlya-detey",
+   "name": "Товары для детей",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5945"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "azs",
+   "name": "АЗС",
+   "description": "Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [
+    "5172",
+    "5541",
+    "5542",
+    "5552",
+    "5983",
+    "9752"
+   ],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "salony-krasoty",
+   "name": "Салоны красоты",
+   "description": null,
+   "includedMcc": [
+    "7230",
+    "7297",
+    "7298"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "parfyumeriya-i-kosmetika",
+   "name": "Парфюмерия и косметика",
+   "description": null,
+   "includedMcc": [
+    "5977"
+   ],
+   "excludedMcc": [],
+   "conditions": [],
+   "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "na-vse",
+   "name": "На всё",
+   "description": "Все MCC, кроме исключений Приложения 1. Не работает при оплате в Сервисах Яндекса",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Все MCC, кроме исключений Приложения 1. Не работает при оплате в Сервисах Яндекса"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "all_purchases"
+  },
+  {
+   "sourceKey": "yandeks-split",
+   "name": "Яндекс Сплит",
+   "description": "Оплата через Яндекс Сплит, все MCC кроме исключений",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Оплата через Яндекс Сплит, все MCC кроме исключений"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "payment_method"
+  },
+  {
+   "sourceKey": "oplata-po-sbp-so-scheta-v-yandekse",
+   "name": "Оплата по СБП со Счёта в Яндексе",
+   "description": "Все MCC кроме исключений",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Все MCC кроме исключений"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "payment_method"
+  },
+  {
+   "sourceKey": "oplata-cherez-sberpay-qr-so-scheta-v-yandekse",
+   "name": "Оплата через SberPay QR со Счёта в Яндексе",
+   "description": "Все MCC кроме исключений",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Все MCC кроме исключений"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "payment_method"
+  },
+  {
+   "sourceKey": "oplata-tokenom-yandeks-pey-po-nfc-android",
+   "name": "Оплата токеном Яндекс Пэй по NFC (Android)",
+   "description": "Все MCC кроме исключений",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Все MCC кроме исключений"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "payment_method"
+  },
+  {
+   "sourceKey": "yandeks-market",
+   "name": "Яндекс Маркет",
+   "description": "Все доступные на сервисе MCC, кроме исключений",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Все доступные на сервисе MCC, кроме исключений"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "bank_service",
+   "canonicalKeys": [
+    "marketplaces"
+   ]
+  },
+  {
+   "sourceKey": "bonusy-za-ostatok-prilozhenie-3",
+   "name": "Бонусы за остаток (Приложение 3)",
+   "description": "За остаток 10 000–50 000 ₽ в течение 30 дней: Плюс на 30 дней, 3% у продавцов, +5% в Лавке, Еде, Go, Заправках, 5% в Драйве. До 31.12.2026",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "За остаток 10 000–50 000 ₽ в течение 30 дней: Плюс на 30 дней, 3% у продавцов, +5% в Лавке, Еде, Go, Заправках, 5% в Драйве. До 31.12.2026"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "other"
+  }
+ ]
+}

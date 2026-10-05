@@ -20,6 +20,8 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from canonical_categories import compute_canonical_links
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
     'CASHFLOW_DATABASE_URL',
@@ -260,6 +262,11 @@ class BankCategoryRevision(db.Model):
             'bank_category_id',
             name='uq_category_revision_rule_category',
         ),
+        db.CheckConstraint(
+            "kind IN ('mcc', 'all_purchases', 'payment_method', 'bank_service', 'partner', "
+            "'other')",
+            name='ck_category_revision_kind',
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True)
@@ -276,6 +283,9 @@ class BankCategoryRevision(db.Model):
     original_name = db.Column(db.String(255), nullable=False)
     original_description = db.Column(db.Text)
     source_payload = db.Column(db.JSON)
+    # mcc: defined by MCC lists; the other kinds describe offers selected by payment method,
+    # a bank's own service, a partner brand or "all purchases" rather than by MCC alone.
+    kind = db.Column(db.String(24), nullable=False, default='mcc', server_default='mcc')
 
 
 class BankCategoryMccRule(db.Model):
@@ -300,7 +310,13 @@ class BankCategoryMccRule(db.Model):
 
 class BankProgramExclusion(db.Model):
     __tablename__ = 'bank_program_exclusion'
-    __table_args__ = (db.Index('ix_bank_program_exclusion_mcc', 'mcc_code'),)
+    __table_args__ = (
+        db.Index('ix_bank_program_exclusion_mcc', 'mcc_code'),
+        db.CheckConstraint(
+            "kind IN ('always', 'unless_category', 'conditional')",
+            name='ck_program_exclusion_kind',
+        ),
+    )
 
     rule_revision_id = db.Column(
         db.Integer,
@@ -313,6 +329,59 @@ class BankProgramExclusion(db.Model):
         primary_key=True,
     )
     reason = db.Column(db.Text)
+    # always: never earns; unless_category: earns only inside a selected category that lists
+    # the code; conditional: earns only under the stated condition (merchant, channel, amount).
+    kind = db.Column(db.String(24), nullable=False, default='always', server_default='always')
+
+
+class CanonicalCategory(db.Model):
+    __tablename__ = 'canonical_category'
+
+    key = db.Column(db.String(64), primary_key=True)
+    group_key = db.Column(db.String(64), nullable=False)
+    group_title = db.Column(db.String(128), nullable=False)
+    title = db.Column(db.String(128), nullable=False)
+    aliases = db.Column(db.JSON, nullable=False, default=list)
+    default_priority = db.Column(db.Integer, nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False)
+
+
+class CanonicalCategoryMcc(db.Model):
+    __tablename__ = 'canonical_category_mcc'
+    __table_args__ = (db.Index('ix_canonical_category_mcc_mcc', 'mcc_code'),)
+
+    canonical_key = db.Column(
+        db.String(64),
+        db.ForeignKey('canonical_category.key'),
+        primary_key=True,
+    )
+    mcc_code = db.Column(db.String(4), db.ForeignKey('mcc_code.code'), primary_key=True)
+
+
+class BankCategoryCanonicalLink(db.Model):
+    __tablename__ = 'bank_category_canonical_link'
+    __table_args__ = (
+        db.CheckConstraint(
+            "relation IN ('exact', 'broader', 'narrower')",
+            name='ck_canonical_link_relation',
+        ),
+        db.CheckConstraint("source IN ('auto', 'manual')", name='ck_canonical_link_source'),
+        db.Index('ix_bank_category_canonical_link_key', 'canonical_key'),
+    )
+
+    category_revision_id = db.Column(
+        db.Integer,
+        db.ForeignKey('bank_category_revision.id'),
+        primary_key=True,
+    )
+    canonical_key = db.Column(
+        db.String(64),
+        db.ForeignKey('canonical_category.key'),
+        primary_key=True,
+    )
+    relation = db.Column(db.String(16), nullable=False)
+    coverage = db.Column(db.Float)
+    source = db.Column(db.String(16), nullable=False)
 
 
 class BankRuleCondition(db.Model):
@@ -1883,6 +1952,12 @@ MCC_PATTERN = re.compile(r'^\d{4}$')
 MCC_VALIDITY_CONFIDENCE = {'exact', 'inferred', 'unknown'}
 MCC_COMPLETENESS = {'exact_mcc', 'partial_mcc', 'text_only', 'unknown'}
 MCC_SOURCE_TYPES = {'public_page', 'pdf', 'api', 'browser', 'manual_verified'}
+# Ordered from strongest to weakest: when one code is listed under several exclusion groups,
+# the strongest kind wins and the reasons are kept together.
+MCC_EXCLUSION_KINDS = ('always', 'unless_category', 'conditional')
+BANK_CATEGORY_KINDS = {
+    'mcc', 'all_purchases', 'payment_method', 'bank_service', 'partner', 'other',
+}
 
 
 def _canonical_json(value):
@@ -1947,6 +2022,51 @@ def _normalize_rule_conditions(value, field_name):
             'originalText': original_text,
         })
     return result
+
+
+def _normalize_exclusions(global_excluded, value):
+    """Merge plain global exclusions and typed exclusion groups into one entry per MCC."""
+    if not isinstance(value, list):
+        raise ValueError('exclusions must be an array')
+    merged = {code: {'kind': 'always', 'reasons': []} for code in global_excluded}
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ValueError(f'exclusions[{index}] must be an object')
+        kind = item.get('kind', 'always')
+        if kind not in MCC_EXCLUSION_KINDS:
+            raise ValueError(f'exclusions[{index}].kind is invalid')
+        reason = str(item.get('reason') or '').strip() or None
+        codes = _validate_mcc_list(item.get('mcc'), f'exclusions[{index}].mcc')
+        if not codes:
+            raise ValueError(f'exclusions[{index}].mcc must not be empty')
+        for code in codes:
+            entry = merged.setdefault(code, {'kind': kind, 'reasons': []})
+            if MCC_EXCLUSION_KINDS.index(kind) < MCC_EXCLUSION_KINDS.index(entry['kind']):
+                entry['kind'] = kind
+            if reason and reason not in entry['reasons']:
+                entry['reasons'].append(reason)
+    return [
+        {
+            'mcc': code,
+            'kind': entry['kind'],
+            'reason': '; '.join(entry['reasons']) or None,
+        }
+        for code, entry in sorted(merged.items())
+    ]
+
+
+def _validate_canonical_keys(value, field_name):
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f'{field_name} must be an array of strings')
+    keys = sorted(set(item.strip() for item in value if item.strip()))
+    known = {
+        row.key
+        for row in CanonicalCategory.query.filter(CanonicalCategory.key.in_(keys)).all()
+    } if keys else set()
+    unknown = [key for key in keys if key not in known]
+    if unknown:
+        raise ValueError(f'{field_name} contains unknown canonical category: {unknown[0]}')
+    return keys
 
 
 def _resolve_rules_bank(bank_id):
@@ -2028,7 +2148,7 @@ def _normalize_mcc_snapshot(document):
         category_completeness = item.get('completeness', completeness)
         if category_completeness not in MCC_COMPLETENESS:
             raise ValueError(f'Invalid completeness for category {source_key}')
-        normalized_categories.append({
+        normalized_category = {
             'sourceExternalId': str(source_external_id) if source_external_id is not None else None,
             'sourceKey': source_key,
             'name': name,
@@ -2040,7 +2160,20 @@ def _normalize_mcc_snapshot(document):
                 f'categories[{index}].conditions',
             ),
             'completeness': category_completeness,
-        })
+        }
+        # Optional fields are added only when present so that older snapshots keep their
+        # normalized hash and stay idempotent.
+        category_kind = item.get('kind', 'mcc')
+        if category_kind not in BANK_CATEGORY_KINDS:
+            raise ValueError(f'Invalid kind for category {source_key}')
+        if category_kind != 'mcc':
+            normalized_category['kind'] = category_kind
+        if item.get('canonicalKeys') is not None:
+            normalized_category['canonicalKeys'] = _validate_canonical_keys(
+                item.get('canonicalKeys'),
+                f'categories[{index}].canonicalKeys',
+            )
+        normalized_categories.append(normalized_category)
 
     normalized = {
         'bankId': bank.id,
@@ -2057,6 +2190,8 @@ def _normalize_mcc_snapshot(document):
         'conditions': _normalize_rule_conditions(document.get('conditions'), 'conditions'),
         'categories': sorted(normalized_categories, key=lambda item: item['sourceKey']),
     }
+    if document.get('exclusions') is not None:
+        normalized['exclusions'] = _normalize_exclusions(global_excluded, document['exclusions'])
     return {
         'bank': bank,
         'normalized': normalized,
@@ -2131,6 +2266,16 @@ def _revision_to_dict(revision, include_rules=True):
         conditions = BankRuleCondition.query.filter_by(
             category_revision_id=category_revision.id,
         ).order_by(BankRuleCondition.id).all()
+        links = (
+            db.session.query(BankCategoryCanonicalLink, CanonicalCategory)
+            .join(
+                CanonicalCategory,
+                CanonicalCategory.key == BankCategoryCanonicalLink.canonical_key,
+            )
+            .filter(BankCategoryCanonicalLink.category_revision_id == category_revision.id)
+            .order_by(CanonicalCategory.sort_order)
+            .all()
+        )
         source_payload = category_revision.source_payload or {}
         categories.append({
             'id': category.id,
@@ -2138,6 +2283,17 @@ def _revision_to_dict(revision, include_rules=True):
             'source_external_id': category.source_external_id,
             'name': category_revision.original_name,
             'description': category_revision.original_description,
+            'kind': category_revision.kind,
+            'canonical': [
+                {
+                    'key': canonical.key,
+                    'title': canonical.title,
+                    'relation': link.relation,
+                    'coverage': link.coverage,
+                    'source': link.source,
+                }
+                for link, canonical in links
+            ],
             'completeness': source_payload.get('completeness', revision.completeness),
             'included_mcc': [rule.mcc_code for rule in mcc_rules if rule.effect == 'include'],
             'excluded_mcc': [rule.mcc_code for rule in mcc_rules if rule.effect == 'exclude'],
@@ -2152,7 +2308,14 @@ def _revision_to_dict(revision, include_rules=True):
             ],
         })
     result.update({
-        'global_excluded_mcc': [item.mcc_code for item in global_exclusions],
+        # Unconditional exclusions only, as before; typed ones are listed in ``exclusions``.
+        'global_excluded_mcc': [
+            item.mcc_code for item in global_exclusions if item.kind == 'always'
+        ],
+        'exclusions': [
+            {'mcc': item.mcc_code, 'kind': item.kind, 'reason': item.reason}
+            for item in global_exclusions
+        ],
         'conditions': [
             {
                 'kind': condition.kind,
@@ -2167,139 +2330,210 @@ def _revision_to_dict(revision, include_rules=True):
     return result
 
 
-@app.post('/api/admin/mcc-rule-snapshots')
-def create_mcc_rule_snapshot():
-    document = (request.get_json(silent=True) or {}).get('document')
-    try:
-        parsed = _normalize_mcc_snapshot(document)
-        normalized = parsed['normalized']
-        bank = parsed['bank']
-        program = BankCashbackProgram.query.filter_by(
+def _import_mcc_snapshot(document):
+    """Validate a snapshot and store it as a draft revision.
+
+    Returns ``(revision, created)``. Identical normalized content is idempotent: the existing
+    revision is returned and only ``last_seen_at`` moves forward. The caller commits.
+    """
+    parsed = _normalize_mcc_snapshot(document)
+    normalized = parsed['normalized']
+    bank = parsed['bank']
+    program = BankCashbackProgram.query.filter_by(
+        bank_id=bank.id,
+        source_key=normalized['programKey'],
+    ).first()
+    if program is None:
+        program = BankCashbackProgram(
             bank_id=bank.id,
             source_key=normalized['programKey'],
-        ).first()
-        if program is None:
-            program = BankCashbackProgram(
-                bank_id=bank.id,
-                source_key=normalized['programKey'],
-                name=normalized['programName'],
-                product_scope=normalized['productScope'],
-            )
-            db.session.add(program)
-            db.session.flush()
-        else:
-            program.name = normalized['programName']
-            program.product_scope = normalized['productScope']
-
-        normalized_hash = _sha256_json(normalized)
-        existing = BankRuleRevision.query.filter_by(
-            program_id=program.id,
-            normalized_hash=normalized_hash,
-        ).first()
-        if existing is not None:
-            if _as_utc(parsed['collected_at']) > _as_utc(existing.last_seen_at):
-                existing.last_seen_at = parsed['collected_at']
-            db.session.commit()
-            return jsonify(_revision_to_dict(existing)), 200
-
-        raw_content = _canonical_json(document)
-        snapshot_hash = hashlib.sha256(raw_content.encode('utf-8')).hexdigest()
-        snapshot = RuleSourceSnapshot.query.filter_by(content_hash=snapshot_hash).first()
-        if snapshot is None:
-            source = parsed['source']
-            snapshot = RuleSourceSnapshot(
-                source_type=parsed['source_type'],
-                source_url=source.get('url'),
-                fetched_at=parsed['collected_at'],
-                published_at=parsed['source_published_at'],
-                content_hash=snapshot_hash,
-                raw_content=raw_content,
-                parser_name=source.get('parserName'),
-                parser_version=source.get('parserVersion'),
-            )
-            db.session.add(snapshot)
-            db.session.flush()
-
-        now = _utc_now()
-        revision = BankRuleRevision(
-            program_id=program.id,
-            valid_from=parsed['valid_from'],
-            valid_to=parsed['valid_to'],
-            validity_confidence=normalized['validity']['confidence'],
-            recorded_at=now,
-            last_seen_at=parsed['collected_at'],
-            source_snapshot_id=snapshot.id,
-            completeness=normalized['completeness'],
-            status='draft',
-            normalized_hash=normalized_hash,
+            name=normalized['programName'],
+            product_scope=normalized['productScope'],
         )
-        db.session.add(revision)
+        db.session.add(program)
+        db.session.flush()
+    else:
+        program.name = normalized['programName']
+        program.product_scope = normalized['productScope']
+
+    normalized_hash = _sha256_json(normalized)
+    existing = BankRuleRevision.query.filter_by(
+        program_id=program.id,
+        normalized_hash=normalized_hash,
+    ).first()
+    if existing is not None:
+        if _as_utc(parsed['collected_at']) > _as_utc(existing.last_seen_at):
+            existing.last_seen_at = parsed['collected_at']
+        return existing, False
+
+    raw_content = _canonical_json(document)
+    snapshot_hash = hashlib.sha256(raw_content.encode('utf-8')).hexdigest()
+    snapshot = RuleSourceSnapshot.query.filter_by(content_hash=snapshot_hash).first()
+    if snapshot is None:
+        source = parsed['source']
+        snapshot = RuleSourceSnapshot(
+            source_type=parsed['source_type'],
+            source_url=source.get('url'),
+            fetched_at=parsed['collected_at'],
+            published_at=parsed['source_published_at'],
+            content_hash=snapshot_hash,
+            raw_content=raw_content,
+            parser_name=source.get('parserName'),
+            parser_version=source.get('parserVersion'),
+        )
+        db.session.add(snapshot)
         db.session.flush()
 
-        all_mcc = list(normalized['globalExcludedMcc'])
-        for item in normalized['categories']:
-            all_mcc.extend(item['includedMcc'])
-            all_mcc.extend(item['excludedMcc'])
-        _ensure_mcc_codes(all_mcc)
-        db.session.flush()
+    now = _utc_now()
+    revision = BankRuleRevision(
+        program_id=program.id,
+        valid_from=parsed['valid_from'],
+        valid_to=parsed['valid_to'],
+        validity_confidence=normalized['validity']['confidence'],
+        recorded_at=now,
+        last_seen_at=parsed['collected_at'],
+        source_snapshot_id=snapshot.id,
+        completeness=normalized['completeness'],
+        status='draft',
+        normalized_hash=normalized_hash,
+    )
+    db.session.add(revision)
+    db.session.flush()
 
-        for code in normalized['globalExcludedMcc']:
-            db.session.add(BankProgramExclusion(
-                rule_revision_id=revision.id,
-                mcc_code=code,
-            ))
-        for condition in normalized['conditions']:
+    exclusions = normalized.get('exclusions') or [
+        {'mcc': code, 'kind': 'always', 'reason': None}
+        for code in normalized['globalExcludedMcc']
+    ]
+    all_mcc = [item['mcc'] for item in exclusions]
+    for item in normalized['categories']:
+        all_mcc.extend(item['includedMcc'])
+        all_mcc.extend(item['excludedMcc'])
+    _ensure_mcc_codes(all_mcc)
+    db.session.flush()
+
+    for item in exclusions:
+        db.session.add(BankProgramExclusion(
+            rule_revision_id=revision.id,
+            mcc_code=item['mcc'],
+            kind=item['kind'],
+            reason=item['reason'],
+        ))
+    for condition in normalized['conditions']:
+        db.session.add(BankRuleCondition(
+            rule_revision_id=revision.id,
+            kind=condition['kind'],
+            operator=condition['operator'],
+            value=None if condition['value'] is None else str(condition['value']),
+            original_text=condition['originalText'],
+        ))
+    canonical_cores = _canonical_cores()
+    for item in normalized['categories']:
+        category = BankCategory.query.filter_by(
+            program_id=program.id,
+            source_key=item['sourceKey'],
+        ).first()
+        if category is None:
+            category = BankCategory(
+                program_id=program.id,
+                source_external_id=item['sourceExternalId'],
+                source_key=item['sourceKey'],
+                created_at=now,
+            )
+            db.session.add(category)
+            db.session.flush()
+        category_kind = item.get('kind', 'mcc')
+        category_revision = BankCategoryRevision(
+            rule_revision_id=revision.id,
+            bank_category_id=category.id,
+            original_name=item['name'],
+            original_description=item['description'],
+            source_payload={'completeness': item['completeness']},
+            kind=category_kind,
+        )
+        db.session.add(category_revision)
+        db.session.flush()
+        for effect, codes in (
+            ('include', item['includedMcc']),
+            ('exclude', item['excludedMcc']),
+        ):
+            for code in codes:
+                db.session.add(BankCategoryMccRule(
+                    category_revision_id=category_revision.id,
+                    mcc_code=code,
+                    effect=effect,
+                ))
+        for condition in item['conditions']:
             db.session.add(BankRuleCondition(
                 rule_revision_id=revision.id,
+                category_revision_id=category_revision.id,
                 kind=condition['kind'],
                 operator=condition['operator'],
                 value=None if condition['value'] is None else str(condition['value']),
                 original_text=condition['originalText'],
             ))
-        for item in normalized['categories']:
-            category = BankCategory.query.filter_by(
-                program_id=program.id,
-                source_key=item['sourceKey'],
-            ).first()
-            if category is None:
-                category = BankCategory(
-                    program_id=program.id,
-                    source_external_id=item['sourceExternalId'],
-                    source_key=item['sourceKey'],
-                    created_at=now,
-                )
-                db.session.add(category)
-                db.session.flush()
-            category_revision = BankCategoryRevision(
-                rule_revision_id=revision.id,
-                bank_category_id=category.id,
-                original_name=item['name'],
-                original_description=item['description'],
-                source_payload={'completeness': item['completeness']},
-            )
-            db.session.add(category_revision)
-            db.session.flush()
-            for effect, codes in (
-                ('include', item['includedMcc']),
-                ('exclude', item['excludedMcc']),
-            ):
-                for code in codes:
-                    db.session.add(BankCategoryMccRule(
-                        category_revision_id=category_revision.id,
-                        mcc_code=code,
-                        effect=effect,
-                    ))
-            for condition in item['conditions']:
-                db.session.add(BankRuleCondition(
-                    rule_revision_id=revision.id,
-                    category_revision_id=category_revision.id,
-                    kind=condition['kind'],
-                    operator=condition['operator'],
-                    value=None if condition['value'] is None else str(condition['value']),
-                    original_text=condition['originalText'],
-                ))
+        for link in _category_canonical_links(item, category_kind, canonical_cores):
+            db.session.add(BankCategoryCanonicalLink(
+                category_revision_id=category_revision.id,
+                **link,
+            ))
+    return revision, True
+
+
+def _canonical_cores():
+    cores = {}
+    for row in CanonicalCategoryMcc.query.all():
+        cores.setdefault(row.canonical_key, []).append(row.mcc_code)
+    return [{'key': key, 'core_mcc': codes} for key, codes in cores.items()]
+
+
+def _category_canonical_links(item, category_kind, canonical_cores):
+    """Manual canonicalKeys win; otherwise MCC lists are linked automatically.
+
+    "All purchases" offers span every category, so they are never linked automatically.
+    """
+    manual = item.get('canonicalKeys')
+    if manual is not None:
+        relation = 'exact' if len(manual) == 1 else 'broader'
+        return [
+            {'canonical_key': key, 'relation': relation, 'coverage': None, 'source': 'manual'}
+            for key in manual
+        ]
+    if category_kind == 'all_purchases':
+        return []
+    included = set(item['includedMcc']) - set(item['excludedMcc'])
+    return [
+        {
+            'canonical_key': link['key'],
+            'relation': link['relation'],
+            'coverage': link['coverage'],
+            'source': 'auto',
+        }
+        for link in compute_canonical_links(included, canonical_cores)
+    ]
+
+
+def _publish_mcc_revision(revision):
+    """Publish a draft and supersede open revisions with the same start. Caller commits."""
+    now = _utc_now()
+    same_start_revisions = BankRuleRevision.query.filter(
+        BankRuleRevision.program_id == revision.program_id,
+        BankRuleRevision.status == 'published',
+        BankRuleRevision.superseded_at.is_(None),
+        BankRuleRevision.valid_from == revision.valid_from,
+    ).all()
+    for previous in same_start_revisions:
+        previous.superseded_at = now
+    revision.status = 'published'
+    revision.published_recorded_at = now
+
+
+@app.post('/api/admin/mcc-rule-snapshots')
+def create_mcc_rule_snapshot():
+    document = (request.get_json(silent=True) or {}).get('document')
+    try:
+        revision, created = _import_mcc_snapshot(document)
         db.session.commit()
-        return jsonify(_revision_to_dict(revision)), 201
+        return jsonify(_revision_to_dict(revision)), 201 if created else 200
     except LookupError as error:
         db.session.rollback()
         return jsonify({'error': str(error)}), 404
@@ -2320,18 +2554,7 @@ def publish_mcc_rule_revision(revision_id):
         return jsonify(_revision_to_dict(revision))
     if revision.status != 'draft':
         return jsonify({'error': 'Only draft revisions can be published'}), 409
-
-    now = _utc_now()
-    same_start_revisions = BankRuleRevision.query.filter(
-        BankRuleRevision.program_id == revision.program_id,
-        BankRuleRevision.status == 'published',
-        BankRuleRevision.superseded_at.is_(None),
-        BankRuleRevision.valid_from == revision.valid_from,
-    ).all()
-    for previous in same_start_revisions:
-        previous.superseded_at = now
-    revision.status = 'published'
-    revision.published_recorded_at = now
+    _publish_mcc_revision(revision)
     db.session.commit()
     return jsonify(_revision_to_dict(revision))
 
@@ -2471,8 +2694,157 @@ def get_bank_category_mcc_rules(bank_id, category_id):
         'completeness': payload['completeness'],
         'source': payload['source'],
         'global_excluded_mcc': payload['global_excluded_mcc'],
+        'exclusions': payload['exclusions'],
         'program_conditions': payload['conditions'],
         'category': selected,
+    })
+
+
+def _evaluate_mcc_in_revision(payload, code):
+    """Explain what one MCC earns under a published revision payload.
+
+    Status precedence follows the bank documents: an unconditional program exclusion wins
+    over any category; "unless_category" codes earn only inside a category listing them;
+    a category's own exclusion removes the code from that category.
+    """
+    exclusion = next((item for item in payload['exclusions'] if item['mcc'] == code), None)
+    matched = [
+        {
+            'id': category['id'],
+            'name': category['name'],
+            'kind': category['kind'],
+            'canonical': category['canonical'],
+        }
+        for category in payload['categories']
+        if code in category['included_mcc'] and code not in category['excluded_mcc']
+    ]
+    if exclusion and exclusion['kind'] == 'always':
+        status = 'excluded'
+    elif exclusion and exclusion['kind'] == 'unless_category':
+        status = 'category_only' if matched else 'excluded'
+    elif exclusion and exclusion['kind'] == 'conditional':
+        status = 'conditional'
+    elif matched:
+        status = 'category'
+    else:
+        status = 'not_in_categories'
+    return {
+        'revision_id': payload['id'],
+        'program': payload['program'],
+        'completeness': payload['completeness'],
+        'status': status,
+        'exclusion': exclusion,
+        'categories': matched,
+    }
+
+
+def _published_payloads(as_of):
+    """Yield (bank, revision payload) for every program with rules valid at ``as_of``."""
+    programs = (
+        db.session.query(BankCashbackProgram, Bank)
+        .join(Bank, Bank.id == BankCashbackProgram.bank_id)
+        .order_by(Bank.name, BankCashbackProgram.id)
+        .all()
+    )
+    for program, bank in programs:
+        revision = _rules_revision_query(program.id, as_of)
+        if revision is not None:
+            yield bank, _revision_to_dict(revision)
+
+
+def _as_of_argument():
+    return _parse_rule_datetime(request.args.get('as_of') or _utc_now().isoformat(), 'as_of')
+
+
+@app.get('/api/mcc/<string:code>/bank-rules')
+def get_mcc_bank_rules(code):
+    if not MCC_PATTERN.fullmatch(code):
+        return jsonify({'error': 'MCC must contain exactly four digits'}), 400
+    try:
+        as_of = _as_of_argument()
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    mcc = db.session.get(MccCode, code)
+    canonical = (
+        db.session.query(CanonicalCategory)
+        .join(CanonicalCategoryMcc, CanonicalCategoryMcc.canonical_key == CanonicalCategory.key)
+        .filter(CanonicalCategoryMcc.mcc_code == code)
+        .order_by(CanonicalCategory.sort_order)
+        .all()
+    )
+    return jsonify({
+        'mcc': mcc.to_dict() if mcc is not None else {'code': code},
+        'as_of': _iso_datetime(as_of),
+        'canonical': [_canonical_category_to_dict(item) for item in canonical],
+        'banks': [
+            {'bank': bank.to_dict(), **_evaluate_mcc_in_revision(payload, code)}
+            for bank, payload in _published_payloads(as_of)
+        ],
+    })
+
+
+def _canonical_category_to_dict(category, core_mcc=None):
+    result = {
+        'key': category.key,
+        'title': category.title,
+        'group_key': category.group_key,
+        'group_title': category.group_title,
+        'aliases': category.aliases or [],
+        'default_priority': category.default_priority,
+    }
+    if core_mcc is not None:
+        result['core_mcc'] = core_mcc
+    return result
+
+
+@app.get('/api/canonical-categories')
+def list_canonical_categories():
+    cores = {}
+    for row in CanonicalCategoryMcc.query.order_by(CanonicalCategoryMcc.mcc_code):
+        cores.setdefault(row.canonical_key, []).append(row.mcc_code)
+    categories = CanonicalCategory.query.order_by(CanonicalCategory.sort_order).all()
+    return jsonify([
+        _canonical_category_to_dict(item, cores.get(item.key, [])) for item in categories
+    ])
+
+
+@app.get('/api/canonical-categories/<string:key>/bank-categories')
+def get_canonical_bank_categories(key):
+    category = db.session.get(CanonicalCategory, key)
+    if category is None:
+        return jsonify({'error': 'Canonical category not found'}), 404
+    try:
+        as_of = _as_of_argument()
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    offers = []
+    for bank, payload in _published_payloads(as_of):
+        for item in payload['categories']:
+            link = next((link for link in item['canonical'] if link['key'] == key), None)
+            if link is None:
+                continue
+            offers.append({
+                'bank': bank.to_dict(),
+                'program': payload['program'],
+                'revision_id': payload['id'],
+                'category': {
+                    'id': item['id'],
+                    'name': item['name'],
+                    'kind': item['kind'],
+                    'included_mcc': item['included_mcc'],
+                    'conditions': item['conditions'],
+                },
+                'relation': link['relation'],
+                'coverage': link['coverage'],
+                'link_source': link['source'],
+                'also_covers': [
+                    other['key'] for other in item['canonical'] if other['key'] != key
+                ],
+            })
+    return jsonify({
+        'category': _canonical_category_to_dict(category),
+        'as_of': _iso_datetime(as_of),
+        'bank_categories': offers,
     })
 
 
@@ -3368,6 +3740,68 @@ def list_partner_offers():
         'limit': limit,
         'offset': offset,
     })
+
+
+BUNDLED_BANK_MCC_RULES = os.path.join(os.path.dirname(__file__), 'data', 'bank_mcc_rules')
+
+
+def _load_snapshot_documents(paths):
+    documents = []
+    for path in paths:
+        with open(path, encoding='utf-8') as handle:
+            payload = json.load(handle)
+        items = payload if isinstance(payload, list) else [payload]
+        documents.extend((path, item) for item in items)
+    return documents
+
+
+@app.cli.command('import-bank-mcc-rules')
+@click.argument('paths', nargs=-1, type=click.Path(exists=True, dir_okay=False))
+@click.option('--publish/--draft', default=True, show_default=True,
+              help='Publish new revisions or keep them as drafts for review.')
+@click.option('--create-missing-banks', is_flag=True,
+              help='Create a bank named after BANK_IMPORT_NAMES when it does not exist.')
+def import_bank_mcc_rules(paths, publish, create_missing_banks):
+    """Import bank MCC rule snapshots; repeated runs are idempotent.
+
+    Without PATHS the bundled files in data/bank_mcc_rules are imported. A bank that does
+    not exist is skipped unless --create-missing-banks is given.
+    """
+    if not paths:
+        paths = sorted(
+            os.path.join(directory, name)
+            for directory, _, names in os.walk(BUNDLED_BANK_MCC_RULES)
+            for name in names
+            if name.endswith('.json')
+        )
+    counts = {'created': 0, 'unchanged': 0, 'published': 0, 'skipped': 0}
+    for path, document in _load_snapshot_documents(paths):
+        bank_key = document.get('bankId') if isinstance(document, dict) else None
+        label = f'{os.path.basename(path)}:{bank_key}:{(document or {}).get("programKey")}'
+        if _resolve_rules_bank(bank_key) is None:
+            if not create_missing_banks or not isinstance(bank_key, str):
+                counts['skipped'] += 1
+                click.echo(f'skipped {label}: bank is not configured')
+                continue
+            db.session.add(Bank(
+                name=BANK_IMPORT_NAMES.get(bank_key, bank_key),
+                icon_key=bank_key if bank_key in BANK_ICON_KEYS else 'generic',
+            ))
+            db.session.flush()
+        try:
+            revision, created = _import_mcc_snapshot(document)
+            published = publish and revision.status == 'draft'
+            if published:
+                _publish_mcc_revision(revision)
+            db.session.commit()
+        except (LookupError, ValueError) as error:
+            db.session.rollback()
+            raise click.ClickException(f'{label}: {error}') from error
+        counts['created' if created else 'unchanged'] += 1
+        counts['published'] += int(published)
+        click.echo(f'{"created" if created else "unchanged"} {label}: revision {revision.id}, '
+                   f'{revision.status}')
+    click.echo(', '.join(f'{key}: {value}' for key, value in counts.items()))
 
 
 @app.get('/api/partner-offers/<int:offer_id>')
