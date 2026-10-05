@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../models/canonical_category_model.dart';
 import '../../models/cashback_category_model.dart';
 import '../../providers/data_provider.dart';
+import '../../utils/cashback_needs.dart';
 import '../../utils/category_info.dart';
 import '../../utils/identity_icons.dart';
 import '../cashback_category_detail_screen.dart';
@@ -15,6 +17,7 @@ class BenefitItemData {
     this.bankIconKey,
     this.userName,
     this.userIconKey,
+    this.userEmoji,
     this.lastFourDigits,
   });
 
@@ -24,6 +27,9 @@ class BenefitItemData {
   final String? bankIconKey;
   final String? userName;
   final String? userIconKey;
+
+  /// Short visual marker of the card owner; see [personEmoji].
+  final String? userEmoji;
   final String? lastFourDigits;
 }
 
@@ -114,6 +120,7 @@ class BenefitStatesView extends StatefulWidget {
     required this.hasUsableSnapshot,
     required this.items,
     required this.onRefresh,
+    this.canonicalCategories = const [],
     this.mccResults = const [],
     this.merchantResults = const [],
     this.snapshotUpdatedAt,
@@ -125,6 +132,9 @@ class BenefitStatesView extends StatefulWidget {
   final bool hasUsableSnapshot;
   final DateTime? snapshotUpdatedAt;
   final List<BenefitItemData> items;
+
+  /// Unified categories used to group offers; offers keep their bank names.
+  final List<CanonicalCategoryModel> canonicalCategories;
   final List<BenefitMccSearchResult> mccResults;
   final List<BenefitMerchantSearchResult> merchantResults;
   final Future<void> Function() onRefresh;
@@ -141,7 +151,9 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   int? _selectedId;
   BenefitPurchaseResult? _selectedPurchaseResult;
   String? _selectedMerchantName;
-  bool _showAllCategories = false;
+
+  CashbackNeedCatalog get _needs =>
+      CashbackNeedCatalog(widget.canonicalCategories);
 
   @override
   void initState() {
@@ -192,7 +204,10 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
       final category = item.category;
       return category.name.toLowerCase().contains(query) ||
           (category.description?.toLowerCase().contains(query) ?? false) ||
-          item.cardLabel.toLowerCase().contains(query);
+          item.cardLabel.toLowerCase().contains(query) ||
+          _needs.titlesFor(category).any(
+                (title) => _needs.match(title, query) != NeedMatch.none,
+              );
     }).toList();
     result.sort((a, b) =>
         b.category.cashbackPercent.compareTo(a.category.cashbackPercent));
@@ -344,7 +359,11 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     final query = _searchController.text.trim();
     final filteredMcc = _filteredMccResults;
     final filteredMerchants = _filteredMerchantResults;
-    if (filtered.isEmpty && filteredMcc.isEmpty && filteredMerchants.isEmpty) {
+    final groups = _needGroups(query);
+    if (filtered.isEmpty &&
+        groups.isEmpty &&
+        filteredMcc.isEmpty &&
+        filteredMerchants.isEmpty) {
       if (query.isNotEmpty) {
         return _EmptySearchState(onClear: _clearQuery);
       }
@@ -401,7 +420,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
       if (query.isNotEmpty) {
         return _CompactSearchResults(
           key: const Key('benefit-compact-search-results'),
-          categories: filtered,
+          groups: groups,
           mccResults: filteredMcc,
           merchantResults: filteredMerchants,
           onMerchantSelected: _selectMerchant,
@@ -410,14 +429,10 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
       }
       return _CompactBenefitOverview(
         key: const Key('benefit-compact-list'),
-        items: filtered,
+        groups: groups,
         merchantResults: widget.merchantResults,
         onMerchantSelected: _selectMerchant,
         onSelected: _selectItem,
-        showAllCategories: _showAllCategories,
-        onToggleShowAll: () => setState(
-          () => _showAllCategories = !_showAllCategories,
-        ),
       );
     }
     return _BenefitList(
@@ -426,6 +441,42 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
       columns: width >= 600 ? 2 : 1,
       onSelected: _selectItem,
     );
+  }
+
+  /// Offers grouped by unified category. A broad offer belongs to every
+  /// category it covers. With a query, a group is kept when the query names
+  /// the category, one of its synonyms, or one of its offers.
+  List<_NeedGroup> _needGroups(String query) {
+    final needs = _needs;
+    final grouped = <String, List<BenefitItemData>>{};
+    for (final item in widget.items) {
+      for (final title in needs.titlesFor(item.category)) {
+        grouped.putIfAbsent(title, () => []).add(item);
+      }
+    }
+    final normalized = normalizeNeedQuery(query);
+    final groups = <_NeedGroup>[];
+    for (final entry in grouped.entries) {
+      var match = NeedMatch.title;
+      if (normalized.isNotEmpty) {
+        match = needs.match(entry.key, query);
+        if (match == NeedMatch.none &&
+            entry.value.any((item) =>
+                normalizeNeedQuery(item.category.name).contains(normalized))) {
+          match = NeedMatch.alias;
+        }
+        if (match == NeedMatch.none) continue;
+      }
+      final offers = [...entry.value]..sort((a, b) =>
+          b.category.cashbackPercent.compareTo(a.category.cashbackPercent));
+      groups.add(_NeedGroup(title: entry.key, items: offers, match: match));
+    }
+    groups.sort((a, b) {
+      if (a.match != b.match) return a.match == NeedMatch.title ? -1 : 1;
+      final byRate = b.bestPercent.compareTo(a.bestPercent);
+      return byRate != 0 ? byRate : a.title.compareTo(b.title);
+    });
+    return groups;
   }
 
   List<BenefitItemData> _tiedLeaders(BenefitItemData selected) {
@@ -874,14 +925,14 @@ class _BankMark extends StatelessWidget {
 class _CompactSearchResults extends StatelessWidget {
   const _CompactSearchResults({
     super.key,
-    required this.categories,
+    required this.groups,
     required this.mccResults,
     required this.merchantResults,
     required this.onCategorySelected,
     required this.onMerchantSelected,
   });
 
-  final List<BenefitItemData> categories;
+  final List<_NeedGroup> groups;
   final List<BenefitMccSearchResult> mccResults;
   final List<BenefitMerchantSearchResult> merchantResults;
   final ValueChanged<BenefitItemData> onCategorySelected;
@@ -891,21 +942,8 @@ class _CompactSearchResults extends StatelessWidget {
   Widget build(BuildContext context) => ListView(
         padding: const EdgeInsets.fromLTRB(13, 0, 13, 20),
         children: [
-          if (categories.isNotEmpty) ...[
-            const _SearchGroupHeader(
-              title: 'КАТЕГОРИИ',
-              hint: 'САМЫЙ ПРЯМОЙ ЗАПРОС',
-            ),
-            for (final item in categories)
-              _SearchResultRow(
-                badge: 'КАТ',
-                badgeColor: const Color(0xFF279164),
-                title: item.category.name,
-                subtitle: 'Сравнить все выбранные категории с таким названием',
-                kind: 'Категория',
-                onTap: () => onCategorySelected(item),
-              ),
-          ],
+          for (final group in groups)
+            _ExpandedNeedGroup(group: group, onSelected: onCategorySelected),
           if (mccResults.isNotEmpty) ...[
             const _SearchGroupHeader(
               title: 'MCC-КОДЫ',
@@ -1420,67 +1458,34 @@ class _BenefitList extends StatelessWidget {
 class _CompactBenefitOverview extends StatelessWidget {
   const _CompactBenefitOverview({
     super.key,
-    required this.items,
+    required this.groups,
     required this.merchantResults,
     required this.onMerchantSelected,
     required this.onSelected,
-    required this.showAllCategories,
-    required this.onToggleShowAll,
   });
 
-  final List<BenefitItemData> items;
+  final List<_NeedGroup> groups;
   final List<BenefitMerchantSearchResult> merchantResults;
   final ValueChanged<BenefitMerchantSearchResult> onMerchantSelected;
   final ValueChanged<BenefitItemData> onSelected;
-  final bool showAllCategories;
-  final VoidCallback onToggleShowAll;
 
   @override
   Widget build(BuildContext context) {
-    final grouped = <String, List<BenefitItemData>>{};
-    for (final item in items) {
-      grouped.putIfAbsent(item.category.name, () => []).add(item);
-    }
-    final groups = grouped.values.toList()
-      ..sort((a, b) => b
-          .map((item) => item.category.cashbackPercent)
-          .reduce((left, right) => left > right ? left : right)
-          .compareTo(a
-              .map((item) => item.category.cashbackPercent)
-              .reduce((left, right) => left > right ? left : right)));
-
     final recentMerchants = merchantResults.take(2).toList();
-    final visibleGroupCount =
-        showAllCategories || groups.length <= 4 ? groups.length : 4;
     return CustomScrollView(
       key: const PageStorageKey('benefit-compact-overview-scroll'),
       slivers: [
         SliverToBoxAdapter(
-          child: _OverviewSectionHeader(
-            title: 'Категории',
-            action: groups.length > 4
-                ? showAllCategories
-                    ? 'Свернуть'
-                    : 'Показать все ${groups.length}'
-                : null,
-            onAction: groups.length > 4 ? onToggleShowAll : null,
-          ),
+          child: _OverviewSectionHeader(title: 'Категории · ${groups.length}'),
         ),
         SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              mainAxisExtent: 88,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => _CompactCategoryCard(
-                items: groups[index],
-                onTap: () => onSelected(groups[index].first),
-              ),
-              childCount: visibleGroupCount,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          sliver: SliverList.separated(
+            itemCount: groups.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 6),
+            itemBuilder: (context, index) => _NeedRow(
+              group: groups[index],
+              onSelected: onSelected,
             ),
           ),
         ),
@@ -1515,16 +1520,335 @@ class _CompactBenefitOverview extends StatelessWidget {
   }
 }
 
+class _NeedGroup {
+  const _NeedGroup({
+    required this.title,
+    required this.items,
+    required this.match,
+  });
+
+  final String title;
+
+  /// Offers sorted by cashback percent, best first.
+  final List<BenefitItemData> items;
+  final NeedMatch match;
+
+  double get bestPercent =>
+      items.isEmpty ? 0 : items.first.category.cashbackPercent;
+}
+
+/// One unified category with every card that covers it.
+class _NeedRow extends StatelessWidget {
+  const _NeedRow({required this.group, required this.onSelected});
+
+  final _NeedGroup group;
+  final ValueChanged<BenefitItemData> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = CategoryInfo.getCategoryColor(group.title);
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => onSelected(group.items.first),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _NeedIcon(title: group.title, color: color, size: 28),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      group.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        for (final item in group.items)
+                          _OfferChip(
+                            item: item,
+                            accentColor: color,
+                            onTap: () => onSelected(item),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NeedIcon extends StatelessWidget {
+  const _NeedIcon({
+    required this.title,
+    required this.color,
+    required this.size,
+  });
+
+  final String title;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(size * .3),
+          ),
+          child: Icon(
+            CategoryInfo.getCategoryIcon(title),
+            color: Colors.white,
+            size: size * .6,
+          ),
+        ),
+      );
+}
+
+/// Bank badge, owner emoji and percent: enough to pick the card at a glance.
+class _OfferChip extends StatelessWidget {
+  const _OfferChip({
+    required this.item,
+    required this.accentColor,
+    required this.onTap,
+  });
+
+  final BenefitItemData item;
+  final Color accentColor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final category = item.category;
+    final percent = '${category.isStackableBonus ? '+' : ''}'
+        '${_formatPercent(category.cashbackPercent)}%';
+    return Semantics(
+      button: true,
+      label: '${item.bankName ?? _bankNameFromCardLabel(item.cardLabel)}, '
+          '${item.userName ?? 'владелец'}, ${category.name}, $percent',
+      child: ExcludeSemantics(
+        child: Material(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(7),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(7),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(3, 3, 6, 3),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  BankIconBadge(
+                    iconKey: item.bankIconKey,
+                    bankName: item.bankName,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 2),
+                  _PersonEmoji(item: item, fontSize: 13),
+                  const SizedBox(width: 3),
+                  Text(
+                    percent,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: accentColor,
+                          fontWeight: FontWeight.w900,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PersonEmoji extends StatelessWidget {
+  const _PersonEmoji({required this.item, required this.fontSize});
+
+  final BenefitItemData item;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final emoji = item.userEmoji;
+    if (emoji == null) {
+      return UserIconBadge(
+        iconKey: item.userIconKey,
+        userName: item.userName,
+        size: fontSize + 5,
+      );
+    }
+    return Text(emoji, style: TextStyle(fontSize: fontSize, height: 1));
+  }
+}
+
+/// A search hit shown already opened: the category and every card for it.
+class _ExpandedNeedGroup extends StatelessWidget {
+  const _ExpandedNeedGroup({required this.group, required this.onSelected});
+
+  final _NeedGroup group;
+  final ValueChanged<BenefitItemData> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final color = CategoryInfo.getCategoryColor(group.title);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 9, 10, 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (group.match == NeedMatch.alias)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'Возможно, вы имели в виду категорию',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                ),
+              ),
+            Row(
+              children: [
+                _NeedIcon(title: group.title, color: color, size: 26),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    group.title,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+                Text(
+                  '${group.items.length} ${_cardsWord(group.items.length)}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            for (final item in group.items)
+              _OfferRow(
+                item: item,
+                accentColor: color,
+                showOfferName: item.category.name != group.title,
+                onTap: () => onSelected(item),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OfferRow extends StatelessWidget {
+  const _OfferRow({
+    required this.item,
+    required this.accentColor,
+    required this.showOfferName,
+    required this.onTap,
+  });
+
+  final BenefitItemData item;
+  final Color accentColor;
+
+  /// The bank's own category name, shown when it differs from the unified one.
+  final bool showOfferName;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final category = item.category;
+    final digits = item.lastFourDigits;
+    final details = [
+      if (showOfferName) category.name,
+      if (digits?.isNotEmpty == true) '•$digits',
+    ].join(' · ');
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 40),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              BankIconBadge(
+                iconKey: item.bankIconKey,
+                bankName: item.bankName,
+                size: 24,
+              ),
+              const SizedBox(width: 4),
+              _PersonEmoji(item: item, fontSize: 17),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (details.isNotEmpty)
+                      Text(
+                        details,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                    CashbackLimitsLabel(
+                      maxCashbackAmount: category.maxCashbackAmount,
+                      minPurchaseAmount: category.minPurchaseAmount,
+                      fontSize: 10,
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${category.isStackableBonus ? '+' : ''}'
+                '${_formatPercent(category.cashbackPercent)}%',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: accentColor,
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _OverviewSectionHeader extends StatelessWidget {
   const _OverviewSectionHeader({
     required this.title,
     this.action,
-    this.onAction,
   });
 
   final String title;
   final String? action;
-  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -1541,8 +1865,7 @@ class _OverviewSectionHeader extends StatelessWidget {
             ),
             if (action != null)
               TextButton(
-                key: const Key('benefit-toggle-all-categories'),
-                onPressed: onAction,
+                onPressed: null,
                 style: TextButton.styleFrom(
                   minimumSize: const Size(48, 48),
                   padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -1640,161 +1963,6 @@ class _RecentMerchantRow extends StatelessWidget {
   }
 }
 
-class _CompactCategoryCard extends StatelessWidget {
-  const _CompactCategoryCard({required this.items, required this.onTap});
-
-  final List<BenefitItemData> items;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final category = items.first.category;
-    final color = CategoryInfo.getCategoryColor(category.name);
-    final sorted = [...items]..sort((a, b) =>
-        b.category.cashbackPercent.compareTo(a.category.cashbackPercent));
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: Icon(
-                      CategoryInfo.getCategoryIcon(category.name),
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          category.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.labelLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        Text(
-                          '${items.length} ${_cardsWord(items.length)}',
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Column(
-                children: [
-                  for (final item in sorted.take(2)) ...[
-                    _CompactCardIdentity(
-                      item: item,
-                      accentColor: color,
-                      showLastFourDigits: items.length == 1,
-                    ),
-                    if (item != sorted.take(2).last) const SizedBox(height: 3),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CompactCardIdentity extends StatelessWidget {
-  const _CompactCardIdentity({
-    required this.item,
-    required this.accentColor,
-    required this.showLastFourDigits,
-  });
-
-  final BenefitItemData item;
-  final Color accentColor;
-  final bool showLastFourDigits;
-
-  @override
-  Widget build(BuildContext context) {
-    final bankName = item.bankName ?? _bankNameFromCardLabel(item.cardLabel);
-    final userName = item.userName ?? 'Владелец';
-    final digits = item.lastFourDigits;
-    final suffix =
-        showLastFourDigits && digits?.isNotEmpty == true ? ' · •$digits' : '';
-    return Semantics(
-      label: '$bankName, $userName$suffix, '
-          '${_formatPercent(item.category.cashbackPercent)} процентов',
-      child: ExcludeSemantics(
-        child: Container(
-          height: 24,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(7),
-          ),
-          child: Row(
-            children: [
-              BankIconBadge(
-                iconKey: item.bankIconKey,
-                bankName: bankName,
-                size: 18,
-              ),
-              const SizedBox(width: 3),
-              UserIconBadge(
-                iconKey: item.userIconKey,
-                userName: userName,
-                size: 18,
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  '$bankName · $userName$suffix',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              const SizedBox(width: 3),
-              Text(
-                '${_formatPercent(item.category.cashbackPercent)}%',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: accentColor,
-                      fontWeight: FontWeight.w900,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 String _cardsWord(int count) {
   final mod100 = count % 100;
   final mod10 = count % 10;
@@ -1861,15 +2029,13 @@ class _BenefitListCard extends StatelessWidget {
                           size: 22,
                         ),
                         const SizedBox(width: 4),
-                        UserIconBadge(
-                          iconKey: item.userIconKey,
-                          userName: item.userName,
-                          size: 22,
-                        ),
+                        _PersonEmoji(item: item, fontSize: 16),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            item.cardLabel,
+                            item.lastFourDigits?.isNotEmpty == true
+                                ? '•${item.lastFourDigits}'
+                                : item.cardLabel,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall,
@@ -2037,11 +2203,7 @@ class _DetailCard extends StatelessWidget {
                   size: 32,
                 ),
                 const SizedBox(width: 6),
-                UserIconBadge(
-                  iconKey: item.userIconKey,
-                  userName: item.userName,
-                  size: 32,
-                ),
+                _PersonEmoji(item: item, fontSize: 24),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(

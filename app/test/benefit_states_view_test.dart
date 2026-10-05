@@ -1,3 +1,4 @@
+import 'package:cashflow/models/canonical_category_model.dart';
 import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
 import 'package:cashflow/screens/widgets/benefit_states_view.dart';
@@ -39,7 +40,7 @@ void main() {
     expect(find.byKey(const Key('benefit-compact-detail')), findsNothing);
   });
 
-  testWidgets('show all categories expands and collapses the compact grid',
+  testWidgets('every category is visible without a show-all toggle',
       (tester) async {
     await _setViewport(tester, const Size(390, 844));
     final items = List.generate(
@@ -60,21 +61,72 @@ void main() {
         bankIconKey: 'tbank',
         userName: 'Анна',
         userIconKey: 'girl',
+        userEmoji: '🦊',
         lastFourDigits: '100$index',
       ),
     );
     await tester.pumpWidget(_app(items: items));
 
-    expect(find.text('Категория 4'), findsNothing);
-    await tester.tap(find.text('Показать все 6'));
+    for (var index = 0; index < 6; index++) {
+      await tester.scrollUntilVisible(
+        find.text('Категория $index'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Категория $index'), findsOneWidget);
+    }
+    expect(find.textContaining('Показать все'), findsNothing);
+    // Owners and banks are shown as emoji and badges, not as names.
+    expect(find.text('🦊'), findsWidgets);
+    expect(find.textContaining('Анна'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a broad offer appears under every unified category it covers',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(_app(
+      items: [_canonicalItem],
+      canonicalCategories: _catalogue,
+    ));
+
+    expect(find.text('Кафе, рестораны и бары'), findsOneWidget);
+    expect(find.text('Фастфуд'), findsOneWidget);
+    expect(find.text('Кафе и рестораны'), findsNothing);
+    expect(find.text('5%'), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('search opens the matching category with its cards at once',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(_app(
+      items: [_canonicalItem],
+      canonicalCategories: _catalogue,
+    ));
+
+    await tester.enterText(find.byKey(const Key('benefit-search')), 'фастфуд');
     await tester.pump();
 
-    expect(find.text('Категория 4'), findsOneWidget);
-    expect(find.text('Свернуть'), findsOneWidget);
+    expect(find.byKey(const Key('benefit-compact-search-results')),
+        findsOneWidget);
+    expect(find.text('Фастфуд'), findsOneWidget);
+    expect(find.text('Возможно, вы имели в виду категорию'), findsNothing);
+    // The card is visible without another tap, with the bank's own name.
+    expect(find.text('Кафе и рестораны · •4321'), findsOneWidget);
+    expect(find.text('5%'), findsOneWidget);
 
-    await tester.tap(find.text('Свернуть'));
+    await tester.enterText(find.byKey(const Key('benefit-search')), 'быстрое');
     await tester.pump();
-    expect(find.text('Категория 4'), findsNothing);
+
+    expect(find.text('Возможно, вы имели в виду категорию'), findsOneWidget);
+    expect(find.text('Фастфуд'), findsOneWidget);
+    expect(find.text('Кафе, рестораны и бары'), findsNothing);
+
+    await tester.tap(find.text('5%'));
+    await tester.pump();
+    expect(find.byKey(const Key('benefit-compact-detail')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('expanded layout keeps master and detail visible',
@@ -163,7 +215,6 @@ void main() {
       find.byKey(const Key('benefit-compact-search-results')),
       findsOneWidget,
     );
-    expect(find.text('КАТЕГОРИИ'), findsOneWidget);
     expect(find.text('MCC-КОДЫ'), findsOneWidget);
     expect(find.text('МАГАЗИНЫ'), findsOneWidget);
     expect(find.text('Детские товары'), findsOneWidget);
@@ -216,6 +267,7 @@ Widget _app({
   PrimaryDataPhase phase = PrimaryDataPhase.ready,
   bool hasUsableSnapshot = true,
   List<BenefitItemData> items = const [],
+  List<CanonicalCategoryModel> canonicalCategories = const [],
   List<BenefitMccSearchResult> mccResults = const [],
   List<BenefitMerchantSearchResult> merchantResults = const [],
   Future<void> Function()? onRefresh,
@@ -238,6 +290,7 @@ Widget _app({
           hasUsableSnapshot: hasUsableSnapshot,
           snapshotUpdatedAt: DateTime(2026, 9, 22, 10, 42),
           items: items,
+          canonicalCategories: canonicalCategories,
           mccResults: mccResults,
           merchantResults: merchantResults,
           onRefresh: onRefresh ?? () async {},
@@ -383,3 +436,42 @@ const _merchantResults = [
     color: Color(0xFF7957BA),
   ),
 ];
+
+const _catalogue = [
+  CanonicalCategoryModel(
+    key: 'restaurants',
+    title: 'Кафе, рестораны и бары',
+    groupKey: 'food',
+    groupTitle: 'Еда',
+    aliases: ['кафе', 'рестораны', 'бары'],
+    defaultPriority: 20,
+  ),
+  CanonicalCategoryModel(
+    key: 'fastfood',
+    title: 'Фастфуд',
+    groupKey: 'food',
+    groupTitle: 'Еда',
+    aliases: ['быстрое питание'],
+    defaultPriority: 25,
+  ),
+];
+
+final _canonicalItem = BenefitItemData(
+  category: CashbackCategoryModel(
+    id: 41,
+    name: 'Кафе и рестораны',
+    startDate: DateTime(2026, 10),
+    endDate: DateTime(2026, 11),
+    isSelected: true,
+    isBankConfirmed: true,
+    cashbackPercent: 5,
+    cardId: 41,
+    canonicalKeys: const ['restaurants', 'fastfood'],
+  ),
+  cardLabel: 'ВТБ Влад · •4321',
+  bankName: 'ВТБ',
+  bankIconKey: 'vtb',
+  userName: 'Влад',
+  userEmoji: '🐻',
+  lastFourDigits: '4321',
+);

@@ -117,6 +117,20 @@ const userIconOptions = <UserIconOption>[
   ),
 ];
 
+/// Temporary per-person emoji until people can choose their own. Every person
+/// gets a different one, in the stable order of user ids, so cards are easy to
+/// tell apart at a glance.
+const personEmojiPalette = ['🐻', '🦊', '🐼', '🐱', '🦉', '🐸', '🐯', '🐨'];
+
+String personEmoji(int? userId, Iterable<int> allUserIds) {
+  if (userId == null) return '👤';
+  final ordered = allUserIds.toSet().toList()..sort();
+  final index = ordered.indexOf(userId);
+  return index < 0
+      ? '👤'
+      : personEmojiPalette[index % personEmojiPalette.length];
+}
+
 BankIconOption bankIconOption(String? key, {String? bankName}) {
   final resolvedKey =
       key?.trim().isNotEmpty == true ? key! : defaultBankIconKey(bankName);
