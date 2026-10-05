@@ -3,6 +3,9 @@ import { showsCurrentCashbackMonth } from '../monthly-confirmation';
 
 export type AlfaCashbackCategory = CashbackCategory;
 
+const confirmedItemSelector = '[data-test-id="category-cashback-confirmed-item"]';
+const savedItemSelector = `[data-test-id="chosen-category-item"], ${confirmedItemSelector}`;
+
 function normalizeText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, ' ').trim() ?? '';
 }
@@ -13,11 +16,12 @@ export function isAlfaMonthlySubtitle(value: string): boolean {
   );
 }
 
-export function parseAlfaCategoryTitle(rawTitle: string): Pick<
+export function parseAlfaCategoryTitle(rawTitle: string, rawSubtitle?: string): Pick<
   AlfaCashbackCategory,
   'name' | 'percent' | 'percentLabel'
 > | null {
-  const match = normalizeText(rawTitle).match(/^(\d+(?:[.,]\d+)?)\s*%\s+(.+)$/);
+  const match = normalizeText(rawSubtitle ? `${rawTitle} ${rawSubtitle}` : rawTitle)
+    .match(/^(\d+(?:[.,]\d+)?)\s*%\s+(.+)$/);
   if (!match) return null;
   const percent = match[1]!;
   return {
@@ -35,6 +39,12 @@ function findTitle(root: ParentNode): {
     if (element.children.length > 0) continue;
     const parsed = parseAlfaCategoryTitle(element.textContent ?? '');
     if (parsed) return { element, parsed };
+  }
+  const rate = root.querySelector<HTMLElement>('[data-test-id="category-cashback-free-item-title"], [data-test-id="category-cashback-confirmed-item-title"]');
+  const name = root.querySelector<HTMLElement>('[data-test-id="category-cashback-free-item-subtitle"], [data-test-id="category-cashback-confirmed-item-subtitle"]');
+  if (rate && name) {
+    const parsed = parseAlfaCategoryTitle(rate.textContent ?? '', name.textContent ?? '');
+    if (parsed) return { element: rate, parsed };
   }
   return null;
 }
@@ -83,13 +93,10 @@ function findSelectionItem(input: HTMLInputElement): HTMLElement | null {
   let item = input.parentElement;
   let candidate: HTMLElement | null = null;
   while (item) {
-    const titles = [...item.querySelectorAll<HTMLElement>('p, span, div, h2, h3, h4')]
-      .filter((element) => element.children.length === 0)
-      .filter((element) => parseAlfaCategoryTitle(element.textContent ?? '') != null);
     const inputCount = item.querySelectorAll(
       'input[data-test-id^="checkbox-select-cashback-"]',
     ).length;
-    if (titles.length === 1 && inputCount === 1) {
+    if (inputCount === 1 && findTitle(item)) {
       candidate = item;
     }
     if (inputCount > 1) break;
@@ -111,6 +118,9 @@ export function isAlfaTaskBonus(
 }
 
 function selectionCategoryFromInput(input: HTMLInputElement): AlfaCashbackCategory | null {
+  // Saved categories use disabled checked inputs too; parse their explicit
+  // bank confirmation marker separately instead of treating them as rewards.
+  if (input.closest(confirmedItemSelector)) return null;
   const item = findSelectionItem(input);
   if (!item) return null;
   const category = categoryFromItem(item);
@@ -126,7 +136,7 @@ function selectionCategoryFromInput(input: HTMLInputElement): AlfaCashbackCatego
 }
 
 function stackableCategoryFromSubtitle(subtitle: HTMLElement): AlfaCashbackCategory | null {
-  if (subtitle.closest('[data-test-id="chosen-category-item"]')) return null;
+  if (subtitle.closest(savedItemSelector)) return null;
   const subtitleText = normalizeText(subtitle.textContent);
   if (!isAlfaMonthlySubtitle(subtitleText)) return null;
 
@@ -179,7 +189,7 @@ export function extractAlfaCashbackCategories(
     if (category) categories.set(`${category.type}\u0000${category.percentLabel}\u0000${category.name}`, category);
   }
   for (const item of root.querySelectorAll<HTMLElement>(
-    '[data-test-id="chosen-category-item"]',
+    savedItemSelector,
   )) {
     const category = categoryFromItem(item);
     if (category) categories.set(`standard\u0000${category.percentLabel}\u0000${category.name}`, {
@@ -207,7 +217,7 @@ function visibleTooltipText(): string | null {
 
 export async function extractAlfaCashbackCategoriesWithDetails(): Promise<AlfaCashbackCategory[]> {
   const categories = extractAlfaCashbackCategories();
-  const items = [...document.querySelectorAll<HTMLElement>('[data-test-id="chosen-category-item"]')];
+  const items = [...document.querySelectorAll<HTMLElement>(savedItemSelector)];
   for (const [index, category] of categories.filter((item) => item.type === 'standard').entries()) {
     const target = items[index]?.querySelector<HTMLElement>(
       '[data-test-id="tooltip-category-info-target"]',

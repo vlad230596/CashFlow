@@ -35,6 +35,47 @@ it('opens Sber partner routes through the in-app home and catalogue controls', a
   expect(catalogue.click).toHaveBeenCalledOnce();
 });
 
+it('leaves the October category screens through their back links before opening Sber partners', async () => {
+  vi.useFakeTimers();
+  const state = { href: 'https://online.sberbank.ru/app/loyalty/main/categories/select', origin: 'https://online.sberbank.ru' };
+  vi.stubGlobal('location', state);
+  const back = { innerText: 'Назад', href: `${state.origin}/app/loyalty/main/categories`, click: vi.fn(() => { state.href = back.href; }) };
+  const home = { innerText: 'Назад', href: `${state.origin}/app/loyalty/main`, click: vi.fn(() => { state.href = home.href; }) };
+  const partners = { innerText: 'Магазины и сервисы', click: vi.fn(() => { state.href = `${state.origin}/app/loyalty/main/partners`; }) };
+  vi.stubGlobal('document', {
+    querySelector: () => null,
+    querySelectorAll: (selector: string) => selector === 'main a[href]'
+      ? state.href.endsWith('/categories/select') ? [back] : state.href.endsWith('/categories') ? [home] : []
+      : selector === 'main button' && state.href.endsWith('/main') ? [partners] : [],
+  });
+  const navigation = navigateSberOfferPage(`${state.origin}/app/loyalty/main/partners`);
+  await vi.runAllTimersAsync();
+  await expect(navigation).resolves.toBe(true);
+  expect(back.click).toHaveBeenCalledOnce();
+  expect(home.click).toHaveBeenCalledOnce();
+  expect(partners.click).toHaveBeenCalledOnce();
+});
+
+it('expands the Sber partner list before opening an offer outside the first page', async () => {
+  vi.useFakeTimers();
+  const origin = 'https://online.sberbank.ru';
+  const state = { href: `${origin}/app/loyalty/main/partners`, origin, expanded: false };
+  vi.stubGlobal('location', state);
+  const targetUrl = `${origin}/app/loyalty/main/partner?id=42`;
+  const more = { innerText: 'Показать ещё', click: vi.fn(() => { state.expanded = true; }) };
+  const offer = { href: targetUrl, click: vi.fn(() => { state.href = targetUrl; }) };
+  vi.stubGlobal('document', {
+    querySelectorAll: (selector: string) => selector === '[role="dialog"]' ? []
+      : selector === 'main a[href]' ? state.expanded ? [offer] : []
+      : selector === 'main button' ? state.expanded ? [] : [more] : [],
+  });
+  const navigation = navigateSberOfferPage(targetUrl);
+  await vi.runAllTimersAsync();
+  await expect(navigation).resolves.toBe(true);
+  expect(more.click).toHaveBeenCalledOnce();
+  expect(offer.click).toHaveBeenCalledOnce();
+});
+
 it('reads both named and numeric T-Bank sections without nested controls', () => {
   const button = (qa: string) => ({ getAttribute: () => qa });
   const nodes = [button('desktop-bonuses-all-categories-category-1'), button('desktop-bonuses-all-categories-category-food'), button('desktop-bonuses-all-categories-category-offline_service'), button('desktop-bonuses-all-categories-category-food-title')];

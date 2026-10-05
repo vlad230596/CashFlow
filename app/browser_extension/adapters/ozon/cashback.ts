@@ -32,6 +32,16 @@ function findCategoryGroup(container: HTMLElement): string | null {
   return heading || null;
 }
 
+export function isOzonSavedCategorySummary(
+  heading: string | null,
+  pathname: string,
+  hasSelectionControls: boolean,
+): boolean {
+  return pathname === '/lk/cashback' &&
+    /^Категории в\s+/i.test(heading ?? '') &&
+    showsCurrentCashbackMonth(heading ?? '') && !hasSelectionControls;
+}
+
 function findExpiryLabel(root: ParentNode): string | null {
   const cashbackRoot = root.querySelector<HTMLElement>('[data-testid="cashback-help-container"]');
   const candidates = cashbackRoot?.querySelectorAll<HTMLElement>('*') ?? [];
@@ -103,6 +113,11 @@ export function extractOzonCashbackCategories(
   if (!container) return [];
 
   const group = findCategoryGroup(container);
+  const confirmed = isOzonSavedCategorySummary(
+    group,
+    typeof location === 'undefined' ? '' : location.pathname,
+    Boolean(container.querySelector('input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="radio"]')),
+  );
   const expiresInLabel = findExpiryLabel(root);
   const categories: OzonCashbackCategory[] = [];
 
@@ -122,6 +137,7 @@ export function extractOzonCashbackCategories(
       iconUrl: image?.currentSrc || image?.src || null,
       iconBackgroundColor: null,
       selected: true,
+      confirmed,
       group,
       expiresInLabel,
     });

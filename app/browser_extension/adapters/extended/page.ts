@@ -24,16 +24,20 @@ export async function navigateSberOfferPage(url: string): Promise<boolean> {
     else if (current.pathname.endsWith(`/${list}`)) {
       const anchor = [...document.querySelectorAll<HTMLAnchorElement>('main a[href]')]
         .find(a => { const href = new URL(a.href, location.href); return href.pathname === target.pathname && href.search === target.search; });
-      anchor?.click();
+      if (anchor) anchor.click();
+      else [...document.querySelectorAll<HTMLElement>('main button')]
+        .find(b => text(b) === 'Показать ещё')?.click();
     } else if (current.pathname.endsWith('/main')) {
       const button = [...document.querySelectorAll<HTMLElement>('main button')]
         .find(b => list === 'partners' ? b.innerText.includes('Магазины и сервисы') : b.getAttribute('aria-label') === 'Акции');
       button?.click();
     } else {
       const back = document.querySelector<HTMLElement>('main button[aria-label="Вернуться назад"]');
+      const backLink = [...document.querySelectorAll<HTMLAnchorElement>('main a[href]')]
+        .find(a => text(a) === 'Назад' && new URL(a.href).pathname.startsWith('/app/loyalty/main'));
       const home = [...document.querySelectorAll<HTMLAnchorElement>('a[href]')]
         .find(a => a.getAttribute('href') === '/app/loyalty/main');
-      (back ?? home)?.click();
+      (back ?? backLink ?? home)?.click();
     }
     await new Promise(resolve => setTimeout(resolve, 350));
   }

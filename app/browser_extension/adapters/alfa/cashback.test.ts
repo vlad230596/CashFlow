@@ -10,6 +10,12 @@ describe('parseAlfaCategoryTitle', () => {
     });
   });
 
+  it('parses the percent and name from separate Alfa category elements', () => {
+    expect(parseAlfaCategoryTitle('10%', 'Аскона')).toEqual({
+      name: 'Аскона', percent: 10, percentLabel: '10%',
+    });
+  });
+
   it('preserves the month in a stackable category title', () => {
     expect(parseAlfaCategoryTitle('3% Аптеки в августе')?.name).toBe('Аптеки в августе');
   });

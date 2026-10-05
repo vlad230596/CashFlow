@@ -5,7 +5,7 @@ import { percentFrom } from '../adapters/extended/core';
 
 type Request =
   | { type: 'cashflow:extended-sber-navigate'; url: string }
-  | { type: 'cashflow:extended-scan'; bankId: BankId }
+  | { type: 'cashflow:extended-scan'; bankId: BankId; expectedCount?: number | null }
   | { type: 'cashflow:extended-detail'; bankId: BankId; offer: OfferPreview; inline?: boolean }
   | { type: 'cashflow:extended-vtb-catalogue' }
   | { type: 'cashflow:extended-tbank-sections' }
@@ -86,19 +86,27 @@ export default defineContentScript({
       if (request.type === 'cashflow:extended-scan') {
         if (request.bankId === 'tbank' && location.pathname.includes('/bonuses/categories/')) {
           const found = new Map<string, OfferPreview>();
-          const height = document.documentElement.scrollHeight;
           const step = Math.max(400, Math.floor(window.innerHeight * 0.6));
           const oldY = window.scrollY;
-          for (let y = 0; y <= height; y += step) {
+          let y = 0;
+          let unchangedAtBottom = 0;
+          for (let attempt = 0; attempt < 400; attempt++) {
             window.scrollTo({ top: y, behavior: 'instant' });
             window.dispatchEvent(new Event('scroll'));
             document.dispatchEvent(new Event('scroll'));
             await pause(180);
+            const before = found.size;
             for (const item of await enhancedScan('tbank')) found.set(item.id, item);
+            if (request.expectedCount && found.size >= request.expectedCount) break;
+            const bottom = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+            if (window.scrollY >= bottom - 2 && found.size === before) {
+              unchangedAtBottom++;
+              if (unchangedAtBottom >= 3) break;
+            } else {
+              unchangedAtBottom = 0;
+            }
+            y = Math.min(window.scrollY + step, bottom);
           }
-          window.scrollTo({ top: height, behavior: 'instant' });
-          await pause(200);
-          for (const item of await enhancedScan('tbank')) found.set(item.id, item);
           window.scrollTo({ top: oldY, behavior: 'instant' });
           return [...found.values()];
         }

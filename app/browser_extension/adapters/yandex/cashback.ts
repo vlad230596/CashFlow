@@ -124,19 +124,22 @@ function extractYandexSelectorCategories(root: ParentNode): YandexCashbackCatego
     const match = title?.match(/^([−-]?\d+(?:[.,]\d+)?)\s*%\s+(.+?)$/);
     if (!match) continue;
 
+    // Delivery discounts are not cashback, even when selected in the same list.
+    const parsedPercent = parseYandexPercent(`${match[1]}%`);
+    if (parsedPercent.percent == null) continue;
+
     const image = item.querySelector<HTMLImageElement>('img');
     const input = item.querySelector<HTMLInputElement>('input[type="checkbox"], input[type="radio"]');
     const selected = input?.checked ?? item.getAttribute('aria-checked') === 'true';
-    const percentText = match[1]!;
     const category: YandexCashbackCategory = {
       type: 'standard',
       name: match[2]!,
-      percent: Math.abs(Number(percentText.replace('−', '-').replace(',', '.'))),
-      percentLabel: `${percentText}%`,
+      ...parsedPercent,
       subtitle: null,
       description: item
         .querySelector<HTMLElement>('[class*="ListItem_descriptionSecondary"]')
-        ?.textContent?.replace(/\s+/g, ' ').trim() || null,
+        ?.textContent?.replace(/\s+/g, ' ').trim() ||
+        lines.filter((line) => line !== title).join('\n') || null,
       iconUrl: image?.currentSrc || image?.src || null,
       iconBackgroundColor: null,
       selected,

@@ -26,7 +26,13 @@ async function send<T>(tabId: number, message: Message, attempts = 20): Promise<
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try { return await browser.tabs.sendMessage(tabId, message) as T; }
-    catch (error) { lastError = error; await sleep(250); }
+    catch (error) {
+      lastError = error;
+      if (!/Could not establish connection|Receiving end does not exist|message port closed/i.test(String(error))) {
+        throw error;
+      }
+      await sleep(250);
+    }
   }
   throw lastError;
 }
@@ -55,10 +61,10 @@ async function navigate(tabId: number, url: string) {
   throw new Error(`Не загрузилась страница ${url}`);
 }
 
-async function scan(tabId: number, bankId: BankId, attempts = 30): Promise<OfferPreview[]> {
+async function scan(tabId: number, bankId: BankId, attempts = 30, expectedCount?: number | null): Promise<OfferPreview[]> {
   let previews: OfferPreview[] = [];
   for (let attempt = 0; attempt < attempts; attempt++) {
-    previews = await send<OfferPreview[]>(tabId, { type: 'cashflow:extended-scan', bankId });
+    previews = await send<OfferPreview[]>(tabId, { type: 'cashflow:extended-scan', bankId, expectedCount });
     if (previews.length) return previews;
     await sleep(200);
   }
@@ -127,8 +133,8 @@ export async function collectExtendedBank(
             if (current.url?.includes('/bonuses/categories/')) break;
             await sleep(150);
           }
-          const cards = await scan(tabId, bankId);
           const section = sections[index]!;
+          const cards = await scan(tabId, bankId, 30, section.expectedCount);
           if (section.expectedCount != null && cards.length !== section.expectedCount) {
             result.errors.push(`${section.name}: собрано ${cards.length} из ${section.expectedCount}`);
           }

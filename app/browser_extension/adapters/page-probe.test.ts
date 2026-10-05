@@ -29,6 +29,19 @@ const taskBonusCategory = (): CashbackCategory => ({
 });
 
 describe('extractSelection', () => {
+  it.each(['Выбрано 3 из 3', 'Выбрано\n2 из 3', 'Выбрано3 из 3'])(
+    'reads the bank slot limit from %s without confirming the selection', (text) => {
+      const root = { textContent: text } as ParentNode;
+      expect(extractSelection([
+        category(true), category(true), category(false), category(false),
+        stackableCategory(), taskBonusCategory(),
+      ], root)).toMatchObject({
+        maxSelectable: 3, totalOptions: 4, selectedCount: 2,
+        visibleCount: 4, isLocked: null,
+      });
+    },
+  );
+
   it('extracts an explicit choose-from limit', () => {
     const root = { textContent: 'Можно выбрать 5 категорий из 8' } as ParentNode;
     expect(extractSelection([category(true), category(false)], root)).toEqual({

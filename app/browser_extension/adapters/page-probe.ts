@@ -44,11 +44,18 @@ export function extractSelection(
   const choose = text.match(
     /(?:выбрать|выберите|можно выбрать)\s+(\d+)\s+категори/i,
   );
+  const selectedOutOf = text.match(
+    /выбрано\s*(\d+)\s*из\s*(\d+)/i,
+  );
   if (chooseFrom) {
     maxSelectable = Number(chooseFrom[1]);
     totalOptions = Number(chooseFrom[2]);
   } else if (choose) {
     maxSelectable = Number(choose[1]);
+  } else if (selectedOutOf) {
+    // In a selection counter the denominator is the slot limit, not the
+    // number of available offers. A full counter does not prove activation.
+    maxSelectable = Number(selectedOutOf[2]);
   }
   if (maxSelectable != null && totalOptions == null && selectableCategories.length > 0) {
     totalOptions = selectableCategories.length;

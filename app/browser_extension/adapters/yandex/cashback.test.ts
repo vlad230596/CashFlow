@@ -1,5 +1,50 @@
 import { describe, expect, it } from 'vitest';
-import { parseYandexCashbackCardText, parseYandexPercent } from './cashback';
+import { extractYandexCashbackCategories, parseYandexCashbackCardText, parseYandexPercent } from './cashback';
+
+describe('extractYandexCashbackCategories selector list', () => {
+  function item(title: string, description: string, secondaryClass = true) {
+    return {
+      innerText: `${title}\n${description}`,
+      querySelector(selector: string) {
+        if (selector.includes('ListItem_title__')) return { textContent: title };
+        if (selector.includes('ListItem_descriptionSecondary') && secondaryClass) {
+          return { textContent: description };
+        }
+        if (selector.includes('input[')) return { checked: true };
+        return null;
+      },
+      getAttribute() { return null; },
+    };
+  }
+
+  it.each(['−', '-'])('excludes a %s50%% delivery discount while keeping cashback conditions', (minus) => {
+    const items = [
+      item(`${minus}50% Еда и Деливери`, 'Скидка на доставку'),
+      item('10% Кинопоиск', 'Билеты в приложении или на сайте', false),
+    ];
+    const root = {
+      querySelectorAll(selector: string) {
+        return selector.includes('selector-page-list-item') ? items : [];
+      },
+    } as unknown as ParentNode;
+    expect(extractYandexCashbackCategories(root)).toEqual([
+      expect.objectContaining({
+        name: 'Кинопоиск', percent: 10, percentLabel: '10%', selected: true,
+        description: 'Билеты в приложении или на сайте',
+      }),
+    ]);
+  });
+
+  it('does not reintroduce a discount through fallback extraction', () => {
+    const root = {
+      querySelectorAll(selector: string) {
+        return selector.includes('selector-page-list-item')
+          ? [item('−50% Еда и Деливери', 'Скидка на доставку')] : [];
+      },
+    } as unknown as ParentNode;
+    expect(extractYandexCashbackCategories(root)).toEqual([]);
+  });
+});
 
 describe('parseYandexPercent', () => {
   it('does not promise a discount as cashback', () => {
