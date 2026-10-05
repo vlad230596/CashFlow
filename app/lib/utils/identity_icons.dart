@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 class BankIconOption {
   const BankIconOption({
@@ -8,14 +9,25 @@ class BankIconOption {
     required this.foreground,
     this.mark,
     this.icon,
+    this.logoAsset,
+    this.logoOnWhite = false,
   });
 
   final String key;
   final String label;
+
+  /// Colours, [mark] and [icon] draw the badge when there is no [logoAsset]
+  /// or it fails to load.
   final Color background;
   final Color foreground;
   final String? mark;
   final IconData? icon;
+
+  /// Square SVG logo from `assets/banks/`, drawn edge to edge in the badge.
+  final String? logoAsset;
+
+  /// The logo sits on white and needs a thin edge on light surfaces.
+  final bool logoOnWhite;
 }
 
 const bankIconOptions = <BankIconOption>[
@@ -32,6 +44,7 @@ const bankIconOptions = <BankIconOption>[
     background: Color(0xFFF9DF55),
     foreground: Color(0xFF111111),
     mark: 'Т',
+    logoAsset: 'assets/banks/tbank.svg',
   ),
   BankIconOption(
     key: 'alfa',
@@ -39,6 +52,7 @@ const bankIconOptions = <BankIconOption>[
     background: Color(0xFFEF3124),
     foreground: Colors.white,
     mark: 'A',
+    logoAsset: 'assets/banks/alfa.svg',
   ),
   BankIconOption(
     key: 'vtb',
@@ -46,6 +60,8 @@ const bankIconOptions = <BankIconOption>[
     background: Color(0xFF0A6EC7),
     foreground: Colors.white,
     mark: 'ВТБ',
+    logoAsset: 'assets/banks/vtb.svg',
+    logoOnWhite: true,
   ),
   BankIconOption(
     key: 'sber',
@@ -53,6 +69,8 @@ const bankIconOptions = <BankIconOption>[
     background: Color(0xFF21A038),
     foreground: Colors.white,
     mark: 'С',
+    logoAsset: 'assets/banks/sber.svg',
+    logoOnWhite: true,
   ),
   BankIconOption(
     key: 'yandex',
@@ -60,6 +78,7 @@ const bankIconOptions = <BankIconOption>[
     background: Color(0xFFFFCC00),
     foreground: Color(0xFF111111),
     mark: 'Я',
+    logoAsset: 'assets/banks/yandex.svg',
   ),
   BankIconOption(
     key: 'ozon',
@@ -67,6 +86,7 @@ const bankIconOptions = <BankIconOption>[
     background: Color(0xFF005BFF),
     foreground: Colors.white,
     mark: 'O',
+    logoAsset: 'assets/banks/ozon.svg',
   ),
 ];
 
@@ -283,33 +303,91 @@ class BankIconBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final option = bankIconOption(iconKey, bankName: bankName);
-    final mark = option.mark;
     return Semantics(
       image: true,
       label: 'Иконка банка ${bankName ?? option.label}',
       child: ExcludeSemantics(
-        child: Container(
-          width: size,
-          height: size,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: option.background,
-            borderRadius: BorderRadius.circular(size * .28),
+        child: BankIconMark(option: option, size: size),
+      ),
+    );
+  }
+}
+
+/// The picture of a [BankIconBadge]: the bank's logo clipped to a rounded
+/// square, or the coloured letter mark when there is no logo or it cannot be
+/// loaded.
+class BankIconMark extends StatelessWidget {
+  const BankIconMark({super.key, required this.option, this.size = 36});
+
+  final BankIconOption option;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = option.logoAsset;
+    final radius = BorderRadius.circular(size * .28);
+    if (asset == null) return _LetterMark(option: option, size: size);
+    return SizedBox.square(
+      dimension: size,
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          border: option.logoOnWhite
+              ? Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                  width: size < 24 ? .5 : 1,
+                )
+              : null,
+        ),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: SvgPicture.asset(
+            asset,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            placeholderBuilder: (_) => ColoredBox(
+              color: option.logoOnWhite ? Colors.white : option.background,
+            ),
+            errorBuilder: (_, __, ___) =>
+                _LetterMark(option: option, size: size),
           ),
-          child: mark == null
-              ? Icon(option.icon, size: size * .52, color: option.foreground)
-              : Text(
-                  mark,
-                  maxLines: 1,
-                  style: TextStyle(
-                    color: option.foreground,
-                    fontSize: mark.length > 1 ? size * .27 : size * .48,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                  ),
-                ),
         ),
       ),
+    );
+  }
+}
+
+class _LetterMark extends StatelessWidget {
+  const _LetterMark({required this.option, required this.size});
+
+  final BankIconOption option;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = option.mark;
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: option.background,
+        borderRadius: BorderRadius.circular(size * .28),
+      ),
+      child: mark == null
+          ? Icon(option.icon, size: size * .52, color: option.foreground)
+          : Text(
+              mark,
+              maxLines: 1,
+              style: TextStyle(
+                color: option.foreground,
+                fontSize: mark.length > 1 ? size * .27 : size * .48,
+                fontWeight: FontWeight.w900,
+                height: 1,
+              ),
+            ),
     );
   }
 }
