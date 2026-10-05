@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Restricted operations on the CashFlow development stack for the cashflow-agent SSH key.
+#
+# Installed as /usr/local/sbin/cashflow-dev-agent and reached only through the forced command
+# of /home/cashflow-agent/.ssh/authorized_keys, so the key can run nothing else. It never
+# touches production (/opt/cashflow) and offers no shell.
+set -Eeuo pipefail
+
+umask 077
+
+readonly APP_DIR='/opt/cashflow-dev'
+readonly COMPOSE_FILE='compose.dev.yaml'
+readonly RELEASE_ENV='.release.env'
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: cashflow-dev-agent COMMAND
+  status                         containers and the deployed version
+  logs [backend|frontend|postgres] [LINES]   recent container logs (default backend 200, max 1000)
+  alembic-current                current database revision
+  import-bank-mcc-rules [--draft]   import bundled bank MCC rules (published unless --draft)
+EOF
+  exit 64
+}
+
+cd "$APP_DIR"
+test -f "$COMPOSE_FILE"
+compose=(docker compose -p cashflow-dev --env-file .env --env-file "$RELEASE_ENV" -f "$COMPOSE_FILE")
+
+command="${1:-}"
+shift || true
+
+case "$command" in
+  status)
+    [[ $# -eq 0 ]] || usage
+    "${compose[@]}" ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'
+    grep -E '^(APP_VERSION|BUILD_DATE)=' "$RELEASE_ENV" || true
+    ;;
+  logs)
+    service="${1:-backend}"
+    lines="${2:-200}"
+    [[ $# -le 2 ]] || usage
+    [[ "$service" =~ ^(backend|frontend|postgres)$ ]] || usage
+    [[ "$lines" =~ ^[0-9]{1,4}$ ]] && (( lines >= 1 && lines <= 1000 )) || usage
+    "${compose[@]}" logs --no-color --tail "$lines" "$service"
+    ;;
+  alembic-current)
+    [[ $# -eq 0 ]] || usage
+    "${compose[@]}" exec -T backend uv run --no-sync alembic current
+    ;;
+  import-bank-mcc-rules)
+    if [[ $# -eq 0 ]]; then
+      "${compose[@]}" exec -T backend uv run --no-sync flask --app main import-bank-mcc-rules
+    elif [[ $# -eq 1 && "$1" == '--draft' ]]; then
+      "${compose[@]}" exec -T backend uv run --no-sync flask --app main \
+        import-bank-mcc-rules --draft
+    else
+      usage
+    fi
+    ;;
+  *)
+    usage
+    ;;
+esac

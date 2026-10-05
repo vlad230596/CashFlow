@@ -71,6 +71,11 @@ Other SSH keys have narrower roles and are not the default for data questions:
 - `cashflow-production-github` belongs to the CI deployment path.
 - `cashflow-vds-setup-ed25519` is for server bootstrap/maintenance.
 - `cashflow-backup-pc1` is the least-privilege read-only export path.
+- `cashflow-dev-agent-ed25519` (user `cashflow-agent`) runs only the whitelisted
+  development operations of `deploy/cashflow-dev-agent`: `status`, `logs`,
+  `alembic-current`, `import-bank-mcc-rules`. It cannot reach production or open a
+  shell. Use it for development operations the user has asked for, for example:
+  `ssh -i ~/.ssh/cashflow-dev-agent-ed25519 -o HostKeyAlias=5.45.117.224 cashflow-agent@cash-flow-app.duckdns.org status`.
 
 ## Legacy and generated local data
 

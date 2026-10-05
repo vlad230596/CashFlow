@@ -114,9 +114,34 @@ docker compose -p cashflow-dev --env-file .env --env-file .release.env \
   uv run --no-sync flask --app main import-bank-mcc-rules
 ```
 
+With the development agent key installed (below), the same import runs as
+`ssh … cashflow-agent@cash-flow-app.duckdns.org import-bank-mcc-rules`.
+
 In production the same `flask` command runs in `/opt/cashflow` with `compose.prod.yaml` and only
 on an explicit request. Both paths are idempotent: unchanged content does not create another
 revision.
+
+## Development agent access
+
+`deploy/cashflow-dev-agent` gives an automation key a fixed set of development operations
+(`status`, `logs`, `alembic-current`, `import-bank-mcc-rules`) without a shell and without any
+access to `/opt/cashflow`. Install it as root on the VDS:
+
+```bash
+useradd --system --create-home --shell /bin/bash cashflow-agent
+install -o root -g root -m 755 cashflow-dev-agent /usr/local/sbin/cashflow-dev-agent
+printf '%s\n' 'cashflow-agent ALL=(root) NOPASSWD: /usr/local/sbin/cashflow-dev-agent *' \
+  > /etc/sudoers.d/cashflow-agent
+chmod 440 /etc/sudoers.d/cashflow-agent && visudo -cf /etc/sudoers.d/cashflow-agent
+install -d -o cashflow-agent -g cashflow-agent -m 700 /home/cashflow-agent/.ssh
+printf '%s\n' 'restrict,command="sudo -n /usr/local/sbin/cashflow-dev-agent $SSH_ORIGINAL_COMMAND" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOrJ5CN570szqIApHsJo7d80Ih3T7FNpOEoj8jJVS45n cashflow-dev-agent DESKTOP-4IQKB4I 2026-10-05' \
+  > /home/cashflow-agent/.ssh/authorized_keys
+chown cashflow-agent:cashflow-agent /home/cashflow-agent/.ssh/authorized_keys
+chmod 600 /home/cashflow-agent/.ssh/authorized_keys
+```
+
+The private key stays on the workstation as `%USERPROFILE%\.ssh\cashflow-dev-agent-ed25519`.
+Revoke it by deleting `/home/cashflow-agent/.ssh/authorized_keys`.
 
 ## Branches and component checks
 
