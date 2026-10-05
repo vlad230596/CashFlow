@@ -308,3 +308,20 @@ def test_personal_offers_inherit_bank_rule_links(client_and_headers):
     # Ozon has no rules here: the name rules decide, and a brand stays unmapped.
     assert keys[(cards['ozon'], 'Кафе и рестораны')] == ['restaurants']
     assert keys[(cards['ozon'], 'Пятёрочка')] == []
+
+
+def test_import_finds_differently_named_bank_by_icon_key(client_and_headers):
+    Bank.query.filter_by(name=BANK_IMPORT_NAMES['ozon']).one().name = 'Ozon Банк'
+    Bank.query.filter_by(name=BANK_IMPORT_NAMES['yandex']).one().name = 'Яндекс Пэй'
+    Bank.query.filter_by(name=BANK_IMPORT_NAMES['alfa']).one().name = 'Альфа-Банк'
+    db.session.add(Bank(name='Альфа-Банк (второй)', icon_key='alfa'))
+    db.session.commit()
+
+    result = app.test_cli_runner().invoke(args=['import-bank-mcc-rules', '--draft'])
+
+    assert result.exit_code == 0, result.output
+    # Two banks share the alfa key, so the import refuses to guess.
+    assert 'skipped alfa.json:alfa' in result.output
+    assert 'created ozon.json:ozon' in result.output
+    assert 'created yandex.json:yandex' in result.output
+    assert 'created: 5, unchanged: 0, published: 0, skipped: 1' in result.output

@@ -2082,7 +2082,13 @@ def _resolve_rules_bank(bank_id):
         return db.session.get(Bank, bank_id)
     if isinstance(bank_id, str):
         bank_name = BANK_IMPORT_NAMES.get(bank_id, bank_id)
-        return Bank.query.filter_by(name=bank_name).first()
+        bank = Bank.query.filter_by(name=bank_name).first()
+        if bank is not None or bank_id not in BANK_ICON_KEYS - {'generic'}:
+            return bank
+        # Environments name banks differently («Альфа», «Альфа-Банк»); migration 0009 derives
+        # the icon key from the name, so a single bank with that key is the same bank.
+        candidates = Bank.query.filter_by(icon_key=bank_id).limit(2).all()
+        return candidates[0] if len(candidates) == 1 else None
     return None
 
 
