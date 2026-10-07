@@ -227,6 +227,49 @@ def test_legacy_repair_is_preview_by_default(client):
     ).output
 
 
+def test_purge_removes_only_offers_without_a_known_deadline(client):
+    admin = _login(client, 'admin', 'correct horse battery staple')
+    undated = {**_offer('tbank:1'), 'expirationLabel': None}
+    dated = _offer('tbank:2')
+    assert _import(client, admin, [undated, dated]).status_code == 200
+    with app.app_context():
+        undated_id = PartnerOffer.query.filter_by(source_key='tbank:1').one().id
+    viewer = _login(client, 'viewer', 'another correct horse battery')
+    assert client.put(f'/api/partner-offers/{undated_id}/preference', headers=viewer,
+                      json={'rating': 'hidden'}).status_code == 200
+    runner = app.test_cli_runner()
+
+    preview = runner.invoke(args=['purge-undated-partner-offers'])
+
+    assert preview.exit_code == 0, preview.output
+    assert 'Would delete: 1 (available: 1); deadline recoverable, kept: 0' in preview.output
+    with app.app_context():
+        assert PartnerOffer.query.count() == 2
+
+    result = runner.invoke(args=['purge-undated-partner-offers', '--apply'])
+
+    assert result.exit_code == 0, result.output
+    assert 'Deleted: 1' in result.output
+    with app.app_context():
+        assert [offer.source_key for offer in PartnerOffer.query] == ['tbank:2']
+        assert PartnerOfferSnapshot.query.count() == 1
+        assert PartnerOfferPreference.query.count() == 0
+
+
+def test_purge_keeps_offers_whose_deadline_can_be_repaired(client):
+    admin = _login(client, 'admin', 'correct horse battery staple')
+    assert _import(client, admin, [_offer()]).status_code == 200
+    with app.app_context():
+        PartnerOfferSnapshot.query.one().ends_at = None
+        db.session.commit()
+
+    result = app.test_cli_runner().invoke(args=['purge-undated-partner-offers', '--apply'])
+
+    assert 'Deleted: 0 (available: 0); deadline recoverable, kept: 1' in result.output
+    with app.app_context():
+        assert PartnerOffer.query.count() == 1
+
+
 def test_partner_icon_uses_same_origin_proxy(client, monkeypatch):
     admin = _login(client, "admin", "correct horse battery staple")
     offer = _offer()

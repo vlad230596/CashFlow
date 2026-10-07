@@ -4062,6 +4062,63 @@ def repair_partner_deadlines(apply):
                f'using legacy collection dates: {uncertain}')
 
 
+def _undated_partner_offers():
+    """Offers whose current snapshot has no end date that the raw data can recover."""
+    rows = (
+        db.session.query(PartnerOffer, PartnerOfferSnapshot)
+        .join(PartnerOfferSnapshot, PartnerOffer.current_snapshot_id == PartnerOfferSnapshot.id)
+        .filter(PartnerOfferSnapshot.ends_at.is_(None))
+        .order_by(PartnerOffer.id)
+        .all()
+    )
+    undated, recoverable = [], 0
+    for offer, snapshot in rows:
+        raw = json.loads(snapshot.raw_json)
+        generated_at = raw.get('_cashflowGeneratedAt')
+        anchor = (
+            _parse_partner_datetime(generated_at, 'generatedAt')
+            if generated_at else _as_utc(snapshot.collected_at)
+        )
+        if offer_deadline(raw, anchor) is None:
+            undated.append(offer)
+        else:
+            recoverable += 1
+    return undated, recoverable
+
+
+@app.cli.command('purge-undated-partner-offers')
+@click.option('--apply', is_flag=True, help='Delete the offers; default is a read-only preview.')
+def purge_undated_partner_offers(apply):
+    """Delete partner offers whose validity end is unknown, with snapshots and ratings.
+
+    An offer whose deadline repair-partner-deadlines can still recover is kept.
+    """
+    undated, recoverable = _undated_partner_offers()
+    ids = [offer.id for offer in undated]
+    available = sum(1 for offer in undated if offer.is_available)
+    if apply and ids:
+        snapshot_ids = [
+            row.id for row in PartnerOfferSnapshot.query.filter(
+                PartnerOfferSnapshot.offer_id.in_(ids),
+            ).with_entities(PartnerOfferSnapshot.id)
+        ]
+        # Explicit child deletes: SQLite does not enforce ON DELETE CASCADE by default.
+        if snapshot_ids:
+            PartnerOfferLimit.query.filter(
+                PartnerOfferLimit.snapshot_id.in_(snapshot_ids),
+            ).delete(synchronize_session=False)
+        PartnerOfferPreference.query.filter(
+            PartnerOfferPreference.offer_id.in_(ids),
+        ).delete(synchronize_session=False)
+        PartnerOfferSnapshot.query.filter(
+            PartnerOfferSnapshot.offer_id.in_(ids),
+        ).delete(synchronize_session=False)
+        PartnerOffer.query.filter(PartnerOffer.id.in_(ids)).delete(synchronize_session=False)
+        db.session.commit()
+    click.echo(f'{"Deleted" if apply else "Would delete"}: {len(ids)} '
+               f'(available: {available}); deadline recoverable, kept: {recoverable}')
+
+
 @app.get('/api/partner-offers/<int:offer_id>')
 def get_partner_offer(offer_id):
     offer = db.session.get(PartnerOffer, offer_id)

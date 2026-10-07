@@ -121,6 +121,13 @@ In production the same `flask` command runs in `/opt/cashflow` with `compose.pro
 on an explicit request. Both paths are idempotent: unchanged content does not create another
 revision.
 
+## Partner offers without a deadline
+
+`flask --app main purge-undated-partner-offers` previews partner offers whose current snapshot
+has no end date that `repair-partner-deadlines` could still recover. `--apply` deletes them with
+their snapshots, limits and personal ratings. Run it only on an explicit request and after a
+fresh backup; a later import without a deadline brings such an offer back.
+
 ## Development agent access
 
 `deploy/cashflow-dev-agent` gives an automation key a fixed set of development operations
