@@ -2770,6 +2770,52 @@ def _as_of_argument():
     return _parse_rule_datetime(request.args.get('as_of') or _utc_now().isoformat(), 'as_of')
 
 
+@app.get('/api/mcc')
+def list_mcc_codes():
+    """The whole MCC reference without long descriptions, for client-side search."""
+    return jsonify([
+        {'code': code, 'title': title}
+        for code, title in db.session.query(MccCode.code, MccCode.title).order_by(MccCode.code)
+    ])
+
+
+# Offer periods are stored as naive project-local (Europe/Moscow, no DST) datetimes.
+MOSCOW_TZ = timezone(timedelta(hours=3))
+
+
+def _active_offers_by_bank(as_of):
+    """Offers whose period covers ``as_of``, grouped by the bank of their card."""
+    moment = as_of.astimezone(MOSCOW_TZ).replace(tzinfo=None)
+    rows = (
+        db.session.query(CashbackCategory, BankCard.bank_id)
+        .join(BankCard, BankCard.id == CashbackCategory.card_id)
+        .filter(CashbackCategory.start_date <= moment, CashbackCategory.end_date > moment)
+        .all()
+    )
+    result = {}
+    for offer, bank_id in rows:
+        result.setdefault(bank_id, []).append(offer)
+    return result
+
+
+def _offers_earning_mcc(offers, payload, evaluation, code):
+    """Ids of the offers whose bank category earns ``code``.
+
+    An offer is tied to a published category by name, the same way canonical links are
+    inherited. "All purchases" categories earn any code the program does not exclude.
+    """
+    if evaluation['status'] == 'excluded':
+        return []
+    matched = {normalize_category_name(item['name']) for item in evaluation['categories']}
+    if evaluation['status'] != 'category_only':
+        matched |= {
+            normalize_category_name(item['name'])
+            for item in payload['categories']
+            if item['kind'] == 'all_purchases' and code not in item['excluded_mcc']
+        }
+    return sorted(offer.id for offer in offers if normalize_category_name(offer.name) in matched)
+
+
 @app.get('/api/mcc/<string:code>/bank-rules')
 def get_mcc_bank_rules(code):
     if not MCC_PATTERN.fullmatch(code):
@@ -2786,15 +2832,100 @@ def get_mcc_bank_rules(code):
         .order_by(CanonicalCategory.sort_order)
         .all()
     )
+    offers = _active_offers_by_bank(as_of)
+    banks = []
+    for bank, payload in _published_payloads(as_of):
+        evaluation = _evaluate_mcc_in_revision(payload, code)
+        banks.append({
+            'bank': bank.to_dict(),
+            **evaluation,
+            'offer_ids': _offers_earning_mcc(offers.get(bank.id, []), payload, evaluation, code),
+        })
     return jsonify({
         'mcc': mcc.to_dict() if mcc is not None else {'code': code},
         'as_of': _iso_datetime(as_of),
         'canonical': [_canonical_category_to_dict(item) for item in canonical],
-        'banks': [
-            {'bank': bank.to_dict(), **_evaluate_mcc_in_revision(payload, code)}
-            for bank, payload in _published_payloads(as_of)
-        ],
+        'banks': banks,
     })
+
+
+def _mcc_titles(codes):
+    if not codes:
+        return {}
+    return dict(
+        db.session.query(MccCode.code, MccCode.title).filter(MccCode.code.in_(set(codes)))
+    )
+
+
+@app.get('/api/cashback/<int:offer_id>/mcc-rules')
+def get_offer_mcc_rules(offer_id):
+    """The published bank category behind one card offer, with titled MCC lists."""
+    offer = db.session.get(CashbackCategory, offer_id)
+    card = db.session.get(BankCard, offer.card_id) if offer is not None else None
+    if offer is None or card is None:
+        return jsonify({'error': 'Cashback category not found'}), 404
+    try:
+        as_of = _as_of_argument() if request.args.get('as_of') else None
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    if as_of is None:
+        # Today when the offer is running, otherwise its first day.
+        start = offer.start_date.replace(tzinfo=MOSCOW_TZ).astimezone(timezone.utc)
+        end = offer.end_date.replace(tzinfo=MOSCOW_TZ).astimezone(timezone.utc)
+        now = _utc_now()
+        as_of = now if start <= now < end else start
+
+    name = normalize_category_name(offer.name)
+    programs = BankCashbackProgram.query.filter_by(bank_id=card.bank_id).order_by(
+        BankCashbackProgram.id,
+    )
+    for program in programs:
+        revision = _rules_revision_query(program.id, as_of)
+        if revision is None:
+            continue
+        payload = _revision_to_dict(revision)
+        category = next(
+            (item for item in payload['categories']
+             if normalize_category_name(item['name']) == name),
+            None,
+        )
+        if category is None:
+            continue
+        titles = _mcc_titles([
+            *category['included_mcc'],
+            *category['excluded_mcc'],
+            *(item['mcc'] for item in payload['exclusions']),
+        ])
+        return jsonify({
+            'offer_id': offer.id,
+            'bank_id': card.bank_id,
+            'as_of': _iso_datetime(as_of),
+            'revision_id': payload['id'],
+            'program': payload['program'],
+            'valid_from': payload['valid_from'],
+            'valid_to': payload['valid_to'],
+            'source': payload['source'],
+            'category': {
+                'id': category['id'],
+                'name': category['name'],
+                'description': category['description'],
+                'kind': category['kind'],
+                'completeness': category['completeness'],
+                'conditions': category['conditions'],
+                'included': [
+                    {'code': code, 'title': titles.get(code)}
+                    for code in category['included_mcc']
+                ],
+                'excluded': [
+                    {'code': code, 'title': titles.get(code)}
+                    for code in category['excluded_mcc']
+                ],
+            },
+            'exclusions': [
+                {**item, 'title': titles.get(item['mcc'])} for item in payload['exclusions']
+            ],
+        })
+    return jsonify({'error': 'MCC rules for this category are not published'}), 404
 
 
 def _canonical_category_to_dict(category, core_mcc=None):

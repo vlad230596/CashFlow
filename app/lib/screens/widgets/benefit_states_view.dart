@@ -2,17 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../../models/canonical_category_model.dart';
 import '../../models/cashback_category_model.dart';
+import '../../models/mcc_lookup_model.dart';
 import '../../providers/data_provider.dart';
 import '../../utils/cashback_needs.dart';
 import '../../utils/category_info.dart';
 import '../../utils/identity_icons.dart';
 import '../cashback_category_detail_screen.dart';
 import 'cashback_limits_label.dart';
+import 'mcc_payment_options_view.dart';
 
 class BenefitItemData {
   const BenefitItemData({
     required this.category,
     required this.cardLabel,
+    this.bankId,
     this.bankName,
     this.bankIconKey,
     this.userName,
@@ -23,6 +26,7 @@ class BenefitItemData {
 
   final CashbackCategoryModel category;
   final String cardLabel;
+  final int? bankId;
   final String? bankName;
   final String? bankIconKey;
   final String? userName;
@@ -126,6 +130,7 @@ class BenefitStatesView extends StatefulWidget {
     this.snapshotUpdatedAt,
     this.onShellDestinationSelected,
     this.onInternalDetailChanged,
+    this.onLookupMcc,
   });
 
   final PrimaryDataPhase phase;
@@ -141,6 +146,9 @@ class BenefitStatesView extends StatefulWidget {
   final ValueChanged<int>? onShellDestinationSelected;
   final ValueChanged<bool>? onInternalDetailChanged;
 
+  /// Explains how every bank treats an MCC; without it MCC rows are inert.
+  final Future<MccLookupModel> Function(String code)? onLookupMcc;
+
   @override
   State<BenefitStatesView> createState() => _BenefitStatesViewState();
 }
@@ -151,6 +159,10 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   int? _selectedId;
   BenefitPurchaseResult? _selectedPurchaseResult;
   String? _selectedMerchantName;
+
+  /// MCC opened from a search row; a typed four-digit code opens by itself.
+  String? _selectedMccCode;
+  final _mccLookups = <String, Future<MccLookupModel>>{};
 
   CashbackNeedCatalog get _needs =>
       CashbackNeedCatalog(widget.canonicalCategories);
@@ -190,7 +202,12 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
         _selectedMerchantName = null;
         _selectedPurchaseResult = null;
       }
+      if (_selectedMccCode != null &&
+          _searchController.text.trim() != _selectedMccCode) {
+        _selectedMccCode = null;
+      }
       if (_selectedId != null &&
+          _activeMccCode == null &&
           !_filteredItems.any((item) => item.category.id == _selectedId)) {
         _selectedId = null;
       }
@@ -214,10 +231,42 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     return result;
   }
 
+  /// Reference codes for the query: a code prefix, or words of the title
+  /// once at least three letters are typed.
   List<BenefitMccSearchResult> get _filteredMccResults {
     final query = _searchController.text.trim().toLowerCase();
     if (query.isEmpty) return const [];
-    return widget.mccResults;
+    final digits = RegExp(r'^\d{1,4}$').hasMatch(query);
+    if (!digits && query.length < 3) return const [];
+    return widget.mccResults
+        .where((item) => digits
+            ? item.code.startsWith(query)
+            : item.name.toLowerCase().contains(query))
+        .take(8)
+        .toList();
+  }
+
+  /// The MCC whose payment options are shown: a tapped row, or a typed
+  /// four-digit code that does not name any card or category.
+  String? get _activeMccCode {
+    if (widget.onLookupMcc == null) return null;
+    if (_selectedMccCode != null) return _selectedMccCode;
+    final query = _searchController.text.trim();
+    if (!RegExp(r'^\d{4}$').hasMatch(query)) return null;
+    return _filteredItems.isEmpty ? query : null;
+  }
+
+  Future<MccLookupModel> _lookupMcc(String code) =>
+      _mccLookups[code] ??= widget.onLookupMcc!(code);
+
+  void _selectMcc(BenefitMccSearchResult item) {
+    if (widget.onLookupMcc == null) return;
+    _searchController.value = TextEditingValue(
+      text: item.code,
+      selection: TextSelection.collapsed(offset: item.code.length),
+    );
+    setState(() => _selectedMccCode = item.code);
+    _searchFocusNode.unfocus();
   }
 
   List<BenefitMerchantSearchResult> get _filteredMerchantResults {
@@ -234,6 +283,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   }
 
   void _clearQuery() {
+    _selectedMccCode = null;
     _selectedMerchantName = null;
     _selectedPurchaseResult = null;
     _searchController.clear();
@@ -263,9 +313,22 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   }
 
   bool get _hasInternalDetail =>
-      _selectedId != null || _selectedPurchaseResult != null;
+      _selectedId != null ||
+      _selectedPurchaseResult != null ||
+      _activeMccCode != null;
 
   void _closeInternalDetail() {
+    if (_selectedId != null && _activeMccCode != null) {
+      // An offer opened from MCC results goes back to those results.
+      setState(() => _selectedId = null);
+      widget.onInternalDetailChanged?.call(false);
+      return;
+    }
+    if (_selectedId == null && _activeMccCode != null) {
+      _selectedMccCode = null;
+      _searchController.clear();
+      return;
+    }
     setState(() {
       _selectedId = null;
       _selectedPurchaseResult = null;
@@ -360,6 +423,38 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     final filteredMcc = _filteredMccResults;
     final filteredMerchants = _filteredMerchantResults;
     final groups = _needGroups(query);
+    final mccCode = _activeMccCode;
+    if (mccCode != null) {
+      final options = MccPaymentOptionsView(
+        key: ValueKey('benefit-mcc-$mccCode'),
+        code: mccCode,
+        lookup: _lookupMcc(mccCode),
+        items: widget.items,
+        onRetry: () => setState(() => _mccLookups.remove(mccCode)),
+        onSelected: _selectItem,
+      );
+      if (width >= 840) {
+        return Row(
+          key: const Key('benefit-expanded-layout'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(width: 420, child: options),
+            const VerticalDivider(width: 1),
+            Expanded(
+              child: _selectedItem == null
+                  ? const _DetailPrompt()
+                  : _BenefitDetail(
+                      item: _selectedItem!,
+                      tiedItems: const [],
+                      onShellDestinationSelected:
+                          widget.onShellDestinationSelected,
+                    ),
+            ),
+          ],
+        );
+      }
+      if (_selectedItem == null) return options;
+    }
     if (filtered.isEmpty &&
         groups.isEmpty &&
         filteredMcc.isEmpty &&
@@ -423,6 +518,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
           groups: groups,
           mccResults: filteredMcc,
           merchantResults: filteredMerchants,
+          onMccSelected: widget.onLookupMcc == null ? null : _selectMcc,
           onMerchantSelected: _selectMerchant,
           onCategorySelected: _selectItem,
         );
@@ -930,9 +1026,11 @@ class _CompactSearchResults extends StatelessWidget {
     required this.merchantResults,
     required this.onCategorySelected,
     required this.onMerchantSelected,
+    this.onMccSelected,
   });
 
   final List<_NeedGroup> groups;
+  final ValueChanged<BenefitMccSearchResult>? onMccSelected;
   final List<BenefitMccSearchResult> mccResults;
   final List<BenefitMerchantSearchResult> merchantResults;
   final ValueChanged<BenefitItemData> onCategorySelected;
@@ -956,6 +1054,8 @@ class _CompactSearchResults extends StatelessWidget {
                 title: item.name,
                 subtitle: item.description,
                 kind: 'MCC',
+                onTap:
+                    onMccSelected == null ? null : () => onMccSelected!(item),
               ),
           ],
           if (merchantResults.isNotEmpty) ...[

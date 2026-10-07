@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
+import 'widgets/offer_mcc_rules_section.dart';
 
 typedef CashbackCategorySaver = Future<void> Function(
   CashbackCategoryModel category,
@@ -325,6 +326,11 @@ class _CashbackCategoryDetailScreenState
     );
   }
 
+  Widget _mccSection(DataProvider provider) => OfferMccRulesSection(
+        key: ValueKey('offer-mcc-${widget.category.id}'),
+        load: () => provider.fetchOfferMccRules(widget.category.id),
+      );
+
   void _selectShellDestination(int index) {
     Navigator.of(context).pop();
     if (index != 0) widget.onShellDestinationSelected?.call(index);
@@ -640,6 +646,8 @@ class _CashbackCategoryDetailScreenState
                   ),
                 ),
                 const SizedBox(height: 10),
+                _MobileCard(child: _mccSection(provider)),
+                const SizedBox(height: 10),
                 _MobileCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -746,6 +754,8 @@ class _CashbackCategoryDetailScreenState
                 label: 'Минимальная покупка',
                 value: _moneyOrMissing(category.minPurchaseAmount),
               ),
+              const SizedBox(height: 28),
+              _mccSection(provider),
               const SizedBox(height: 28),
               const _SectionTitle('План и подтверждение'),
               _StatusRow(

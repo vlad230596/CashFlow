@@ -11,6 +11,7 @@ import '../models/bank_model.dart';
 import '../models/user_model.dart';
 import '../models/canonical_category_model.dart';
 import '../models/cashback_category_model.dart';
+import '../models/mcc_lookup_model.dart';
 import '../models/mcc_rule_model.dart';
 import '../models/partner_offer_model.dart';
 import '../models/subscription_model.dart';
@@ -178,6 +179,10 @@ class DataProvider with ChangeNotifier {
   List<CashbackCategoryModel> cashbackCategories = [];
   List<CashbackCategoryModel> activeCashbackCategories = [];
   List<CanonicalCategoryModel> canonicalCategories = [];
+
+  /// MCC reference (code and title) for search; loaded on first use.
+  List<MccCodeModel> mccCatalog = [];
+  Future<List<MccCodeModel>>? _mccCatalogLoad;
   List<PartnerOffer> partnerOffers = [];
   List<SubscriptionModel> subscriptions = [];
   PrimaryDataPhase primaryDataPhase = PrimaryDataPhase.initialLoading;
@@ -473,6 +478,62 @@ class DataProvider with ChangeNotifier {
     );
   }
 
+  /// Loads the MCC reference once. A failure is not cached, so the next call
+  /// retries; an empty list means search works without MCC titles.
+  Future<List<MccCodeModel>> fetchMccCatalog() {
+    if (mccCatalog.isNotEmpty) return Future.value(mccCatalog);
+    return _mccCatalogLoad ??= () async {
+      try {
+        mccCatalog = await receiveFromServer('mcc', MccCodeModel.fromJson);
+        notifyListeners();
+      } catch (e) {
+        debugPrint('Error fetching MCC catalogue: $e');
+      } finally {
+        _mccCatalogLoad = null;
+      }
+      return mccCatalog;
+    }();
+  }
+
+  /// The cashback date as a moment inside that Moscow day, or null for now.
+  String? get _cashbackAsOf {
+    final date = _cashbackDateOverride;
+    if (date == null) return null;
+    final day = '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    return Uri.encodeQueryComponent('${day}T12:00:00+03:00');
+  }
+
+  /// How every bank with published rules treats [code] on the cashback date.
+  Future<MccLookupModel> lookupMcc(String code) async {
+    final asOf = _cashbackAsOf;
+    final response = await _client.get(
+      _apiUri('mcc/$code/bank-rules${asOf == null ? '' : '?as_of=$asOf'}'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_responseError(response, 'Не удалось проверить MCC'));
+    }
+    return MccLookupModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// The published bank category behind an offer, or null when the bank has
+  /// no rules for it.
+  Future<OfferMccRulesModel?> fetchOfferMccRules(int offerId) async {
+    final response = await _client.get(_apiUri('cashback/$offerId/mcc-rules'));
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) {
+      throw Exception(
+        _responseError(response, 'Не удалось загрузить MCC категории'),
+      );
+    }
+    return OfferMccRulesModel.fromJson(
+      json.decode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   Future<void> autoImportMccRules(int bankId) async {
     final response = await _client.post(
       _apiUri('admin/banks/$bankId/mcc-rules/auto-import'),
@@ -603,6 +664,7 @@ class DataProvider with ChangeNotifier {
       lastUpdated = dataSnapshotUpdatedAt.toString();
       primaryDataPhase = PrimaryDataPhase.ready;
       await fetchCanonicalCategories();
+      unawaited(fetchMccCatalog());
       await _saveDataLocally();
       await _synchronizeSubscriptionNotifications();
       await fetchPartnerOffers();

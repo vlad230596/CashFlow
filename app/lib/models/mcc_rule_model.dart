@@ -96,6 +96,7 @@ class MccExclusionModel {
     required this.mcc,
     required this.kind,
     this.reason,
+    this.title,
   });
 
   final String mcc;
@@ -104,11 +105,15 @@ class MccExclusionModel {
   final String kind;
   final String? reason;
 
+  /// Reference title of the code, when the endpoint includes it.
+  final String? title;
+
   factory MccExclusionModel.fromJson(Map<String, dynamic> json) =>
       MccExclusionModel(
         mcc: json['mcc'] as String,
         kind: json['kind'] as String? ?? 'always',
         reason: json['reason'] as String?,
+        title: json['title'] as String?,
       );
 }
 

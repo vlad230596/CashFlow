@@ -209,6 +209,86 @@ def test_mcc_check_explains_category_and_exclusion(client_and_headers, code, sta
     assert names == ([category] if category else names)
 
 
+def _offers(banks, rows):
+    """Create one owner, a card per bank key and October offers; return offer ids by name."""
+    owner = CardUser(name='Синтетический владелец')
+    db.session.add(owner)
+    db.session.flush()
+    cards = {}
+    ids = {}
+    start, end = datetime(2026, 10, 1), datetime(2026, 11, 1)
+    for bank_key, name in rows:
+        if bank_key not in cards:
+            card = BankCard(payment_system='Мир', card_type='virtual', last_four_digits='0000',
+                            bank_id=banks[bank_key], user_id=owner.id)
+            db.session.add(card)
+            db.session.flush()
+            cards[bank_key] = card.id
+        offer = CashbackCategory(name=name, start_date=start, end_date=end,
+                                 cashback_percent=5, card_id=cards[bank_key])
+        db.session.add(offer)
+        db.session.flush()
+        ids[(bank_key, name)] = offer.id
+    db.session.commit()
+    return ids
+
+
+@pytest.mark.parametrize(('code', 'earning'), [
+    # A listed code earns in its category and in "all purchases".
+    ('5814', {'Кафе и рестораны', 'Все покупки'}),
+    # Not in any category: only "all purchases" earns.
+    ('7011', {'Все покупки'}),
+    # Excluded unless a category lists it: only that category earns.
+    ('4900', {'ЖКХ'}),
+    ('6011', set()),
+])
+def test_mcc_check_names_offers_that_earn(client_and_headers, code, earning):
+    client, headers, banks = client_and_headers
+    upload_and_publish(client, headers, snapshot(banks['vtb']))
+    ids = _offers(banks, [('vtb', 'Кафе и рестораны'), ('vtb', 'ЖКХ'),
+                          ('vtb', 'Все покупки'), ('vtb', 'Такси')])
+
+    rows = client.get(
+        f'/api/mcc/{code}/bank-rules?as_of=2026-10-10', headers=headers,
+    ).get_json()['banks']
+
+    assert rows[0]['offer_ids'] == sorted(ids[('vtb', name)] for name in earning)
+
+
+def test_mcc_list_returns_titled_catalogue(client_and_headers):
+    client, headers, _ = client_and_headers
+
+    rows = client.get('/api/mcc', headers=headers).get_json()
+
+    assert len(rows) == 1077
+    assert rows[0] == {'code': '0742', 'title': 'Ветеринарные услуги'}
+
+
+def test_offer_mcc_rules_resolve_the_bank_category_by_name(client_and_headers):
+    client, headers, banks = client_and_headers
+    upload_and_publish(client, headers, snapshot(banks['vtb']))
+    ids = _offers(banks, [('vtb', 'кафе И рестораны'), ('vtb', 'Такси'),
+                          ('ozon', 'Кафе и рестораны')])
+
+    response = client.get(f"/api/cashback/{ids[('vtb', 'кафе И рестораны')]}/mcc-rules",
+                          headers=headers)
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['category']['name'] == 'Кафе и рестораны'
+    assert [item['code'] for item in payload['category']['included']] == [
+        '5811', '5812', '5813', '5814',
+    ]
+    assert payload['category']['included'][3]['title']
+    exclusions = {item['mcc']: item for item in payload['exclusions']}
+    assert exclusions['6011']['kind'] == 'always'
+    assert exclusions['6011']['title']
+    for key in (('vtb', 'Такси'), ('ozon', 'Кафе и рестораны')):
+        missing = client.get(f'/api/cashback/{ids[key]}/mcc-rules', headers=headers)
+        assert missing.status_code == 404
+    assert client.get('/api/cashback/999999/mcc-rules', headers=headers).status_code == 404
+
+
 def test_canonical_search_returns_broader_bank_categories(client_and_headers):
     client, headers, banks = client_and_headers
     upload_and_publish(client, headers, snapshot(banks['vtb']))

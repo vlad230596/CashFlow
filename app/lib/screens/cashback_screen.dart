@@ -24,6 +24,7 @@ class CashbackScreen extends StatelessWidget {
                 (category) => BenefitItemData(
                   category: category,
                   cardLabel: _cardLabel(provider, category.cardId),
+                  bankId: provider.getCardById(category.cardId).bankId,
                   bankName: _bankName(provider, category.cardId),
                   bankIconKey: _bankIconKey(provider, category.cardId),
                   userName: _userName(provider, category.cardId),
@@ -43,6 +44,15 @@ class CashbackScreen extends StatelessWidget {
             snapshotUpdatedAt: provider.dataSnapshotUpdatedAt,
             items: items,
             canonicalCategories: provider.canonicalCategories,
+            mccResults: [
+              for (final mcc in provider.mccCatalog)
+                BenefitMccSearchResult(
+                  code: mcc.code,
+                  name: mcc.title ?? 'MCC ${mcc.code}',
+                  description: 'Где начислят кешбэк',
+                ),
+            ],
+            onLookupMcc: provider.lookupMcc,
             onRefresh: () async {
               await provider.fetchAllData();
             },

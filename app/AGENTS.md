@@ -106,8 +106,15 @@ Known endpoints:
 - `POST /api/subscriptions/{id}/archive`
 - `POST /api/subscriptions/{id}/restore`
 - `POST /api/subscriptions/{id}/payments`
+- `GET /api/mcc` (code and title of every reference MCC; loaded once into
+  `DataProvider.mccCatalog` for search)
 - `GET /api/mcc/{code}`
-- `GET /api/mcc/{code}/bank-rules?as_of=` (per bank: category, exclusion kind and status)
+- `GET /api/mcc/{code}/bank-rules?as_of=` (per bank: category, exclusion kind, status and
+  `offer_ids` of offers in that period whose bank category earns the code; the Benefit
+  screen intersects them with active offers)
+- `GET /api/cashback/{id}/mcc-rules` (published bank category behind an offer, matched
+  by normalized name, with titled included/excluded codes and program exclusions; 404
+  when the bank has no rules for it)
 - `GET /api/canonical-categories` (cached as `canonicalCategories`; cashback offers carry
   `canonical_keys`, and the plan groups offers by these unified categories)
 - `GET /api/canonical-categories/{key}/bank-categories?as_of=`
