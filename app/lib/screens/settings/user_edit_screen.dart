@@ -4,6 +4,7 @@ import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
 import '../../models/user_model.dart';
 import '../../utils/identity_icons.dart';
+import 'emoji_picker_screen.dart';
 
 class UserEditScreen extends StatefulWidget {
   final UserModel? existingUser;
@@ -25,7 +26,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
     _nameController = TextEditingController(
       text: widget.existingUser?.name ?? '',
     );
-    _iconKey = widget.existingUser?.iconKey ?? 'boy';
+    _iconKey = widget.existingUser?.iconKey ?? 'emoji:🙂';
   }
 
   @override
@@ -49,7 +50,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
         );
         if (!mounted) return;
         scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('User added successfully')),
+          const SnackBar(content: Text('Пользователь добавлен')),
         );
       } else {
         await dataProvider.updateUser(
@@ -59,7 +60,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
         );
         if (!mounted) return;
         scaffoldMessenger.showSnackBar(
-          const SnackBar(content: Text('User updated successfully')),
+          const SnackBar(content: Text('Пользователь сохранён')),
         );
       }
       navigator.pop();
@@ -76,7 +77,9 @@ class _UserEditScreenState extends State<UserEditScreen> {
     return Scaffold(
       appBar: AppBar(
         title: VersionedAppBarTitle(
-          title: widget.existingUser == null ? 'Add New User' : 'Edit User',
+          title: widget.existingUser == null
+              ? 'Новый пользователь'
+              : 'Пользователь',
         ),
         actions: [
           if (widget.existingUser != null)
@@ -125,65 +128,64 @@ class _UserEditScreenState extends State<UserEditScreen> {
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'User Name',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter a user name';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Иконка пользователя',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final option in userIconOptions)
-                        ChoiceChip(
-                          key: ValueKey('user-icon-${option.key}'),
-                          selected: _iconKey == option.key,
-                          onSelected: (_) =>
-                              setState(() => _iconKey = option.key),
-                          avatar: UserIconBadge(
-                            iconKey: option.key,
-                            userName: option.label,
-                            size: 28,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Имя',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Введите имя';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      key: const ValueKey('choose-user-emoji'),
+                      contentPadding: EdgeInsets.zero,
+                      leading: UserIconBadge(
+                        iconKey: _iconKey,
+                        userName: _nameController.text,
+                        size: 44,
+                      ),
+                      title: const Text('Эмодзи пользователя'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () async {
+                        final selected = await Navigator.push<String>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                EmojiPickerScreen(selectedIconKey: _iconKey),
                           ),
-                          label: Text(option.label),
-                        ),
-                    ],
-                  ),
+                        );
+                        if (mounted && selected != null) {
+                          setState(() => _iconKey = selected);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: _saveUser,
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                      ),
+                      child: const Text('Сохранить'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _saveUser,
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                  ),
-                  child: const Text('Save User'),
-                ),
-              ],
+              ),
             ),
           ),
         ),

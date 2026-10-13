@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'emoji_catalog.dart';
 
 class BankIconOption {
   const BankIconOption({
@@ -406,20 +407,20 @@ class UserIconBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final option = userIconOption(iconKey);
     return Semantics(
       image: true,
-      label: 'Иконка пользователя ${userName ?? option.label}',
+      label: 'Иконка пользователя ${userName ?? 'владелец'}',
       child: ExcludeSemantics(
-        child: Container(
-          width: size,
-          height: size,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: option.background,
-            shape: BoxShape.circle,
+        child: SizedBox.square(
+          dimension: size,
+          child: SvgPicture.asset(
+            userEmojiAsset(iconKey),
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) =>
+                Icon(Icons.person_outline, size: size),
           ),
-          child: Icon(option.icon, size: size * .72, color: option.foreground),
         ),
       ),
     );

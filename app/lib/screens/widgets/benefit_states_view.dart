@@ -1791,7 +1791,7 @@ class _OwnerMarker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final marker = item.userMarker;
-    if (marker == null) {
+    if (item.userIconKey != null || marker == null) {
       return UserIconBadge(
         iconKey: item.userIconKey,
         userName: item.userName,
