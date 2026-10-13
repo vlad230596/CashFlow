@@ -72,6 +72,10 @@ flutter:
     # to a square: Tinkoff logo 2024, Alfa Bank RU logo, Sberbank Logo 2020,
     # VTB Logo 2018, Ozon Bank Logo, Yandex Bank logo.
     - assets/banks/
+    - assets/emoji/catalog.json
+    - assets/emoji/TWEMOJI-LICENSE.txt
+    - assets/emoji/EMOJIBASE-LICENSE.txt
+    - assets/emoji/svg/
 
   # Keep production web builds independent from third-party font CDNs. The
   # variable Roboto files are distributed under the SIL Open Font License in

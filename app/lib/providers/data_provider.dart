@@ -807,8 +807,7 @@ class DataProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     prefs.setString('banks',
         json.encode(banks.map((bank) => BankModel.toJson(bank)).toList()));
-    prefs.setString('users',
-        json.encode(users.map((user) => UserModel.toJson(user)).toList()));
+    await _saveUsersLocally();
     prefs.setString('cards',
         json.encode(cards.map((card) => CardModel.toJson(card)).toList()));
     prefs.setString(
@@ -1297,6 +1296,12 @@ class DataProvider with ChangeNotifier {
     }
   }
 
+  Future<void> _saveUsersLocally() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('users',
+        json.encode(users.map((user) => UserModel.toJson(user)).toList()));
+  }
+
   Future<void> addUser(String name, {String iconKey = 'boy'}) async {
     try {
       final response = await _client.post(
@@ -1314,6 +1319,7 @@ class DataProvider with ChangeNotifier {
         );
         users.add(newUser);
         notifyListeners();
+        await _saveUsersLocally();
       } else {
         throw Exception('Failed to add user');
       }
@@ -1345,6 +1351,7 @@ class DataProvider with ChangeNotifier {
             json.decode(response.body) as Map<String, dynamic>,
           );
           notifyListeners();
+          await _saveUsersLocally();
         }
       } else {
         throw Exception('Failed to update user');

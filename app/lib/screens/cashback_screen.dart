@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/data_provider.dart';
-import '../utils/identity_icons.dart';
 import 'widgets/benefit_states_view.dart';
 
 class CashbackScreen extends StatelessWidget {
@@ -18,7 +17,6 @@ class CashbackScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Consumer<DataProvider>(
         builder: (context, provider, _) {
-          final userIds = provider.users.map((user) => user.id);
           final items = provider.effectiveActiveCashbackCategories
               .map(
                 (category) => BenefitItemData(
@@ -29,10 +27,6 @@ class CashbackScreen extends StatelessWidget {
                   bankIconKey: _bankIconKey(provider, category.cardId),
                   userName: _userName(provider, category.cardId),
                   userIconKey: _userIconKey(provider, category.cardId),
-                  userMarker: personMarker(
-                    provider.getCardById(category.cardId).userId,
-                    userIds,
-                  ),
                   lastFourDigits:
                       provider.getCardById(category.cardId).lastFourDigits,
                 ),

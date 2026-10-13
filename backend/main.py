@@ -1188,11 +1188,14 @@ def seed_development_command(admin_username, reset, reference_date):
 # Роуты для банков
 BANK_ICON_KEYS = {'generic', 'tbank', 'alfa', 'vtb', 'sber', 'yandex', 'ozon'}
 USER_ICON_KEYS = {'boy', 'girl', 'person', 'family'}
+with open(os.path.join(os.path.dirname(__file__), 'data', 'user_emoji_keys.json'),
+          encoding='utf-8') as _emoji_catalogue:
+    USER_ICON_KEYS.update(json.load(_emoji_catalogue))
 
 
 def _icon_key(payload, allowed, default):
     value = payload.get('icon_key', default)
-    if value not in allowed:
+    if not isinstance(value, str) or value not in allowed:
         raise ValueError('Unsupported icon_key')
     return value
 

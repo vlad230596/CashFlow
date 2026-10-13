@@ -1,3 +1,6 @@
+import pytest
+
+from main import USER_ICON_KEYS
 from test_auth import login
 
 pytest_plugins = ('test_auth',)
@@ -53,3 +56,39 @@ def test_unknown_identity_icon_is_rejected(client):
         headers=headers,
     )
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize('emoji', [
+    '🦊', '👍🏽', '👨‍👩‍👧‍👦',
+    '🏴\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f',
+])
+def test_emoji_survives_create_update_and_reload(client, emoji):
+    headers = {'Authorization': f'Bearer {login(client)}'}
+    created = client.post('/api/users', json={'name': 'Тест', 'icon_key': 'person'},
+                          headers=headers)
+    user_id = created.get_json()['id']
+    key = f'emoji:{emoji}'
+    response = client.put(f'/api/users/{user_id}',
+                          json={'name': 'Тест', 'icon_key': key}, headers=headers)
+    assert response.status_code == 200
+    assert response.get_json()['icon_key'] == key
+    assert client.get('/api/users', headers=headers).get_json()[0]['icon_key'] == key
+    assert client.post('/api/users', json={'name': 'Другой', 'icon_key': key},
+                       headers=headers).status_code == 201
+
+
+@pytest.mark.parametrize('key', ['emoji:hello', 'emoji:🦊🦊', 'emoji:', [], {}, None])
+def test_invalid_emoji_is_rejected_without_changing_user(client, key):
+    headers = {'Authorization': f'Bearer {login(client)}'}
+    created = client.post('/api/users', json={'name': 'Тест', 'icon_key': 'girl'},
+                          headers=headers).get_json()
+    response = client.put(f'/api/users/{created["id"]}',
+                          json={'name': 'Изменено', 'icon_key': key}, headers=headers)
+    assert response.status_code == 400
+    assert client.get('/api/users', headers=headers).get_json() == [created]
+
+
+def test_entire_emoji_catalogue_fits_existing_schema():
+    emoji_keys = [key for key in USER_ICON_KEYS if key.startswith('emoji:')]
+    assert len(emoji_keys) == 3953
+    assert max(map(len, emoji_keys)) <= 24

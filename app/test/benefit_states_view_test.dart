@@ -78,7 +78,8 @@ void main() {
     }
     expect(find.textContaining('Показать все'), findsNothing);
     // Owners and banks are shown as drawn markers and badges, not as names.
-    expect(find.byIcon(personMarkerPalette[1].icon), findsWidgets);
+    expect(find.byType(UserIconBadge), findsWidgets);
+    expect(find.byIcon(personMarkerPalette[1].icon), findsNothing);
     expect(find.textContaining('Анна'), findsNothing);
     expect(tester.takeException(), isNull);
   });
