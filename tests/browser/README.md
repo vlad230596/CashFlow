@@ -65,6 +65,8 @@ launch and the initial online warm-up are outside this timing window. Browser
 numbers are not Android startup measurements.
 
 For an explicitly different reference machine, set `OFFLINE_STARTUP_BUDGET_MS`.
+GitHub-hosted runners use 5000 ms (owner decision, 16 October 2026): they measured
+about 2.05 s and more, while the local reference machine stays at 1.4–1.6 s.
 The selected budget is recorded in the report. Tests run serially with no retries;
 CI repeats each scenario twice. A failure must not be hidden by increasing the
 budget or replacing the cached-content assertions with a generic shell check.

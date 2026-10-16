@@ -46,6 +46,10 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run offline contract twice without retries
         working-directory: tests/browser
+        # Shared runners have no GPU and are slower than the 2-second reference
+        # machine: locally 1.4-1.6 s, here about 2.1 s. Temporary owner decision.
+        env:
+          OFFLINE_STARTUP_BUDGET_MS: '5000'
         run: npm run test:repeat
       - name: Upload browser evidence
         if: always()
