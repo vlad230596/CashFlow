@@ -1,5 +1,8 @@
 # Android offline acceptance contract
 
+Отдельная регрессия порядка «сначала клавиатура, затем навигация»:
+[Android Back](BACK.md), запуск `scripts/test-android-back.ps1`.
+
 Перенос в другой проект: [общее руководство Web + Android](../../docs/offline-testing-setup-guide.md).
 
 Target: a dedicated Android phone emulator, isolated package

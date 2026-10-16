@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
+import '../widgets/keyboard_first_back.dart';
 import '../../models/user_model.dart';
 import '../../utils/identity_icons.dart';
 import 'emoji_picker_screen.dart';
@@ -76,6 +77,7 @@ class _UserEditScreenState extends State<UserEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const KeyboardFirstBackButton(),
         title: VersionedAppBarTitle(
           title: widget.existingUser == null
               ? 'Новый пользователь'

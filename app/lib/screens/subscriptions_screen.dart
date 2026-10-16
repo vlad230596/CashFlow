@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/card_model.dart';
 import '../models/subscription_model.dart';
 import '../providers/data_provider.dart';
+import 'widgets/keyboard_first_back.dart';
 
 class SubscriptionsScreen extends StatefulWidget {
   const SubscriptionsScreen({super.key});
@@ -699,6 +700,7 @@ class _SubscriptionEditScreenState extends State<SubscriptionEditScreen> {
     _cardId ??= cards.firstOrNull?.id;
     return Scaffold(
       appBar: AppBar(
+        leading: const KeyboardFirstBackButton(),
         title: Text(widget.existing == null
             ? 'Новая подписка'
             : 'Редактирование подписки'),

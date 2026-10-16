@@ -169,6 +169,11 @@ the required CI orchestrator. Backend, Flutter frontend, browser extension, and 
 integration checks are also exposed as separate manually runnable workflows. The final
 `CI / Required checks` job is the stable branch-protection check.
 
+Frontend CI's `flutter test` includes the widget Back regressions. Real Android
+keyboard/Back ordering is covered separately by the local emulator suite; it
+is not an automatic CI or release gate. See [Android Back tests](tests/android/BACK.md)
+for the 23-check matrix, two-pass command, evidence and coverage limits.
+
 A successful `main` CI run publishes immutable development images and invokes
 `cashflow-dev-deploy`. The full-stack integration check serves the real frontend and backend
 behind the production CSP and opens the page in headless Chrome, so a Flutter bootstrap failure

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../utils/emoji_catalog.dart';
 import '../../utils/identity_icons.dart';
+import '../widgets/keyboard_first_back.dart';
 
 class EmojiPickerScreen extends StatefulWidget {
   const EmojiPickerScreen({super.key, required this.selectedIconKey});
@@ -39,6 +40,7 @@ class _EmojiPickerScreenState extends State<EmojiPickerScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
+          leading: const KeyboardFirstBackButton(),
           title: const Text('Эмодзи пользователя'),
           actions: [
             IconButton(

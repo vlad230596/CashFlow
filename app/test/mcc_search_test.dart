@@ -25,6 +25,36 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('benefit MCC search', () {
+    testWidgets('back while IME is visible preserves the typed MCC result',
+        (tester) async {
+      await _setViewport(tester, const Size(390, 844));
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpWidget(_benefitApp(
+        lookup: (code) async => _lookup(code, []),
+      ));
+      await tester.enterText(find.byKey(const Key('benefit-search')), '5814');
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('benefit-mcc-result')), findsOneWidget);
+
+      // Exercise the Flutter callback with explicit IME metrics. Real Android
+      // IME ordering is covered separately by tests/android/run-back.mjs.
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('benefit-mcc-result')), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          '5814');
+      expect(tester.testTextInput.isVisible, isFalse);
+
+      tester.view.resetViewInsets();
+      await tester.pump();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('benefit-mcc-result')), findsNothing);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          isEmpty);
+    });
+
     testWidgets(
         'cached MCC catalogue remains searchable when card refresh fails',
         (tester) async {

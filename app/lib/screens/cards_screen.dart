@@ -8,6 +8,7 @@ import '../services/card_context.dart';
 import '../utils/cashback_period.dart';
 import '../utils/cashflow_formatters.dart';
 import '../utils/identity_icons.dart';
+import 'widgets/keyboard_first_back.dart';
 import 'card_cashback_screen.dart';
 
 /// Every family card with the categories selected on it this month.
@@ -59,7 +60,10 @@ class _CardsScreenState extends State<CardsScreen> {
     rows.sort((a, b) => a.card.benefitLabel.compareTo(b.card.benefitLabel));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Карты и категории')),
+      appBar: AppBar(
+        leading: const KeyboardFirstBackButton(),
+        title: const Text('Карты и категории'),
+      ),
       body: SafeArea(
         top: false,
         child: Center(

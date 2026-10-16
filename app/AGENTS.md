@@ -272,6 +272,17 @@ rasterized frame reports Android fully-drawn timing through a QA-only channel.
 The ordinary package is never cleared by the runner. The saved Argent flow uses
 stable semantics identifiers for login and Benefit search and resets only QA data.
 
+Android Back regression coverage is documented in `../tests/android/BACK.md`.
+From the repository root, `scripts/test-android-back.ps1 -Passes 2` builds the
+isolated QA APK and runs 23 real-IME checks twice. These emulator checks are
+manual and are not connected to GitHub Actions. Widget regressions in
+`test/keyboard_first_back_test.dart` and `test/mcc_search_test.dart` run with
+the normal `flutter test` in Frontend CI and the release quality checks.
+For editable routes, `screens/widgets/keyboard_first_back.dart` provides the
+shared keyboard-first arrow; internal PopScope handlers must also dismiss a
+visible IME before changing navigation state. Keep `maybePop` so route guards
+remain effective after the keyboard closes.
+
 ## Working Guidelines For Agents
 
 - Prefer `rg` / `rg --files` for searches.

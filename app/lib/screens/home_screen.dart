@@ -8,6 +8,7 @@ import 'monthly_cashback_screen.dart';
 import 'more_screen.dart';
 import 'partner_offers_screen.dart';
 import 'subscriptions_screen.dart';
+import 'widgets/keyboard_first_back.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.sessionType});
@@ -119,7 +120,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) => PopScope(
         canPop: _selectedIndex == 0 && _tabHistory.isEmpty,
         onPopInvokedWithResult: (didPop, _) {
-          if (!didPop && !_benefitHasInternalDetail) _handleBack();
+          if (didPop || dismissKeyboardIfVisible(context)) return;
+          if (!_benefitHasInternalDetail) _handleBack();
         },
         child: LayoutBuilder(
           builder: (context, constraints) {

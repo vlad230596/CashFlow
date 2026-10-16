@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
+import '../widgets/keyboard_first_back.dart';
 import '../../models/card_model.dart';
 
 class CardEditScreen extends StatefulWidget {
@@ -100,6 +101,7 @@ class _CardEditScreenState extends State<CardEditScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const KeyboardFirstBackButton(),
         title: VersionedAppBarTitle(
           title: widget.existingCard == null ? 'Add New Card' : 'Edit Card',
         ),

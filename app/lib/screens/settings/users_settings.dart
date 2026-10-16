@@ -48,17 +48,21 @@ class UsersSettingsScreen extends StatelessWidget {
                   size: 36,
                 ),
                 title: Text(user.name),
-                trailing: IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            UserEditScreen(existingUser: user),
-                      ),
-                    );
-                  },
+                trailing: Semantics(
+                  container: true,
+                  identifier: 'edit-user-${user.id}',
+                  child: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              UserEditScreen(existingUser: user),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             );

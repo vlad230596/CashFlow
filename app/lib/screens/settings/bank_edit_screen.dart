@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
+import '../widgets/keyboard_first_back.dart';
 import '../../models/bank_model.dart';
 import '../../utils/identity_icons.dart';
 
@@ -83,6 +84,7 @@ class _BankEditScreenState extends State<BankEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const KeyboardFirstBackButton(),
         title: VersionedAppBarTitle(
           title: widget.existingBank == null ? 'Add New Bank' : 'Edit Bank',
         ),

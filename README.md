@@ -28,6 +28,8 @@ and are not production replicas. Agents and maintainers should start with
   command, CI evidence, and reuse in other projects.
 - `tests/android/README.md` — Android offline/reconnect regression flow, native
   startup measurements, and the isolated emulator test command.
+- [Android Back regression tests](tests/android/BACK.md) — keyboard-first Back
+  contract, CI versus manual coverage, emulator commands and verified scenarios.
 - [Offline testing setup guide](docs/offline-testing-setup-guide.md) — перенос
   Web/Android-проверок в другой проект: настройка, исходники и критерии приёмки.
 - `AGENTS.md` — environment selection, production data access, and stale-data guardrails.

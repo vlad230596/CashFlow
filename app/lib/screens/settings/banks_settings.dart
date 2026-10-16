@@ -48,17 +48,21 @@ class BanksSettingsScreen extends StatelessWidget {
                 ),
                 title: Text(bank.name!),
                 subtitle: Text(bank.description ?? ""),
-                trailing: IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            BankEditScreen(existingBank: bank),
-                      ),
-                    );
-                  },
+                trailing: Semantics(
+                  container: true,
+                  identifier: 'edit-bank-${bank.id}',
+                  child: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              BankEditScreen(existingBank: bank),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             );

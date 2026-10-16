@@ -88,17 +88,21 @@ class CardsSettingsScreen extends StatelessWidget {
                     Text('User: ${getUserName(card.userId)}'),
                   ],
                 ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            CardEditScreen(existingCard: card),
-                      ),
-                    );
-                  },
+                trailing: Semantics(
+                  container: true,
+                  identifier: 'edit-card-${card.id}',
+                  child: IconButton(
+                    icon: const Icon(Icons.edit),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              CardEditScreen(existingCard: card),
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             );

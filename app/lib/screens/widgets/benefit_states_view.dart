@@ -12,6 +12,7 @@ import '../card_cashback_screen.dart';
 import '../cashback_category_detail_screen.dart';
 import 'cashback_limits_label.dart';
 import 'mcc_payment_options_view.dart';
+import 'keyboard_first_back.dart';
 
 class BenefitItemData {
   const BenefitItemData({
@@ -358,7 +359,8 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     return PopScope(
       canPop: !_hasInternalDetail,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _hasInternalDetail) _closeInternalDetail();
+        if (didPop || dismissKeyboardIfVisible(context)) return;
+        if (_hasInternalDetail) _closeInternalDetail();
       },
       child: SafeArea(
         top: true,
