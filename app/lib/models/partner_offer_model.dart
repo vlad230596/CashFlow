@@ -53,6 +53,8 @@ class PartnerOffer {
     this.requirements = const [],
     this.steps = const [],
     this.links = const [],
+    this.groups = const [],
+    this.rateValue,
   });
 
   final int id;
@@ -75,6 +77,21 @@ class PartnerOffer {
   final List<String> requirements;
   final List<String> steps;
   final List<Map<String, dynamic>> links;
+
+  /// Bank catalogue sections the offer was found in («Еда», «Онлайн»).
+  final List<String> groups;
+
+  /// Numeric rate parsed by the server; [percent] falls back to the label.
+  final double? rateValue;
+
+  /// Comparable percent of the benefit, or null for bonuses and fixed sums.
+  double? get percent {
+    if (rateValue != null) return rateValue;
+    final match = RegExp(r'(\d+(?:[.,]\d+)?)\s*%').firstMatch(rateLabel ?? '');
+    return match == null
+        ? null
+        : double.tryParse(match.group(1)!.replaceAll(',', '.'));
+  }
 
   factory PartnerOffer.fromJson(Map<String, dynamic> json) {
     final snapshot = json['snapshot'] as Map<String, dynamic>? ?? const {};
@@ -105,6 +122,8 @@ class PartnerOffer {
       links: (snapshot['links'] as List? ?? const [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList(),
+      groups: List<String>.from(snapshot['groups'] as List? ?? const []),
+      rateValue: (snapshot['rate_value'] as num?)?.toDouble(),
     );
   }
 
@@ -129,6 +148,8 @@ class PartnerOffer {
         requirements: requirements,
         steps: steps,
         links: links,
+        groups: groups,
+        rateValue: rateValue,
       );
 
   Map<String, dynamic> toJson() => {
@@ -154,6 +175,8 @@ class PartnerOffer {
           'requirements': requirements,
           'steps': steps,
           'links': links,
+          'groups': groups,
+          'rate_value': rateValue,
         },
       };
 }

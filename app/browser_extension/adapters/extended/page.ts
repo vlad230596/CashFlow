@@ -261,24 +261,22 @@ export async function vtbCatalogue(captured?: VtbRaw | null): Promise<Array<{ pr
   return [...offers.values()];
 }
 
+const previewReaders: Record<BankId, () => OfferPreview[]> = {
+  yandex: yandexPreviews, ozon: ozonPreviews, sber: sberPreviews,
+  tbank: tbankPreviews, alfa: alfaPreviews, vtb: vtbBenefitPreviews,
+};
+
 export function scanPreviews(bankId: BankId): OfferPreview[] {
-  switch (bankId) {
-    case 'yandex': return yandexPreviews();
-    case 'ozon': return ozonPreviews();
-    case 'sber': return sberPreviews();
-    case 'tbank': return tbankPreviews();
-    case 'alfa': return alfaPreviews();
-    case 'vtb': return vtbBenefitPreviews();
-  }
+  return previewReaders[bankId]();
 }
 
-export async function readDetail(bankId: BankId, item: OfferPreview): Promise<OfferDetail> {
-  if (bankId === 'yandex') {
+async function yandexDetail(item: OfferPreview): Promise<OfferDetail> {
     const legal = document.querySelector<HTMLElement>('[data-test-id="globalCashbackCalculated:legal"]');
     return { description: item.previewConditions, conditions: text(legal), steps: [],
       links: legal ? links(legal) : [], maxCashbackAmount: null, minPurchaseAmount: null };
-  }
-  if (bankId === 'sber') {
+}
+
+async function sberDetail(item: OfferPreview): Promise<OfferDetail> {
     await waitFor(() => document.querySelector<HTMLElement>('main section'), 'условия Сбера');
     const root = document.querySelector<HTMLElement>('main')!;
     const isPartnerPage = /\/loyalty\/main\/partner(?:\?|$)/.test(location.href);
@@ -325,8 +323,9 @@ export async function readDetail(bankId: BankId, item: OfferPreview): Promise<Of
     const full = root.innerText.replace(/^Назад\s*/, '').trim();
     return { description: full, conditions: [full, fullConditions].filter(Boolean).join('\n\n'), steps, links: links(root),
       maxCashbackAmount: null, minPurchaseAmount: null };
-  }
-  if (bankId === 'ozon') {
+}
+
+async function ozonDetail(item: OfferPreview): Promise<OfferDetail> {
     const root = await waitFor(() => document.querySelector<HTMLElement>('[data-testid="promotion-container"] [data-testid="hero-block-description"]')
       ?.closest<HTMLElement>('[data-testid="promotion-container"]'), 'условия Ozon');
     const content = root.querySelector<HTMLElement>(':scope > .content');
@@ -340,8 +339,9 @@ export async function readDetail(bankId: BankId, item: OfferPreview): Promise<Of
       links: links(root).filter((link) => !recommendationUrls.has(link.url)),
       maxCashbackAmount: null, minPurchaseAmount: null,
     };
-  }
-  if (bankId === 'tbank') {
+}
+
+async function tbankDetail(item: OfferPreview): Promise<OfferDetail> {
     const root = await waitFor(() => document.querySelector<HTMLElement>('[data-qa-type="desktop-bonuses-offer"]'), 'условия Т-Банка');
     const steps = [...root.querySelectorAll<HTMLElement>('[data-qa-type^="desktop-bonuses-offer-steps__step-"], [data-qa-type^="desktop-bonuses-receipt-steps__step"]')]
       .map(text).filter((x): x is string => !!x);
@@ -355,13 +355,16 @@ export async function readDetail(bankId: BankId, item: OfferPreview): Promise<Of
       text(root.querySelector('[data-qa-type="desktop-bonuses-offer-product-info-skeleton-description"]')),
     ].filter(Boolean).join('\n\n') || null,
       conditions, steps, links: links(root), maxCashbackAmount: null, minPurchaseAmount: null };
-  }
-  if (bankId === 'vtb') {
+}
+
+async function vtbDetail(item: OfferPreview): Promise<OfferDetail> {
     const root = document.querySelector<HTMLElement>('.omega-ui-retail__bottom-sheet');
     if (!root) throw new Error('Не найдены условия ВТБ');
     return { description: null, conditions: text(root), steps: [], links: links(root),
       maxCashbackAmount: null, minPurchaseAmount: null };
-  }
+}
+
+async function alfaDetail(item: OfferPreview): Promise<OfferDetail> {
   const root = document.querySelector<HTMLElement>('[role="dialog"] [data-test-id="offer-details-body"]');
   if (!root) throw new Error('Не найдены условия Альфа-Банка');
   return { description: text(root.querySelector('[data-test-id="partner-description"]'))
@@ -375,6 +378,16 @@ export async function readDetail(bankId: BankId, item: OfferPreview): Promise<Of
     maxCashbackAmount: moneyFrom(text(root.querySelector('[data-test-id*="limit"]'))),
     minPurchaseAmount: moneyFrom(text(root.querySelector('[data-test-id*="minimum"]'))),
   };
+}
+
+type DetailReader = (item: OfferPreview) => Promise<OfferDetail>;
+const detailReaders: Record<BankId, DetailReader> = {
+  yandex: yandexDetail, sber: sberDetail, ozon: ozonDetail,
+  tbank: tbankDetail, vtb: vtbDetail, alfa: alfaDetail,
+};
+
+export function readDetail(bankId: BankId, item: OfferPreview): Promise<OfferDetail> {
+  return detailReaders[bankId](item);
 }
 
 export async function openInlineDetail(

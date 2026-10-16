@@ -1,3 +1,4 @@
+import '../../utils/cashflow_formatters.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/canonical_category_model.dart';
@@ -7,6 +8,7 @@ import '../../providers/data_provider.dart';
 import '../../utils/cashback_needs.dart';
 import '../../utils/category_info.dart';
 import '../../utils/identity_icons.dart';
+import '../card_cashback_screen.dart';
 import '../cashback_category_detail_screen.dart';
 import 'cashback_limits_label.dart';
 import 'mcc_payment_options_view.dart';
@@ -131,6 +133,8 @@ class BenefitStatesView extends StatefulWidget {
     this.onShellDestinationSelected,
     this.onInternalDetailChanged,
     this.onLookupMcc,
+    this.mccDataRevision = 0,
+    this.mccContextIdentity,
   });
 
   final PrimaryDataPhase phase;
@@ -148,6 +152,8 @@ class BenefitStatesView extends StatefulWidget {
 
   /// Explains how every bank treats an MCC; without it MCC rows are inert.
   final Future<MccLookupModel> Function(String code)? onLookupMcc;
+  final int mccDataRevision;
+  final String? mccContextIdentity;
 
   @override
   State<BenefitStatesView> createState() => _BenefitStatesViewState();
@@ -177,6 +183,10 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   @override
   void didUpdateWidget(covariant BenefitStatesView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.mccDataRevision != widget.mccDataRevision ||
+        oldWidget.mccContextIdentity != widget.mccContextIdentity) {
+      _mccLookups.clear();
+    }
     if (_selectedId != null &&
         !widget.items.any((item) => item.category.id == _selectedId)) {
       _selectedId = null;
@@ -358,33 +368,36 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
             _Header(isRefreshing: widget.phase == PrimaryDataPhase.refreshing),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-              child: TextField(
-                key: const Key('benefit-search'),
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                enabled: !initialLoading && !failedWithoutData,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: 'Что хотите купить?',
-                  helperText: _selectedPurchaseResult != null
-                      ? 'Магазин · результат по текущему плану'
-                      : _searchController.text.trim().isEmpty
-                          ? 'Категория, MCC-код или конкретный магазин'
-                          : 'Найдено в категориях, MCC и магазинах',
-                  prefixIcon: const Icon(Icons.search_outlined),
-                  suffixIcon: _searchController.text.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: 'Очистить запрос',
-                          onPressed: _clearQuery,
-                          icon: const Icon(Icons.close),
-                        ),
-                  border: const OutlineInputBorder(),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 2,
+              child: Semantics(
+                identifier: 'benefit-search',
+                child: TextField(
+                  key: const Key('benefit-search'),
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  enabled: !initialLoading && !failedWithoutData,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Что хотите купить?',
+                    helperText: _selectedPurchaseResult != null
+                        ? 'Магазин · результат по текущему плану'
+                        : _searchController.text.trim().isEmpty
+                            ? 'Категория, MCC-код или конкретный магазин'
+                            : 'Найдено в категориях, MCC и магазинах',
+                    prefixIcon: const Icon(Icons.search_outlined),
+                    suffixIcon: _searchController.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Очистить запрос',
+                            onPressed: _clearQuery,
+                            icon: const Icon(Icons.close),
+                          ),
+                    border: const OutlineInputBorder(),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 2,
+                      ),
                     ),
                   ),
                 ),
@@ -426,7 +439,7 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
     final mccCode = _activeMccCode;
     if (mccCode != null) {
       final options = MccPaymentOptionsView(
-        key: ValueKey('benefit-mcc-$mccCode'),
+        key: ValueKey('benefit-mcc-${widget.mccContextIdentity}-$mccCode'),
         code: mccCode,
         lookup: _lookupMcc(mccCode),
         items: widget.items,
@@ -2306,6 +2319,17 @@ class _DetailCard extends StatelessWidget {
   final BenefitItemData item;
   final ValueChanged<int>? onShellDestinationSelected;
 
+  void _openCard(BuildContext context) => Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => CardCashbackScreen(
+            cardId: item.category.cardId,
+            highlightCategoryId: item.category.id,
+            onShellDestinationSelected: onShellDestinationSelected,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final category = item.category;
@@ -2318,56 +2342,70 @@ class _DetailCard extends StatelessWidget {
           children: [
             Semantics(
               container: true,
-              label: _cardSemanticsLabel(item),
+              button: true,
+              label: '${_cardSemanticsLabel(item)}. Что выбрано по карте',
               child: ExcludeSemantics(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    BankIconBadge(
-                      iconKey: item.bankIconKey,
-                      bankName: item.bankName,
-                      size: 32,
-                    ),
-                    const SizedBox(width: 6),
-                    _OwnerMarker(item: item, size: 28),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _compactCardLabel(item),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium,
+                child: InkWell(
+                  key: ValueKey('benefit-card-${category.id}'),
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _openCard(context),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      BankIconBadge(
+                        iconKey: item.bankIconKey,
+                        bankName: item.bankName,
+                        size: 32,
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      '${_formatPercent(category.cashbackPercent)}%',
-                      style:
-                          Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w800,
-                              ),
-                    ),
-                  ],
+                      const SizedBox(width: 6),
+                      _OwnerMarker(item: item, size: 28),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _compactCardLabel(item),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${_formatPercent(category.cashbackPercent)}%',
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                      ),
+                      const Icon(Icons.chevron_right),
+                    ],
+                  ),
                 ),
               ),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => CashbackCategoryDetailScreen(
-                      category: category,
-                      onShellDestinationSelected: onShellDestinationSelected,
+            Wrap(
+              spacing: 4,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _openCard(context),
+                  icon: const Icon(Icons.credit_card_outlined),
+                  label: const Text('Что выбрано по карте'),
+                ),
+                TextButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => CashbackCategoryDetailScreen(
+                        category: category,
+                        onShellDestinationSelected: onShellDestinationSelected,
+                      ),
                     ),
                   ),
+                  icon: const Icon(Icons.open_in_new_outlined),
+                  label: const Text('Открыть карточку категории'),
                 ),
-                icon: const Icon(Icons.open_in_new_outlined),
-                label: const Text('Открыть карточку категории'),
-              ),
+              ],
             ),
             CashbackLimitsLabel(
               maxCashbackAmount: category.maxCashbackAmount,
@@ -2381,13 +2419,7 @@ class _DetailCard extends StatelessWidget {
   }
 }
 
-String _formatPercent(double value) =>
-    value == value.roundToDouble() ? value.toInt().toString() : '$value';
-
-String _formatSnapshot(DateTime value) {
-  final local = value.toLocal();
-  return '${local.day.toString().padLeft(2, '0')}.'
-      '${local.month.toString().padLeft(2, '0')}.${local.year}, '
-      '${local.hour.toString().padLeft(2, '0')}:'
-      '${local.minute.toString().padLeft(2, '0')}';
-}
+String _formatPercent(double value) => CashFlowFormatters.percent(value,
+    suffix: false, decimalPlaces: null, decimalComma: false);
+String _formatSnapshot(DateTime value) =>
+    CashFlowFormatters.localSnapshot(value);

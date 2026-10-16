@@ -156,58 +156,66 @@ class _LoginScreenState extends State<LoginScreen> {
                           AutofillGroup(
                             child: Column(
                               children: [
-                                TextFormField(
-                                  controller: _usernameController,
-                                  autofocus: true,
-                                  enabled: !_submitting,
-                                  autofillHints: const [AutofillHints.username],
-                                  textInputAction: TextInputAction.next,
-                                  autocorrect: false,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Логин',
-                                    border: OutlineInputBorder(),
+                                Semantics(
+                                  identifier: 'login-username',
+                                  child: TextFormField(
+                                    controller: _usernameController,
+                                    autofocus: true,
+                                    enabled: !_submitting,
+                                    autofillHints: const [
+                                      AutofillHints.username
+                                    ],
+                                    textInputAction: TextInputAction.next,
+                                    autocorrect: false,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Логин',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    validator: (value) =>
+                                        value == null || value.trim().isEmpty
+                                            ? 'Введите логин'
+                                            : null,
                                   ),
-                                  validator: (value) =>
-                                      value == null || value.trim().isEmpty
-                                          ? 'Введите логин'
-                                          : null,
                                 ),
                                 const SizedBox(height: 16),
-                                TextFormField(
-                                  controller: _passwordController,
-                                  enabled: !_submitting,
-                                  obscureText: _obscurePassword,
-                                  autofillHints: const [
-                                    AutofillHints.password,
-                                  ],
-                                  textInputAction: TextInputAction.done,
-                                  onFieldSubmitted: (_) {
-                                    if (!_submitting) _submit();
-                                  },
-                                  decoration: InputDecoration(
-                                    labelText: 'Пароль',
-                                    border: const OutlineInputBorder(),
-                                    suffixIcon: IconButton(
-                                      tooltip: _obscurePassword
-                                          ? 'Показать пароль'
-                                          : 'Скрыть пароль',
-                                      onPressed: _submitting
-                                          ? null
-                                          : () => setState(
-                                                () => _obscurePassword =
-                                                    !_obscurePassword,
-                                              ),
-                                      icon: Icon(
-                                        _obscurePassword
-                                            ? Icons.visibility_outlined
-                                            : Icons.visibility_off_outlined,
+                                Semantics(
+                                  identifier: 'login-password',
+                                  child: TextFormField(
+                                    controller: _passwordController,
+                                    enabled: !_submitting,
+                                    obscureText: _obscurePassword,
+                                    autofillHints: const [
+                                      AutofillHints.password,
+                                    ],
+                                    textInputAction: TextInputAction.done,
+                                    onFieldSubmitted: (_) {
+                                      if (!_submitting) _submit();
+                                    },
+                                    decoration: InputDecoration(
+                                      labelText: 'Пароль',
+                                      border: const OutlineInputBorder(),
+                                      suffixIcon: IconButton(
+                                        tooltip: _obscurePassword
+                                            ? 'Показать пароль'
+                                            : 'Скрыть пароль',
+                                        onPressed: _submitting
+                                            ? null
+                                            : () => setState(
+                                                  () => _obscurePassword =
+                                                      !_obscurePassword,
+                                                ),
+                                        icon: Icon(
+                                          _obscurePassword
+                                              ? Icons.visibility_outlined
+                                              : Icons.visibility_off_outlined,
+                                        ),
                                       ),
                                     ),
+                                    validator: (value) =>
+                                        value == null || value.isEmpty
+                                            ? 'Введите пароль'
+                                            : null,
                                   ),
-                                  validator: (value) =>
-                                      value == null || value.isEmpty
-                                          ? 'Введите пароль'
-                                          : null,
                                 ),
                               ],
                             ),

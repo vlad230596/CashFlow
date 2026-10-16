@@ -1,3 +1,4 @@
+import { extractCashbackAmounts } from '../cashback-amounts';
 import type { ExtendedOffer, OfferDetail, OfferPreview } from './types';
 
 export function clean(value: string | null | undefined): string | null {
@@ -14,18 +15,8 @@ export function moneyFrom(value: string | null | undefined): number | null {
   return match ? Number(match[1]!.replace(',', '.')) : null;
 }
 
-function amountAfter(value: string | null | undefined, pattern: RegExp): number | null {
-  const match = value?.match(pattern);
-  return match ? moneyFrom(match[0]) : null;
-}
-
 export function limitsFromConditions(value: string | null | undefined) {
-  return {
-    maxCashbackAmount: amountAfter(value,
-      /(?:максимальн(?:ый|ая|ое)|лимит|не более|до)\s+(?:размер\s+)?(?:к[еэ]шб[еэ]к(?:а)?\s+)?\d[\d\s\u00a0]*(?:[.,]\d+)?\s*(?:₽|руб)/i),
-    minPurchaseAmount: amountAfter(value,
-      /(?:покупк[аиу]|сумм[ауы]|чек)\s+(?:на\s+сумму\s+)?(?:от|не менее)\s+\d[\d\s\u00a0]*(?:[.,]\d+)?\s*(?:₽|руб)/i),
-  };
+  return extractCashbackAmounts(value);
 }
 
 // The key deliberately includes every field visible before opening an offer.

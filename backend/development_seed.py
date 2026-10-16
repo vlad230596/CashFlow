@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy import text
 
+from bank_identity import bank_key_for_name
 from main import (
     AuthUser,
     Bank,
@@ -145,7 +146,8 @@ def seed_development_data(
 
         banks = {}
         for name, description, icon_key in BANKS:
-            bank = Bank(name=name, description=description, icon_key=icon_key)
+            bank = Bank(name=name, description=description, icon_key=icon_key,
+                        bank_key=bank_key_for_name(name))
             db.session.add(bank)
             banks[name] = bank
 

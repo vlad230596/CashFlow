@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/data_provider.dart';
+import '../services/card_context.dart';
 import 'widgets/benefit_states_view.dart';
 
 class CashbackScreen extends StatelessWidget {
@@ -17,25 +18,31 @@ class CashbackScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Consumer<DataProvider>(
         builder: (context, provider, _) {
-          final items = provider.effectiveActiveCashbackCategories
-              .map(
-                (category) => BenefitItemData(
+          final contexts = CardContextCatalog(
+              cards: provider.cards,
+              banks: provider.banks,
+              users: provider.users);
+          final items = provider.effectiveActiveCashbackCategories.map(
+            (category) {
+              final context = contexts.forId(category.cardId);
+              return BenefitItemData(
                   category: category,
-                  cardLabel: _cardLabel(provider, category.cardId),
-                  bankId: provider.getCardById(category.cardId).bankId,
-                  bankName: _bankName(provider, category.cardId),
-                  bankIconKey: _bankIconKey(provider, category.cardId),
-                  userName: _userName(provider, category.cardId),
-                  userIconKey: _userIconKey(provider, category.cardId),
-                  lastFourDigits:
-                      provider.getCardById(category.cardId).lastFourDigits,
-                ),
-              )
-              .toList();
+                  cardLabel: context.benefitLabel,
+                  bankId: context.card.bankId,
+                  bankName: context.bankName,
+                  bankIconKey: context.bankIconKey,
+                  userName: context.ownerName,
+                  userIconKey: context.ownerIconKey,
+                  lastFourDigits: context.card.lastFourDigits);
+            },
+          ).toList();
           return BenefitStatesView(
             phase: provider.primaryDataPhase,
-            hasUsableSnapshot: provider.hasUsableDataSnapshot,
-            snapshotUpdatedAt: provider.dataSnapshotUpdatedAt,
+            hasUsableSnapshot: provider.hasUsableDataSnapshot ||
+                provider.mccOfflineReady ||
+                provider.mccCatalog.isNotEmpty,
+            snapshotUpdatedAt:
+                provider.dataSnapshotUpdatedAt ?? provider.mccSnapshotUpdatedAt,
             items: items,
             canonicalCategories: provider.canonicalCategories,
             mccResults: [
@@ -47,6 +54,8 @@ class CashbackScreen extends StatelessWidget {
                 ),
             ],
             onLookupMcc: provider.lookupMcc,
+            mccDataRevision: provider.mccDataRevision,
+            mccContextIdentity: provider.mccContextIdentity,
             onRefresh: () async {
               await provider.fetchAllData();
             },
@@ -55,41 +64,4 @@ class CashbackScreen extends StatelessWidget {
           );
         },
       );
-}
-
-String? _bankName(DataProvider provider, int cardId) {
-  final card = provider.getCardById(cardId);
-  return provider.banks
-      .where((bank) => bank.id == card.bankId)
-      .map((bank) => bank.name)
-      .firstOrNull;
-}
-
-String? _bankIconKey(DataProvider provider, int cardId) {
-  final card = provider.getCardById(cardId);
-  return provider.banks
-      .where((bank) => bank.id == card.bankId)
-      .map((bank) => bank.iconKey)
-      .firstOrNull;
-}
-
-String? _userName(DataProvider provider, int cardId) {
-  final card = provider.getCardById(cardId);
-  return provider.users
-      .where((user) => user.id == card.userId)
-      .map((user) => user.name)
-      .firstOrNull;
-}
-
-String? _userIconKey(DataProvider provider, int cardId) {
-  final card = provider.getCardById(cardId);
-  return provider.users
-      .where((user) => user.id == card.userId)
-      .map((user) => user.iconKey)
-      .firstOrNull;
-}
-
-String _cardLabel(DataProvider provider, int cardId) {
-  final card = provider.getCardById(cardId);
-  return '${provider.getCardName(cardId)} · •${card.lastFourDigits ?? '????'}';
 }

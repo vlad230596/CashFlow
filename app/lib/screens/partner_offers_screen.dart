@@ -5,12 +5,12 @@ import 'package:provider/provider.dart';
 
 import '../models/partner_offer_model.dart';
 import '../providers/data_provider.dart';
+import '../services/partner_offer_catalog.dart';
 
 enum _OfferSegment { all, interesting, postponed }
 
-enum _OfferDeadline { any, endingSoon, available, upcoming }
-
-enum _OfferSort { smart, deadline, updated }
+/// Minimum comparable percents offered by the «Выгода» filter.
+const _percentSteps = [3.0, 5.0, 10.0, 15.0, 20.0, 30.0];
 
 class PartnerOffersScreen extends StatefulWidget {
   const PartnerOffersScreen({super.key});
@@ -24,10 +24,14 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
   final _listController = ScrollController();
   final Map<int, Future<PartnerOffer>> _details = {};
   _OfferSegment _segment = _OfferSegment.all;
-  _OfferDeadline _deadline = _OfferDeadline.any;
-  _OfferSort _sort = _OfferSort.smart;
+  PartnerOfferDeadline _deadline = PartnerOfferDeadline.any;
+  DateTime? _endsBy;
+  PartnerOfferSort _sort = PartnerOfferSort.smart;
   int? _bankId;
   int? _ownerId;
+  Set<String> _groups = {};
+  double? _minPercent;
+  bool _grouped = false;
   int? _selectedOfferId;
   bool _showHidden = false;
   Timer? _deadlineTimer;
@@ -54,7 +58,7 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
       _bankId = null;
       _ownerId = null;
       _selectedOfferId = null;
-      _deadline = _OfferDeadline.any;
+      _clearFilters();
       _segment = _OfferSegment.all;
     });
     await provider.fetchPartnerOffers(rating: hidden ? 'hidden' : null);
@@ -72,7 +76,12 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
             for (final offer in source) offer.bankId: offer.bankName,
           };
           final ownerIds = source.map((offer) => offer.cardUserId).toSet();
-          final visible = _filteredOffers(source);
+          final now = DateTime.now();
+          final visible = filterPartnerOffers(source, _query, now);
+          final groupCounts = countPartnerOfferGroups(
+            filterPartnerOffers(source, _query.withoutGroups(), now),
+          );
+          final entries = _entries(visible);
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -124,25 +133,37 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
                         .toList(),
                     selectedBankId: _bankId,
                     selectedOwnerId: _ownerId,
+                    groupCounts: groupCounts,
+                    selectedGroups: _groups,
+                    grouped: _grouped,
+                    minPercent: _minPercent,
                     deadline: _deadline,
+                    endsBy: _endsBy,
                     sort: _sort,
                     resultCount: visible.length,
                     gutter: gutter,
                     onBankChanged: (value) => setState(() => _bankId = value),
                     onOwnerChanged: (value) => setState(() => _ownerId = value),
-                    onDeadlineChanged: (value) =>
-                        setState(() => _deadline = value),
+                    onPickGroups: () => _pickGroups(groupCounts),
+                    onGroupedChanged: (value) =>
+                        setState(() => _grouped = value),
+                    onMinPercentChanged: (value) =>
+                        setState(() => _minPercent = value),
+                    onDeadlineChanged: (value) {
+                      if (value == PartnerOfferDeadline.endsBy) {
+                        _pickEndsBy();
+                      } else {
+                        setState(() {
+                          _deadline = value;
+                          _endsBy = null;
+                        });
+                      }
+                    },
                     onSortChanged: (value) => setState(() => _sort = value),
                     showHidden: _showHidden,
                     onShowHidden: () =>
                         _changeHiddenMode(provider, !_showHidden),
-                    onReset: _hasFilters
-                        ? () => setState(() {
-                              _bankId = null;
-                              _ownerId = null;
-                              _deadline = _OfferDeadline.any;
-                            })
-                        : null,
+                    onReset: _hasFilters ? () => setState(_clearFilters) : null,
                   ),
                   if (provider.partnerOffersError != null)
                     _ErrorBanner(
@@ -158,7 +179,7 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
                   Expanded(
                     child: expanded
                         ? _ExpandedContent(
-                            offers: visible,
+                            entries: entries,
                             selected: selected,
                             ownerName: (offer) => _ownerName(provider, offer),
                             listController: _listController,
@@ -182,7 +203,7 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
                                     }),
                           )
                         : _CompactContent(
-                            offers: visible,
+                            entries: entries,
                             emptyLabel: _emptyLabel,
                             ownerName: (offer) => _ownerName(provider, offer),
                             listController: _listController,
@@ -206,7 +227,20 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
       );
 
   bool get _hasFilters =>
-      _bankId != null || _ownerId != null || _deadline != _OfferDeadline.any;
+      _bankId != null ||
+      _ownerId != null ||
+      _groups.isNotEmpty ||
+      _minPercent != null ||
+      _deadline != PartnerOfferDeadline.any;
+
+  void _clearFilters() {
+    _bankId = null;
+    _ownerId = null;
+    _groups = {};
+    _minPercent = null;
+    _deadline = PartnerOfferDeadline.any;
+    _endsBy = null;
+  }
 
   String get _emptyLabel {
     if (_showHidden) return 'Чёрный список пуст.';
@@ -216,57 +250,61 @@ class _PartnerOffersScreenState extends State<PartnerOffersScreen> {
     return 'Нет доступных предложений.';
   }
 
-  List<PartnerOffer> _filteredOffers(List<PartnerOffer> offers) {
-    final query = _searchController.text.trim().toLowerCase();
-    final now = DateTime.now();
-    final result = offers.where((offer) {
-      if (!offer.isAvailable ||
-          (offer.startsAt != null && offer.startsAt!.isAfter(now)) ||
-          (offer.endsAt != null && !offer.endsAt!.isAfter(now))) {
-        return false;
-      }
-      if (!_showHidden &&
-          ((_segment == _OfferSegment.interesting &&
-                  offer.preference != 'interesting') ||
-              (_segment == _OfferSegment.postponed &&
-                  offer.preference != 'undecided'))) {
-        return false;
-      }
-      if (query.isNotEmpty &&
-          !offer.name.toLowerCase().contains(query) &&
-          !offer.description.toLowerCase().contains(query) &&
-          !offer.bankName.toLowerCase().contains(query)) {
-        return false;
-      }
-      if (_bankId != null && offer.bankId != _bankId) return false;
-      if (_ownerId != null && offer.cardUserId != _ownerId) return false;
-      switch (_deadline) {
-        case _OfferDeadline.any:
-          return true;
-        case _OfferDeadline.endingSoon:
-          final days = _daysUntil(offer.endsAt, now);
-          return days != null && days >= 0 && days <= 7;
-        case _OfferDeadline.available:
-          return offer.isAvailable &&
-              (offer.startsAt == null || !offer.startsAt!.isAfter(now)) &&
-              (offer.endsAt == null || !offer.endsAt!.isBefore(now));
-        case _OfferDeadline.upcoming:
-          return offer.startsAt?.isAfter(now) ?? false;
-      }
-    }).toList();
-    result.sort((a, b) {
-      switch (_sort) {
-        case _OfferSort.smart:
-          final preference = _preferenceRank(a.preference)
-              .compareTo(_preferenceRank(b.preference));
-          return preference == 0 ? _compareDeadline(a, b) : preference;
-        case _OfferSort.deadline:
-          return _compareDeadline(a, b);
-        case _OfferSort.updated:
-          return b.collectedAt.compareTo(a.collectedAt);
-      }
+  PartnerOfferQuery get _query => PartnerOfferQuery(
+        text: _searchController.text,
+        preference: _showHidden
+            ? null
+            : switch (_segment) {
+                _OfferSegment.all => null,
+                _OfferSegment.interesting => 'interesting',
+                _OfferSegment.postponed => 'undecided',
+              },
+        bankId: _bankId,
+        ownerId: _ownerId,
+        groups: _groups,
+        minPercent: _minPercent,
+        deadline: _deadline,
+        endsBy: _endsBy,
+        sort: _sort,
+      );
+
+  List<_OfferEntry> _entries(List<PartnerOffer> offers) => _grouped
+      ? [
+          for (final section
+              in sectionPartnerOffers(offers, only: _groups)) ...[
+            _OfferEntry.header(section.name, section.offers),
+            for (final offer in section.offers) _OfferEntry.offer(offer),
+          ],
+        ]
+      : [for (final offer in offers) _OfferEntry.offer(offer)];
+
+  Future<void> _pickGroups(List<PartnerOfferGroupCount> counts) async {
+    final picked = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: _GroupSheet(counts: counts, selected: _groups),
+      ),
+    );
+    if (picked != null && mounted) setState(() => _groups = picked);
+  }
+
+  Future<void> _pickEndsBy() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _endsBy ?? today.add(const Duration(days: 7)),
+      firstDate: today,
+      lastDate: DateTime(today.year + 2, 12, 31),
+      helpText: 'Завершатся не позже',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _deadline = PartnerOfferDeadline.endsBy;
+      _endsBy = DateUtils.dateOnly(picked);
     });
-    return result;
   }
 
   PartnerOffer? _selectedOffer(List<PartnerOffer> offers, bool expanded) {
@@ -533,12 +571,20 @@ class _FilterBar extends StatelessWidget {
     required this.users,
     required this.selectedBankId,
     required this.selectedOwnerId,
+    required this.groupCounts,
+    required this.selectedGroups,
+    required this.grouped,
+    required this.minPercent,
     required this.deadline,
+    required this.endsBy,
     required this.sort,
     required this.resultCount,
     required this.gutter,
     required this.onBankChanged,
     required this.onOwnerChanged,
+    required this.onPickGroups,
+    required this.onGroupedChanged,
+    required this.onMinPercentChanged,
     required this.onDeadlineChanged,
     required this.onSortChanged,
     required this.showHidden,
@@ -552,17 +598,33 @@ class _FilterBar extends StatelessWidget {
   final List<MapEntry<int, String>> users;
   final int? selectedBankId;
   final int? selectedOwnerId;
-  final _OfferDeadline deadline;
-  final _OfferSort sort;
+  final List<PartnerOfferGroupCount> groupCounts;
+  final Set<String> selectedGroups;
+  final bool grouped;
+  final double? minPercent;
+  final PartnerOfferDeadline deadline;
+  final DateTime? endsBy;
+  final PartnerOfferSort sort;
   final int resultCount;
   final double gutter;
   final ValueChanged<int?> onBankChanged;
   final ValueChanged<int?> onOwnerChanged;
-  final ValueChanged<_OfferDeadline> onDeadlineChanged;
-  final ValueChanged<_OfferSort> onSortChanged;
+  final VoidCallback onPickGroups;
+  final ValueChanged<bool> onGroupedChanged;
+  final ValueChanged<double?> onMinPercentChanged;
+  final ValueChanged<PartnerOfferDeadline> onDeadlineChanged;
+  final ValueChanged<PartnerOfferSort> onSortChanged;
   final bool showHidden;
   final VoidCallback onShowHidden;
   final VoidCallback? onReset;
+
+  String get _groupLabel {
+    if (selectedGroups.isEmpty) return 'Категории · ${groupCounts.length}';
+    final first = selectedGroups.first;
+    return selectedGroups.length == 1
+        ? first
+        : '$first +${selectedGroups.length - 1}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -588,6 +650,25 @@ class _FilterBar extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
+                ActionChip(
+                  key: const ValueKey('offer-groups-filter'),
+                  avatar: const Icon(Icons.category_outlined, size: 18),
+                  label: Text(_groupLabel),
+                  tooltip: 'Фильтр по категориям акций',
+                  backgroundColor: selectedGroups.isEmpty
+                      ? null
+                      : Theme.of(context).colorScheme.secondaryContainer,
+                  onPressed: onPickGroups,
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  key: const ValueKey('offer-grouped-view'),
+                  label: const Text('По категориям'),
+                  tooltip: 'Разбить список по категориям',
+                  selected: grouped,
+                  onSelected: onGroupedChanged,
+                ),
+                const SizedBox(width: 8),
                 ChoiceChip(
                   avatar: selectedBankId == null
                       ? const Icon(Icons.filter_list_outlined, size: 18)
@@ -606,29 +687,41 @@ class _FilterBar extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(width: 8),
-                _PopupFilter<_OfferDeadline>(
+                _PopupFilter<double>(
+                  tooltip: 'Фильтр по проценту',
+                  label: minPercent == null
+                      ? 'Процент'
+                      : 'от ${_percentLabel(minPercent!)}',
+                  active: minPercent != null,
+                  icon: Icons.percent_outlined,
+                  items: [
+                    const PopupMenuItem(
+                        value: -1.0, child: Text('Любой процент')),
+                    for (final step in _percentSteps)
+                      PopupMenuItem(
+                        value: step,
+                        child: Text('от ${_percentLabel(step)}'),
+                      ),
+                  ],
+                  onSelected: (value) =>
+                      onMinPercentChanged(value < 0 ? null : value),
+                ),
+                const SizedBox(width: 8),
+                _PopupFilter<PartnerOfferDeadline>(
                   tooltip: 'Фильтр по сроку',
-                  label: compact && deadline == _OfferDeadline.any
+                  label: compact && deadline == PartnerOfferDeadline.any
                       ? 'Срок'
-                      : _deadlineFilterLabel(deadline),
-                  active: deadline != _OfferDeadline.any,
-                  items: const [
-                    PopupMenuItem(
-                      value: _OfferDeadline.any,
-                      child: Text('Любой срок'),
-                    ),
-                    PopupMenuItem(
-                      value: _OfferDeadline.endingSoon,
-                      child: Text('Скоро завершатся'),
-                    ),
-                    PopupMenuItem(
-                      value: _OfferDeadline.available,
-                      child: Text('Доступны сейчас'),
-                    ),
-                    PopupMenuItem(
-                      value: _OfferDeadline.upcoming,
-                      child: Text('Скоро начнутся'),
-                    ),
+                      : _deadlineFilterLabel(deadline, endsBy),
+                  active: deadline != PartnerOfferDeadline.any,
+                  icon: Icons.event_outlined,
+                  items: [
+                    for (final value in PartnerOfferDeadline.values)
+                      PopupMenuItem(
+                        value: value,
+                        child: Text(value == PartnerOfferDeadline.endsBy
+                            ? 'Завершатся до даты…'
+                            : _deadlineFilterLabel(value, null)),
+                      ),
                   ],
                   onSelected: onDeadlineChanged,
                 ),
@@ -637,7 +730,7 @@ class _FilterBar extends StatelessWidget {
                   _PopupFilter<int>(
                     tooltip: 'Фильтр по владельцу',
                     label: compact && selectedOwnerId == null
-                        ? 'Ещё 1'
+                        ? 'Владелец'
                         : ownerName,
                     active: selectedOwnerId != null,
                     items: [
@@ -656,24 +749,15 @@ class _FilterBar extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(width: 8),
-                _PopupFilter<_OfferSort>(
+                _PopupFilter<PartnerOfferSort>(
                   tooltip: 'Сортировка предложений',
                   label: _sortLabel(sort),
-                  active: sort != _OfferSort.smart,
+                  active: sort != PartnerOfferSort.smart,
                   icon: Icons.swap_vert_outlined,
-                  items: const [
-                    PopupMenuItem(
-                      value: _OfferSort.smart,
-                      child: Text('Сначала интересные'),
-                    ),
-                    PopupMenuItem(
-                      value: _OfferSort.deadline,
-                      child: Text('Сначала срочные'),
-                    ),
-                    PopupMenuItem(
-                      value: _OfferSort.updated,
-                      child: Text('Сначала обновлённые'),
-                    ),
+                  items: [
+                    for (final value in PartnerOfferSort.values)
+                      PopupMenuItem(
+                          value: value, child: Text(_sortLabel(value))),
                   ],
                   onSelected: onSortChanged,
                 ),
@@ -718,6 +802,174 @@ class _FilterBar extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Searchable category breakdown with counts; returns the chosen categories.
+class _GroupSheet extends StatefulWidget {
+  const _GroupSheet({required this.counts, required this.selected});
+
+  final List<PartnerOfferGroupCount> counts;
+  final Set<String> selected;
+
+  @override
+  State<_GroupSheet> createState() => _GroupSheetState();
+}
+
+class _GroupSheetState extends State<_GroupSheet> {
+  final _search = TextEditingController();
+  late final Set<String> _selected = {...widget.selected};
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.text.trim().toLowerCase();
+    final known = {for (final item in widget.counts) item.name};
+    final items = [
+      ...widget.counts,
+      // A chosen category can vanish under other filters; keep it removable.
+      for (final name in _selected)
+        if (!known.contains(name)) PartnerOfferGroupCount(name, 0, null),
+    ].where((item) => item.name.toLowerCase().contains(query)).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text(
+            'Категории акций',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TextField(
+            key: const ValueKey('offer-groups-search'),
+            controller: _search,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search_outlined),
+              hintText: 'Найти категорию',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: items.isEmpty
+              ? const Center(child: Text('Категории не найдены.'))
+              : ListView.builder(
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return CheckboxListTile(
+                      value: _selected.contains(item.name),
+                      onChanged: (checked) => setState(() => checked == true
+                          ? _selected.add(item.name)
+                          : _selected.remove(item.name)),
+                      title: Text(item.name),
+                      subtitle: item.bestPercent == null
+                          ? null
+                          : Text('до ${_percentLabel(item.bestPercent!)}'),
+                      secondary: Text(
+                        '${item.count}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    );
+                  },
+                ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: TextButton(
+                    onPressed: _selected.isEmpty
+                        ? null
+                        : () => setState(_selected.clear),
+                    child: const Text(
+                      'Все категории',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, _selected),
+                  child: const Text('Показать'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A row of the offer list: a category header or an offer.
+class _OfferEntry {
+  const _OfferEntry.header(this.title, List<PartnerOffer> this.sectionOffers)
+      : offer = null;
+  const _OfferEntry.offer(PartnerOffer this.offer)
+      : title = null,
+        sectionOffers = null;
+
+  final String? title;
+  final List<PartnerOffer>? sectionOffers;
+  final PartnerOffer? offer;
+}
+
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({required this.title, required this.offers});
+
+  final String title;
+  final List<PartnerOffer> offers;
+
+  @override
+  Widget build(BuildContext context) {
+    double? best;
+    for (final offer in offers) {
+      final percent = offer.percent;
+      if (percent != null && (best == null || percent > best)) best = percent;
+    }
+    return Semantics(
+      header: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            Text(
+              [
+                '${offers.length}',
+                if (best != null) 'до ${_percentLabel(best)}',
+              ].join(' · '),
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -785,7 +1037,7 @@ class _ErrorBanner extends StatelessWidget {
 
 class _CompactContent extends StatelessWidget {
   const _CompactContent({
-    required this.offers,
+    required this.entries,
     required this.emptyLabel,
     required this.ownerName,
     required this.listController,
@@ -795,7 +1047,7 @@ class _CompactContent extends StatelessWidget {
     required this.gutter,
   });
 
-  final List<PartnerOffer> offers;
+  final List<_OfferEntry> entries;
   final String emptyLabel;
   final String Function(PartnerOffer) ownerName;
   final ScrollController listController;
@@ -807,7 +1059,7 @@ class _CompactContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) => RefreshIndicator(
         onRefresh: onRefresh,
-        child: offers.isEmpty
+        child: entries.isEmpty
             ? ListView(
                 controller: listController,
                 children: [
@@ -826,21 +1078,31 @@ class _CompactContent extends StatelessWidget {
                 key: const PageStorageKey('partner-offers-list'),
                 controller: listController,
                 padding: EdgeInsets.fromLTRB(gutter, 4, gutter, 24),
-                itemCount: offers.length,
-                itemBuilder: (context, index) => _OfferCard(
-                  offer: offers[index],
-                  ownerName: ownerName(offers[index]),
-                  selected: false,
-                  onPreference: (rating) => onPreference(offers[index], rating),
-                  onDetails: () => onDetails(offers[index]),
-                ),
+                itemCount: entries.length,
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  final offer = entry.offer;
+                  if (offer == null) {
+                    return _GroupHeader(
+                      title: entry.title!,
+                      offers: entry.sectionOffers!,
+                    );
+                  }
+                  return _OfferCard(
+                    offer: offer,
+                    ownerName: ownerName(offer),
+                    selected: false,
+                    onPreference: (rating) => onPreference(offer, rating),
+                    onDetails: () => onDetails(offer),
+                  );
+                },
               ),
       );
 }
 
 class _ExpandedContent extends StatelessWidget {
   const _ExpandedContent({
-    required this.offers,
+    required this.entries,
     required this.selected,
     required this.ownerName,
     required this.listController,
@@ -851,7 +1113,7 @@ class _ExpandedContent extends StatelessWidget {
     required this.onRetryDetails,
   });
 
-  final List<PartnerOffer> offers;
+  final List<_OfferEntry> entries;
   final PartnerOffer? selected;
   final String Function(PartnerOffer) ownerName;
   final ScrollController listController;
@@ -872,7 +1134,7 @@ class _ExpandedContent extends StatelessWidget {
                 flex: 9,
                 child: RefreshIndicator(
                   onRefresh: onRefresh,
-                  child: offers.isEmpty
+                  child: entries.isEmpty
                       ? ListView(
                           children: const [
                             SizedBox(
@@ -888,15 +1150,25 @@ class _ExpandedContent extends StatelessWidget {
                               'partner-offers-expanded-list'),
                           controller: listController,
                           padding: const EdgeInsets.fromLTRB(24, 8, 12, 24),
-                          itemCount: offers.length,
-                          itemBuilder: (context, index) => _OfferCard(
-                            offer: offers[index],
-                            ownerName: ownerName(offers[index]),
-                            selected: offers[index].id == selected?.id,
-                            onPreference: (rating) =>
-                                onPreference(offers[index], rating),
-                            onDetails: () => onSelected(offers[index]),
-                          ),
+                          itemCount: entries.length,
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            final offer = entry.offer;
+                            if (offer == null) {
+                              return _GroupHeader(
+                                title: entry.title!,
+                                offers: entry.sectionOffers!,
+                              );
+                            }
+                            return _OfferCard(
+                              offer: offer,
+                              ownerName: ownerName(offer),
+                              selected: offer.id == selected?.id,
+                              onPreference: (rating) =>
+                                  onPreference(offer, rating),
+                              onDetails: () => onSelected(offer),
+                            );
+                          },
                         ),
                 ),
               ),
@@ -1030,7 +1302,12 @@ class _OfferCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${offer.bankName} · $ownerName',
+                            [
+                              offer.bankName,
+                              ownerName,
+                              if (offer.groups.isNotEmpty)
+                                offer.groups.join(', '),
+                            ].join(' · '),
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
@@ -1370,6 +1647,9 @@ class _OfferDetails extends StatelessWidget {
                 if (offer.limits.isNotEmpty)
                   _DetailFact(
                       label: 'Лимит', value: offer.limits.first.originalText),
+                if (offer.groups.isNotEmpty)
+                  _DetailFact(
+                      label: 'Категория', value: offer.groups.join(', ')),
               ],
             ),
             if (offer.requirements.isNotEmpty) ...[
@@ -1539,7 +1819,7 @@ String _relativeUpdate(DateTime date, DateTime now) {
 String _deadlineText(PartnerOffer offer, DateTime now) {
   final start = offer.startsAt?.toLocal();
   if (start != null && start.isAfter(now)) {
-    final days = _daysUntil(start, now) ?? 0;
+    final days = partnerOfferDaysUntil(start, now) ?? 0;
     return days == 0
         ? 'Начнётся сегодня'
         : 'Начнётся через ${_daysLabel(days)}';
@@ -1553,48 +1833,39 @@ String _deadlineText(PartnerOffer offer, DateTime now) {
       .toUtc()
       .add(const Duration(hours: 3))
       .subtract(const Duration(microseconds: 1));
-  final days = _daysUntil(end.subtract(const Duration(microseconds: 1)), now)!;
+  final days = partnerOfferDaysUntil(
+      end.subtract(const Duration(microseconds: 1)), now)!;
   if (days < 0) return 'Завершено';
   if (days == 0) return 'Последний день · до ${_formatDate(lastDay)}';
   return 'Осталось ${_daysLabel(days)} · до ${_formatDate(lastDay)}';
 }
 
 bool _isEndingSoon(PartnerOffer offer, DateTime now) {
-  final days = _daysUntil(offer.endsAt, now);
+  final days = partnerOfferDaysUntil(offer.endsAt, now);
   return days != null && days >= 0 && days <= 3;
 }
 
-int? _daysUntil(DateTime? value, DateTime now) {
-  if (value == null) return null;
-  final local = value.toUtc().add(const Duration(hours: 3));
-  final moscowNow = now.toUtc().add(const Duration(hours: 3));
-  return DateTime.utc(local.year, local.month, local.day)
-      .difference(DateTime.utc(moscowNow.year, moscowNow.month, moscowNow.day))
-      .inDays;
-}
-
-int _preferenceRank(String preference) => preference == 'interesting' ? 0 : 1;
-
-int _compareDeadline(PartnerOffer a, PartnerOffer b) {
-  // DateTime's maximum epoch value stays representable by Dart's web runtime.
-  const noDeadline = 8640000000000000;
-  final aEnd = a.endsAt?.millisecondsSinceEpoch ?? noDeadline;
-  final bEnd = b.endsAt?.millisecondsSinceEpoch ?? noDeadline;
-  return aEnd.compareTo(bEnd);
-}
-
-String _deadlineFilterLabel(_OfferDeadline value) => switch (value) {
-      _OfferDeadline.any => 'Любой срок',
-      _OfferDeadline.endingSoon => 'Скоро завершатся',
-      _OfferDeadline.available => 'Доступны сейчас',
-      _OfferDeadline.upcoming => 'Скоро начнутся',
+String _deadlineFilterLabel(PartnerOfferDeadline value, DateTime? endsBy) =>
+    switch (value) {
+      PartnerOfferDeadline.any => 'Любой срок',
+      PartnerOfferDeadline.endingToday => 'Последний день',
+      PartnerOfferDeadline.endingWeek => 'Завершатся за 7 дней',
+      PartnerOfferDeadline.endingMonth => 'Завершатся за 30 дней',
+      PartnerOfferDeadline.endsBy =>
+        endsBy == null ? 'До даты…' : 'Завершатся до ${_formatDate(endsBy)}',
+      PartnerOfferDeadline.upcoming => 'Скоро начнутся',
     };
 
-String _sortLabel(_OfferSort value) => switch (value) {
-      _OfferSort.smart => 'Сначала интересные',
-      _OfferSort.deadline => 'Сначала срочные',
-      _OfferSort.updated => 'Сначала обновлённые',
+String _sortLabel(PartnerOfferSort value) => switch (value) {
+      PartnerOfferSort.smart => 'Сначала интересные',
+      PartnerOfferSort.deadline => 'Сначала срочные',
+      PartnerOfferSort.rate => 'Сначала выгодные',
+      PartnerOfferSort.name => 'По названию',
+      PartnerOfferSort.updated => 'Сначала обновлённые',
     };
+
+String _percentLabel(double value) =>
+    '${value == value.roundToDouble() ? value.toInt() : value}%';
 
 String _offerCountLabel(int count) {
   final lastTwo = count % 100;

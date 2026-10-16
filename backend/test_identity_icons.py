@@ -58,6 +58,43 @@ def test_unknown_identity_icon_is_rejected(client):
     assert response.status_code == 400
 
 
+def test_bank_integration_identity_survives_rename_and_icon_change(client):
+    from main import _resolve_import_card, _resolve_rules_bank
+
+    headers = {'Authorization': f'Bearer {login(client)}'}
+    bank = client.post('/api/banks', headers=headers,
+                       json={'name': 'Альфа-Банк', 'icon_key': 'generic'}).get_json()
+    assert bank['bank_key'] == 'alfa'
+    changed = client.put(f"/api/banks/{bank['id']}", headers=headers,
+                         json={'name': 'Мой основной банк', 'icon_key': 'tbank'})
+    assert changed.status_code == 200
+    assert changed.get_json()['bank_key'] == 'alfa'
+    assert _resolve_rules_bank('alfa').id == bank['id']
+    assert _resolve_rules_bank('tbank') is None
+    user = client.post('/api/users', headers=headers, json={'name': 'Test'}).get_json()
+    card = client.post('/api/cards', headers=headers, json={
+        'bank_id': bank['id'], 'user_id': user['id'], 'last_four_digits': '1234',
+        'payment_system': 'Visa', 'card_type': 'physical',
+    }).get_json()
+    assert _resolve_import_card('alfa', user['id'], {})[0].id == card['id']
+    duplicate = client.post('/api/banks', headers=headers,
+                            json={'name': 'Другой профиль', 'bank_key': 'alfa'})
+    assert duplicate.status_code == 409
+    invalid = client.put(f"/api/banks/{bank['id']}", headers=headers,
+                         json={'bank_key': 'invented'})
+    assert invalid.status_code == 400
+
+
+def test_custom_bank_icon_does_not_establish_integration_identity(client):
+    from main import _resolve_rules_bank
+
+    headers = {'Authorization': f'Bearer {login(client)}'}
+    bank = client.post('/api/banks', headers=headers,
+                       json={'name': 'Custom', 'icon_key': 'tbank'}).get_json()
+    assert bank['bank_key'] is None
+    assert _resolve_rules_bank('tbank') is None
+
+
 @pytest.mark.parametrize('emoji', [
     '🦊', '👍🏽', '👨‍👩‍👧‍👦',
     '🏴\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f',

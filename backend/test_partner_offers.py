@@ -117,6 +117,51 @@ def _import(client, headers, offers, complete=False):
     )
 
 
+def test_partner_list_reuses_joined_preferences_and_bulk_limits(client, monkeypatch):
+    from sqlalchemy import event
+
+    headers = _login(client, 'admin', 'correct horse battery staple')
+    assert _import(client, headers, [_offer('first')]).status_code == 200
+    statements = []
+    def record(*args):
+        statements.append(args[2])
+    def unexpected_preference_lookup(*args):
+        raise AssertionError('Preference must come from the list join')
+    monkeypatch.setattr(main_module, '_partner_preference', unexpected_preference_lookup)
+    event.listen(db.engine, 'before_cursor_execute', record)
+    try:
+        first = client.get('/api/partner-offers', headers=headers)
+        first_count = len(statements)
+        imported = _import(client, headers, [_offer(f'offer-{number}') for number in range(8)])
+        assert imported.status_code == 200
+        statements.clear()
+        page = client.get('/api/partner-offers', headers=headers)
+        assert len(statements) <= first_count + 1
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', record)
+    assert first.status_code == page.status_code == 200
+    assert len(page.get_json()['items']) == 9
+    assert all(item['preference'] == 'undecided' for item in page.get_json()['items'])
+    assert all(item['snapshot']['limits'] for item in page.get_json()['items'])
+
+
+def test_list_exposes_bank_catalogue_groups(client):
+    headers = _login(client, 'admin', 'correct horse battery staple')
+    offers = [
+        {**_offer('grouped'), 'group': 'Еда, Онлайн,  Еда '},
+        _offer('ungrouped'),
+    ]
+    assert _import(client, headers, offers).status_code == 200
+    response = client.get('/api/partner-offers?active_only=false', headers=headers)
+    assert response.status_code == 200
+    groups = {
+        item['source_key'].rsplit(':', 1)[-1]: item['snapshot']['groups']
+        for item in response.get_json()['items']
+    }
+    assert groups == {'grouped': ['Еда', 'Онлайн'], 'ungrouped': []}
+    assert main_module._partner_groups('not json') == []
+
+
 def test_import_accepts_extension_calendar_dates(client):
     admin = _login(client, 'admin', 'correct horse battery staple')
     raw = {**_offer(), 'startDate': '01.10.2026', 'endDate': '31.10.2026'}

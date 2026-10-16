@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   test('uses the production server as the default API URL', () {
@@ -107,8 +108,9 @@ void main() {
   test('filters effective active cashback categories by selected date',
       () async {
     SharedPreferences.setMockInitialValues({});
-    final provider = DataProvider()
-      ..cashbackCategories = [
+    final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
+    )..cashbackCategories = [
         CashbackCategoryModel(
           id: 1,
           name: 'Current',
@@ -161,8 +163,9 @@ void main() {
   test('uses active cashback cache when full cashback cache is empty',
       () async {
     SharedPreferences.setMockInitialValues({});
-    final provider = DataProvider()
-      ..activeCashbackCategories = [
+    final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
+    )..activeCashbackCategories = [
         CashbackCategoryModel(
           id: 1,
           name: 'Cached',
@@ -193,6 +196,7 @@ void main() {
     });
     SharedPreferences.setMockInitialValues({});
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((_) async {
         throw http.ClientException('offline');
@@ -219,12 +223,23 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final storage = const FlutterSecureStorage();
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       secureStorage: storage,
       httpClient: MockClient((_) async => http.Response('Unauthorized', 401)),
     );
 
+    final revoked = Completer<void>();
+    provider.addListener(() {
+      if (provider.authReady &&
+          !provider.isAuthenticated &&
+          !revoked.isCompleted) {
+        revoked.complete();
+      }
+    });
+
     await provider.initialize();
+    await revoked.future.timeout(const Duration(seconds: 1));
 
     expect(provider.isAuthenticated, isFalse);
     expect(await storage.read(key: 'cashflowAccessToken'), isNull);
@@ -247,6 +262,7 @@ void main() {
     });
     SharedPreferences.setMockInitialValues({});
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((_) async {
         throw http.ClientException('offline');
@@ -274,6 +290,7 @@ void main() {
     });
     SharedPreferences.setMockInitialValues({});
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((_) async => http.Response('Unavailable', 503)),
     );
@@ -296,6 +313,7 @@ void main() {
     final storage = const FlutterSecureStorage();
     const extendedExpiration = '2027-09-05T12:00:00+00:00';
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       secureStorage: storage,
       httpClient: MockClient((request) async {
@@ -313,7 +331,15 @@ void main() {
       }),
     );
 
+    final validated = Completer<void>();
+    provider.addListener(() {
+      if (provider.currentAuthUser?.username == 'admin' &&
+          !validated.isCompleted) {
+        validated.complete();
+      }
+    });
     await provider.initialize();
+    await validated.future.timeout(const Duration(seconds: 1));
 
     expect(provider.currentAuthUser?.username, 'admin');
     expect(
@@ -331,6 +357,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final response = Completer<http.Response>();
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((_) => response.future),
     )..cashbackCategories = [
@@ -359,6 +386,7 @@ void main() {
       () async {
     SharedPreferences.setMockInitialValues({});
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((_) async => http.Response('{}', 500)),
     )..cashbackCategories = [
@@ -387,6 +415,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     String? preferenceBody;
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async {
         if (request.method == 'PUT') {
@@ -430,7 +459,8 @@ void main() {
     expect(await provider.fetchPartnerOffers(), isTrue);
     expect(provider.partnerOffers.single.name, 'Test shop');
     expect(
-      (await SharedPreferences.getInstance()).getString('partnerOffers:7'),
+      (await SharedPreferences.getInstance())
+          .getString('data:v1:https%3A%2F%2Fcashflow.test:7:partnerOffers'),
       isNotNull,
     );
 
@@ -443,6 +473,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final requestedOffsets = <int>[];
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async {
         final offset = int.parse(request.url.queryParameters['offset']!);

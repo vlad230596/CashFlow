@@ -5,6 +5,7 @@ import '../../models/bank_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/data_provider.dart';
 import '../widgets/versioned_app_bar_title.dart';
+import '../card_cashback_screen.dart';
 import 'card_edit_screen.dart';
 
 class CardsSettingsScreen extends StatelessWidget {
@@ -60,6 +61,15 @@ class CardsSettingsScreen extends StatelessWidget {
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
+                onTap: card.id == null
+                    ? null
+                    : () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                CardCashbackScreen(cardId: card.id!),
+                          ),
+                        ),
                 leading: Icon(
                   card.paymentSystem == 'Visa'
                       ? Icons.credit_card

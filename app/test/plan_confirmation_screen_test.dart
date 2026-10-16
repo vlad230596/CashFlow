@@ -1,3 +1,4 @@
+import 'package:cashflow/utils/cashback_period.dart';
 import 'package:cashflow/models/bank_model.dart';
 import 'package:cashflow/models/card_model.dart';
 import 'package:cashflow/models/cashback_category_model.dart';
@@ -9,6 +10,7 @@ import 'package:cashflow/services/cashback_import_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   testWidgets('compact overview opens snapshot sheet without changing plan',
@@ -210,6 +212,7 @@ Future<void> _pump(
       child: MaterialApp(
         theme: ThemeData(colorSchemeSeed: Colors.blue, useMaterial3: true),
         home: PlanConfirmationScreen(
+          period: CashbackPeriod.month(DateTime(2026, 9)),
           filePicker: filePicker,
           documentImporter: importer,
           sessionType: AppSessionType.windows,
@@ -230,7 +233,9 @@ Future<void> _tapImport(WidgetTester tester) async {
 
 DataProvider _provider({required String role}) {
   final start = DateTime(2026, 9);
-  final provider = DataProvider();
+  final provider = DataProvider(
+    mccCacheStore: isolatedMccCache(),
+  );
   provider
     ..currentAuthUser = AuthIdentity(id: 8, username: 'test', role: role)
     ..banks = [BankModel(id: 1, name: 'Первый банк', description: '')]

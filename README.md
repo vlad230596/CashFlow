@@ -24,7 +24,15 @@ and are not production replicas. Agents and maintainers should start with
 
 - `app/` — Flutter client and browser extension.
 - `backend/` — HTTP API and persistent data.
+- `tests/browser/README.md` — offline startup/search regression pipeline, local
+  command, CI evidence, and reuse in other projects.
+- `tests/android/README.md` — Android offline/reconnect regression flow, native
+  startup measurements, and the isolated emulator test command.
+- [Offline testing setup guide](docs/offline-testing-setup-guide.md) — перенос
+  Web/Android-проверок в другой проект: настройка, исходники и критерии приёмки.
 - `AGENTS.md` — environment selection, production data access, and stale-data guardrails.
 - `docs/project-status.md` — current release, implemented features, gaps, and backlog.
+- `docs/refactoring-handoff.md` — local refactoring status and unfinished work with
+  code entry points and acceptance checks for the next agent.
 - `docs/product-design-brief.md` — product scope and redesign foundation.
 - `docs/product-design-status.md` — approved UX decisions, remaining work, and open questions.

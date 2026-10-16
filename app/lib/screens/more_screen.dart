@@ -6,6 +6,7 @@ import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
 import '../services/cashback_import_launcher.dart';
 import 'admin/admin_hub_screen.dart';
+import 'cards_screen.dart';
 import 'settings/banks_settings.dart';
 import 'settings/cards_settings.dart';
 import 'settings/mcc_rules_settings_screen.dart';
@@ -16,10 +17,12 @@ class MoreScreen extends StatefulWidget {
     super.key,
     this.sessionType,
     this.now,
+    this.onShellDestinationSelected,
   });
 
   final AppSessionType? sessionType;
   final DateTime Function()? now;
+  final ValueChanged<int>? onShellDestinationSelected;
 
   @override
   State<MoreScreen> createState() => _MoreScreenState();
@@ -30,6 +33,12 @@ class _MoreScreenState extends State<MoreScreen> {
   bool _refreshFailed = false;
 
   DateTime get _now => widget.now?.call() ?? DateTime.now();
+
+  void _openCards() => _open(
+        CardsScreen(
+          onShellDestinationSelected: widget.onShellDestinationSelected,
+        ),
+      );
 
   Future<void> _refresh(DataProvider provider) async {
     if (_refreshing) return;
@@ -369,6 +378,20 @@ class _MoreScreenState extends State<MoreScreen> {
                   ],
                 ),
               ],
+              const _SectionLabel('Карты'),
+              _CompactGroup(
+                children: [
+                  _HubRow(
+                    compact: true,
+                    showTopDivider: false,
+                    icon: Icons.credit_card_outlined,
+                    title: 'Карты и категории',
+                    subtitle: 'Что выбрано по каждой карте',
+                    value: '${provider.cards.length}',
+                    onTap: () => _openCards(),
+                  ),
+                ],
+              ),
               const _SectionLabel('Параметры'),
               _CompactGroup(
                 children: [
@@ -511,6 +534,13 @@ class _MoreScreenState extends State<MoreScreen> {
     return _Panel(
       title: 'Параметры расчёта',
       children: [
+        _HubRow(
+          icon: Icons.credit_card_outlined,
+          title: 'Карты и категории',
+          subtitle: 'Что выбрано по каждой карте',
+          value: '${provider.cards.length}',
+          onTap: () => _openCards(),
+        ),
         _HubRow(
           icon: Icons.event_outlined,
           title: 'Расчётная дата кешбэка',

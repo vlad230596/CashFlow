@@ -1,0 +1,1384 @@
+{
+  "snapshot": {
+    "as_of": "2026-09-15T00:00:00+00:00",
+    "banks": {
+      "1": {
+        "bank_key": null,
+        "description": null,
+        "icon_key": "generic",
+        "id": 1,
+        "name": "Синтетический банк"
+      }
+    },
+    "bindings_version": "67e5724aa91d3fc48e9dd8bdfb77fb1517572e6c20116870f2198ad8ec17e94e",
+    "canonical_categories": {
+      "sports": {
+        "aliases": [
+          "Synthetic sport"
+        ],
+        "default_priority": 1,
+        "group_key": "leisure",
+        "group_title": "Leisure",
+        "key": "sports",
+        "title": "Sports"
+      }
+    },
+    "canonical_mcc": {
+      "0002": [
+        "sports"
+      ]
+    },
+    "catalogue": [
+      {
+        "code": "0001",
+        "title": null
+      },
+      {
+        "code": "0002",
+        "title": "Synthetic MCC"
+      },
+      {
+        "code": "0003",
+        "title": null
+      },
+      {
+        "code": "0004",
+        "title": null
+      },
+      {
+        "code": "0005",
+        "title": null
+      },
+      {
+        "code": "0006",
+        "title": null
+      },
+      {
+        "code": "0007",
+        "title": null
+      },
+      {
+        "code": "0008",
+        "title": null
+      },
+      {
+        "code": "0009",
+        "title": "Unmatched catalogue code"
+      }
+    ],
+    "content_version": "dfc4d3e2e205823f1f1032e65b45d4a339ae209b4152b48c37dcf2c18b858677",
+    "generated_at": "2026-09-15T00:00:00+00:00",
+    "mcc_defaults": {
+      "1": {
+        "category_ids": [],
+        "earning_category_ids": [
+          1
+        ],
+        "exclusion_index": null,
+        "status": "not_in_categories"
+      },
+      "2": {
+        "category_ids": [],
+        "earning_category_ids": [],
+        "exclusion_index": null,
+        "status": "not_in_categories"
+      }
+    },
+    "mcc_details": {
+      "0001": {
+        "code": "0001",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      },
+      "0002": {
+        "code": "0002",
+        "description": null,
+        "reference_source": null,
+        "title": "Synthetic MCC"
+      },
+      "0003": {
+        "code": "0003",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      },
+      "0004": {
+        "code": "0004",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      },
+      "0005": {
+        "code": "0005",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      },
+      "0006": {
+        "code": "0006",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      },
+      "0007": {
+        "code": "0007",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      },
+      "0008": {
+        "code": "0008",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      },
+      "0009": {
+        "code": "0009",
+        "description": null,
+        "reference_source": null,
+        "title": "Unmatched catalogue code"
+      }
+    },
+    "mcc_index": {
+      "0001": {
+        "1": {
+          "category_ids": [],
+          "earning_category_ids": [],
+          "exclusion_index": 0,
+          "status": "excluded"
+        },
+        "2": {
+          "category_ids": [],
+          "earning_category_ids": [],
+          "exclusion_index": 0,
+          "status": "excluded"
+        }
+      },
+      "0002": {
+        "1": {
+          "category_ids": [
+            3
+          ],
+          "earning_category_ids": [
+            3
+          ],
+          "exclusion_index": 1,
+          "status": "category_only"
+        }
+      },
+      "0003": {
+        "1": {
+          "category_ids": [
+            3
+          ],
+          "earning_category_ids": [
+            1,
+            3
+          ],
+          "exclusion_index": 2,
+          "status": "conditional"
+        }
+      },
+      "0005": {
+        "1": {
+          "category_ids": [],
+          "earning_category_ids": [],
+          "exclusion_index": 3,
+          "status": "excluded"
+        }
+      },
+      "0006": {
+        "1": {
+          "category_ids": [],
+          "earning_category_ids": [],
+          "exclusion_index": null,
+          "status": "not_in_categories"
+        }
+      },
+      "0007": {
+        "1": {
+          "category_ids": [
+            2
+          ],
+          "earning_category_ids": [
+            1,
+            2
+          ],
+          "exclusion_index": null,
+          "status": "category"
+        }
+      },
+      "0008": {
+        "2": {
+          "category_ids": [
+            4
+          ],
+          "earning_category_ids": [
+            4
+          ],
+          "exclusion_index": null,
+          "status": "category"
+        }
+      }
+    },
+    "offer_bindings": {
+      "1": {
+        "active": true,
+        "bank_id": 1,
+        "category_ids_by_revision": {
+          "1": [
+            3
+          ],
+          "2": [
+            4
+          ]
+        }
+      },
+      "2": {
+        "active": true,
+        "bank_id": 1,
+        "category_ids_by_revision": {
+          "1": [
+            1
+          ]
+        }
+      },
+      "3": {
+        "active": false,
+        "bank_id": 1,
+        "category_ids_by_revision": {
+          "1": [
+            3
+          ],
+          "2": [
+            4
+          ]
+        }
+      },
+      "4": {
+        "active": true,
+        "bank_id": 1,
+        "category_ids_by_revision": {}
+      },
+      "5": {
+        "active": true,
+        "bank_id": 1,
+        "category_ids_by_revision": {
+          "1": [
+            3
+          ],
+          "2": [
+            4
+          ]
+        }
+      }
+    },
+    "revisions": [
+      {
+        "bank_id": 1,
+        "categories": [
+          {
+            "canonical": [],
+            "completeness": "partial_mcc",
+            "conditions": [],
+            "description": null,
+            "excluded_mcc": [
+              "0006"
+            ],
+            "id": 1,
+            "included_mcc": [],
+            "kind": "all_purchases",
+            "name": "All purchases",
+            "source_external_id": null,
+            "source_key": "all"
+          },
+          {
+            "canonical": [],
+            "completeness": "partial_mcc",
+            "conditions": [],
+            "description": null,
+            "excluded_mcc": [],
+            "id": 2,
+            "included_mcc": [
+              "0007"
+            ],
+            "kind": "mcc",
+            "name": "Special",
+            "source_external_id": null,
+            "source_key": "special"
+          },
+          {
+            "canonical": [
+              {
+                "coverage": null,
+                "key": "sports",
+                "relation": "exact",
+                "source": "manual",
+                "title": "Sports"
+              }
+            ],
+            "completeness": "partial_mcc",
+            "conditions": [],
+            "description": "Synthetic sports",
+            "excluded_mcc": [
+              "0004"
+            ],
+            "id": 3,
+            "included_mcc": [
+              "0002",
+              "0003"
+            ],
+            "kind": "mcc",
+            "name": "Sports",
+            "source_external_id": null,
+            "source_key": "sports"
+          }
+        ],
+        "completeness": "partial_mcc",
+        "conditions": [
+          {
+            "kind": "payment_method",
+            "operator": "not_equals",
+            "original_text": "Синтетическое ограничение оплаты",
+            "value": "sbp"
+          }
+        ],
+        "exclusions": [
+          {
+            "kind": "always",
+            "mcc": "0001",
+            "reason": null
+          },
+          {
+            "kind": "unless_category",
+            "mcc": "0002",
+            "reason": "Only selected category"
+          },
+          {
+            "kind": "conditional",
+            "mcc": "0003",
+            "reason": "Payment condition"
+          },
+          {
+            "kind": "unless_category",
+            "mcc": "0005",
+            "reason": "Only selected category"
+          }
+        ],
+        "global_excluded_mcc": [
+          "0001"
+        ],
+        "id": 1,
+        "last_seen_at": "2026-09-02T10:00:00+00:00",
+        "program": {
+          "id": 1,
+          "name": "Синтетическая программа",
+          "product_scope": null,
+          "source_key": "synthetic-program"
+        },
+        "published_recorded_at": "2026-09-15T00:00:00+00:00",
+        "recorded_at": "2026-09-15T00:00:00+00:00",
+        "source": {
+          "content_hash": "12336f800940c4df5e7024043d6d33cf9491577728193058ddbe3c86af1c1b72",
+          "fetched_at": "2026-09-02T10:00:00+00:00",
+          "parser_name": "synthetic-fixture",
+          "parser_version": "1",
+          "published_at": null,
+          "type": "manual_verified",
+          "url": "https://example.invalid/synthetic-rules"
+        },
+        "status": "published",
+        "superseded_at": null,
+        "valid_from": "2026-09-01T00:00:00+00:00",
+        "valid_to": null,
+        "validity_confidence": "exact"
+      },
+      {
+        "bank_id": 1,
+        "categories": [
+          {
+            "canonical": [],
+            "completeness": "partial_mcc",
+            "conditions": [],
+            "description": null,
+            "excluded_mcc": [],
+            "id": 4,
+            "included_mcc": [
+              "0008"
+            ],
+            "kind": "mcc",
+            "name": "Sports",
+            "source_external_id": null,
+            "source_key": "sports"
+          }
+        ],
+        "completeness": "partial_mcc",
+        "conditions": [
+          {
+            "kind": "payment_method",
+            "operator": "not_equals",
+            "original_text": "Синтетическое ограничение оплаты",
+            "value": "sbp"
+          }
+        ],
+        "exclusions": [
+          {
+            "kind": "always",
+            "mcc": "0001",
+            "reason": null
+          }
+        ],
+        "global_excluded_mcc": [
+          "0001"
+        ],
+        "id": 2,
+        "last_seen_at": "2026-09-02T10:00:00+00:00",
+        "program": {
+          "id": 2,
+          "name": "Second program",
+          "product_scope": null,
+          "source_key": "second-program"
+        },
+        "published_recorded_at": "2026-09-15T00:00:00+00:00",
+        "recorded_at": "2026-09-15T00:00:00+00:00",
+        "source": {
+          "content_hash": "c41b27090abd28682b10a673a2675bc0689b9f19cfc5bcae770efe74c06ea91a",
+          "fetched_at": "2026-09-02T10:00:00+00:00",
+          "parser_name": "synthetic-fixture",
+          "parser_version": "1",
+          "published_at": null,
+          "type": "manual_verified",
+          "url": "https://example.invalid/synthetic-rules"
+        },
+        "status": "published",
+        "superseded_at": null,
+        "valid_from": "2026-09-01T00:00:00+00:00",
+        "valid_to": null,
+        "validity_confidence": "exact"
+      }
+    ],
+    "rules_version": "93804a4a87b6d464090b77696503ee5e5da9225f15e53c1e1829f334d6b44128",
+    "schema_version": 3
+  },
+  "lookups": {
+    "0001": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": {
+            "kind": "always",
+            "mcc": "0001",
+            "reason": null
+          },
+          "offer_ids": [],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "excluded"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": {
+            "kind": "always",
+            "mcc": "0001",
+            "reason": null
+          },
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "excluded"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0001",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      }
+    },
+    "0002": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [
+            {
+              "canonical": [
+                {
+                  "coverage": null,
+                  "key": "sports",
+                  "relation": "exact",
+                  "source": "manual",
+                  "title": "Sports"
+                }
+              ],
+              "id": 3,
+              "kind": "mcc",
+              "name": "Sports"
+            }
+          ],
+          "completeness": "partial_mcc",
+          "exclusion": {
+            "kind": "unless_category",
+            "mcc": "0002",
+            "reason": "Only selected category"
+          },
+          "offer_ids": [
+            1,
+            5
+          ],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "category_only"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [
+        {
+          "aliases": [
+            "Synthetic sport"
+          ],
+          "default_priority": 1,
+          "group_key": "leisure",
+          "group_title": "Leisure",
+          "key": "sports",
+          "title": "Sports"
+        }
+      ],
+      "mcc": {
+        "code": "0002",
+        "description": null,
+        "reference_source": null,
+        "title": "Synthetic MCC"
+      }
+    },
+    "0003": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [
+            {
+              "canonical": [
+                {
+                  "coverage": null,
+                  "key": "sports",
+                  "relation": "exact",
+                  "source": "manual",
+                  "title": "Sports"
+                }
+              ],
+              "id": 3,
+              "kind": "mcc",
+              "name": "Sports"
+            }
+          ],
+          "completeness": "partial_mcc",
+          "exclusion": {
+            "kind": "conditional",
+            "mcc": "0003",
+            "reason": "Payment condition"
+          },
+          "offer_ids": [
+            1,
+            2,
+            5
+          ],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "conditional"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0003",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      }
+    },
+    "0004": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [
+            2
+          ],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "not_in_categories"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0004",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      }
+    },
+    "0005": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": {
+            "kind": "unless_category",
+            "mcc": "0005",
+            "reason": "Only selected category"
+          },
+          "offer_ids": [],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "excluded"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0005",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      }
+    },
+    "0006": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "not_in_categories"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0006",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      }
+    },
+    "0007": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [
+            {
+              "canonical": [],
+              "id": 2,
+              "kind": "mcc",
+              "name": "Special"
+            }
+          ],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [
+            2
+          ],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "category"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0007",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      }
+    },
+    "0008": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [
+            2
+          ],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "not_in_categories"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [
+            {
+              "canonical": [],
+              "id": 4,
+              "kind": "mcc",
+              "name": "Sports"
+            }
+          ],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [
+            1,
+            5
+          ],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "category"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0008",
+        "description": null,
+        "reference_source": null,
+        "title": null
+      }
+    },
+    "0009": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [
+            2
+          ],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "not_in_categories"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "0009",
+        "description": null,
+        "reference_source": null,
+        "title": "Unmatched catalogue code"
+      }
+    },
+    "9999": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "banks": [
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [
+            2
+          ],
+          "program": {
+            "id": 1,
+            "name": "Синтетическая программа",
+            "product_scope": null,
+            "source_key": "synthetic-program"
+          },
+          "revision_id": 1,
+          "status": "not_in_categories"
+        },
+        {
+          "bank": {
+            "bank_key": null,
+            "description": null,
+            "icon_key": "generic",
+            "id": 1,
+            "name": "Синтетический банк"
+          },
+          "categories": [],
+          "completeness": "partial_mcc",
+          "exclusion": null,
+          "offer_ids": [],
+          "program": {
+            "id": 2,
+            "name": "Second program",
+            "product_scope": null,
+            "source_key": "second-program"
+          },
+          "revision_id": 2,
+          "status": "not_in_categories"
+        }
+      ],
+      "canonical": [],
+      "mcc": {
+        "code": "9999"
+      }
+    }
+  },
+  "offer_rules": {
+    "1": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "bank_id": 1,
+      "category": {
+        "completeness": "partial_mcc",
+        "conditions": [],
+        "description": "Synthetic sports",
+        "excluded": [
+          {
+            "code": "0004",
+            "title": null
+          }
+        ],
+        "id": 3,
+        "included": [
+          {
+            "code": "0002",
+            "title": "Synthetic MCC"
+          },
+          {
+            "code": "0003",
+            "title": null
+          }
+        ],
+        "kind": "mcc",
+        "name": "Sports"
+      },
+      "exclusions": [
+        {
+          "kind": "always",
+          "mcc": "0001",
+          "reason": null,
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0002",
+          "reason": "Only selected category",
+          "title": "Synthetic MCC"
+        },
+        {
+          "kind": "conditional",
+          "mcc": "0003",
+          "reason": "Payment condition",
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0005",
+          "reason": "Only selected category",
+          "title": null
+        }
+      ],
+      "offer_id": 1,
+      "program": {
+        "id": 1,
+        "name": "Синтетическая программа",
+        "product_scope": null,
+        "source_key": "synthetic-program"
+      },
+      "revision_id": 1,
+      "source": {
+        "content_hash": "12336f800940c4df5e7024043d6d33cf9491577728193058ddbe3c86af1c1b72",
+        "fetched_at": "2026-09-02T10:00:00+00:00",
+        "parser_name": "synthetic-fixture",
+        "parser_version": "1",
+        "published_at": null,
+        "type": "manual_verified",
+        "url": "https://example.invalid/synthetic-rules"
+      },
+      "valid_from": "2026-09-01T00:00:00+00:00",
+      "valid_to": null
+    },
+    "2": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "bank_id": 1,
+      "category": {
+        "completeness": "partial_mcc",
+        "conditions": [],
+        "description": null,
+        "excluded": [
+          {
+            "code": "0006",
+            "title": null
+          }
+        ],
+        "id": 1,
+        "included": [],
+        "kind": "all_purchases",
+        "name": "All purchases"
+      },
+      "exclusions": [
+        {
+          "kind": "always",
+          "mcc": "0001",
+          "reason": null,
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0002",
+          "reason": "Only selected category",
+          "title": "Synthetic MCC"
+        },
+        {
+          "kind": "conditional",
+          "mcc": "0003",
+          "reason": "Payment condition",
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0005",
+          "reason": "Only selected category",
+          "title": null
+        }
+      ],
+      "offer_id": 2,
+      "program": {
+        "id": 1,
+        "name": "Синтетическая программа",
+        "product_scope": null,
+        "source_key": "synthetic-program"
+      },
+      "revision_id": 1,
+      "source": {
+        "content_hash": "12336f800940c4df5e7024043d6d33cf9491577728193058ddbe3c86af1c1b72",
+        "fetched_at": "2026-09-02T10:00:00+00:00",
+        "parser_name": "synthetic-fixture",
+        "parser_version": "1",
+        "published_at": null,
+        "type": "manual_verified",
+        "url": "https://example.invalid/synthetic-rules"
+      },
+      "valid_from": "2026-09-01T00:00:00+00:00",
+      "valid_to": null
+    },
+    "3": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "bank_id": 1,
+      "category": {
+        "completeness": "partial_mcc",
+        "conditions": [],
+        "description": "Synthetic sports",
+        "excluded": [
+          {
+            "code": "0004",
+            "title": null
+          }
+        ],
+        "id": 3,
+        "included": [
+          {
+            "code": "0002",
+            "title": "Synthetic MCC"
+          },
+          {
+            "code": "0003",
+            "title": null
+          }
+        ],
+        "kind": "mcc",
+        "name": "Sports"
+      },
+      "exclusions": [
+        {
+          "kind": "always",
+          "mcc": "0001",
+          "reason": null,
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0002",
+          "reason": "Only selected category",
+          "title": "Synthetic MCC"
+        },
+        {
+          "kind": "conditional",
+          "mcc": "0003",
+          "reason": "Payment condition",
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0005",
+          "reason": "Only selected category",
+          "title": null
+        }
+      ],
+      "offer_id": 3,
+      "program": {
+        "id": 1,
+        "name": "Синтетическая программа",
+        "product_scope": null,
+        "source_key": "synthetic-program"
+      },
+      "revision_id": 1,
+      "source": {
+        "content_hash": "12336f800940c4df5e7024043d6d33cf9491577728193058ddbe3c86af1c1b72",
+        "fetched_at": "2026-09-02T10:00:00+00:00",
+        "parser_name": "synthetic-fixture",
+        "parser_version": "1",
+        "published_at": null,
+        "type": "manual_verified",
+        "url": "https://example.invalid/synthetic-rules"
+      },
+      "valid_from": "2026-09-01T00:00:00+00:00",
+      "valid_to": null
+    },
+    "4": null,
+    "5": {
+      "as_of": "2026-09-15T00:00:00+00:00",
+      "bank_id": 1,
+      "category": {
+        "completeness": "partial_mcc",
+        "conditions": [],
+        "description": "Synthetic sports",
+        "excluded": [
+          {
+            "code": "0004",
+            "title": null
+          }
+        ],
+        "id": 3,
+        "included": [
+          {
+            "code": "0002",
+            "title": "Synthetic MCC"
+          },
+          {
+            "code": "0003",
+            "title": null
+          }
+        ],
+        "kind": "mcc",
+        "name": "Sports"
+      },
+      "exclusions": [
+        {
+          "kind": "always",
+          "mcc": "0001",
+          "reason": null,
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0002",
+          "reason": "Only selected category",
+          "title": "Synthetic MCC"
+        },
+        {
+          "kind": "conditional",
+          "mcc": "0003",
+          "reason": "Payment condition",
+          "title": null
+        },
+        {
+          "kind": "unless_category",
+          "mcc": "0005",
+          "reason": "Only selected category",
+          "title": null
+        }
+      ],
+      "offer_id": 5,
+      "program": {
+        "id": 1,
+        "name": "Синтетическая программа",
+        "product_scope": null,
+        "source_key": "synthetic-program"
+      },
+      "revision_id": 1,
+      "source": {
+        "content_hash": "12336f800940c4df5e7024043d6d33cf9491577728193058ddbe3c86af1c1b72",
+        "fetched_at": "2026-09-02T10:00:00+00:00",
+        "parser_name": "synthetic-fixture",
+        "parser_version": "1",
+        "published_at": null,
+        "type": "manual_verified",
+        "url": "https://example.invalid/synthetic-rules"
+      },
+      "valid_from": "2026-09-01T00:00:00+00:00",
+      "valid_to": null
+    }
+  }
+}

@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/mcc_test_cache.dart';
 
 class _FakeNotifications implements SubscriptionNotificationService {
   final synchronized = <List<SubscriptionModel>>[];
@@ -116,6 +117,7 @@ void main() {
   test('fetches wrapped subscription list and caches it', () async {
     final notifications = _FakeNotifications();
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       subscriptionNotificationService: notifications,
       httpClient: MockClient((request) async {
@@ -139,7 +141,8 @@ void main() {
     expect(provider.activeSubscriptions.single.name, 'Cloud storage');
     expect(notifications.synchronized.last, hasLength(1));
     expect(
-      (await SharedPreferences.getInstance()).getString('subscriptions:7'),
+      (await SharedPreferences.getInstance())
+          .getString('data:v1:https%3A%2F%2Fcashflow.test:7:subscriptions'),
       isNotNull,
     );
   });
@@ -149,6 +152,7 @@ void main() {
     final notifications = _FakeNotifications();
     final requests = <http.Request>[];
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       subscriptionNotificationService: notifications,
       httpClient: MockClient((request) async {
@@ -196,6 +200,7 @@ void main() {
   test('notification permission is only requested after first save', () async {
     final notifications = _FakeNotifications();
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       subscriptionNotificationService: notifications,
       httpClient: MockClient((_) async => http.Response('{}', 500)),

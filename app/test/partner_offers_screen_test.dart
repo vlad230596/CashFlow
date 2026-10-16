@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   testWidgets('hides expired cached offers and labels unknown deadlines',
@@ -18,6 +19,7 @@ void main() {
     final unknown = _offerJson(id: 2, name: 'Без срока');
     (unknown['snapshot'] as Map<String, dynamic>)['ends_at'] = null;
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((_) async => http.Response('{}', 404)),
     )..partnerOffers = [
@@ -32,6 +34,88 @@ void main() {
     expect(find.text('Просроченное'), findsNothing);
     expect(find.text('Без срока'), findsWidgets);
     expect(find.text('Срок неизвестен'), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+    provider.dispose();
+  });
+
+  testWidgets('upcoming filter shows future cached offers', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final upcoming = _offerJson(id: 2, name: 'Будущее предложение');
+    (upcoming['snapshot'] as Map<String, dynamic>)['starts_at'] =
+        DateTime.now().add(const Duration(days: 2)).toIso8601String();
+    final provider = DataProvider(
+        mccCacheStore: isolatedMccCache(),
+        apiBaseUrl: 'https://cashflow.test',
+        httpClient: MockClient((_) async => http.Response('{}', 404)))
+      ..partnerOffers = [
+        PartnerOffer.fromJson(_offerJson()),
+        PartnerOffer.fromJson(upcoming)
+      ];
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: provider,
+        child: const MaterialApp(home: Scaffold(body: PartnerOffersScreen()))));
+    await tester.pumpAndSettle();
+    expect(find.text('Будущее предложение'), findsNothing);
+    await tester.tap(find.byTooltip('Фильтр по сроку'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Скоро начнутся').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Будущее предложение'), findsWidgets);
+    expect(find.text('Магазин А'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    provider.dispose();
+  });
+
+  testWidgets('groups offers by bank category and filters from the breakdown',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    Map<String, dynamic> grouped(int id, String name, List<String> groups,
+        [String rate = 'до 10%']) {
+      final json = _offerJson(id: id, name: name);
+      (json['snapshot'] as Map<String, dynamic>)
+        ..['groups'] = groups
+        ..['rate_label'] = rate;
+      return json;
+    }
+
+    final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
+      apiBaseUrl: 'https://cashflow.test',
+      httpClient: MockClient((_) async => http.Response('{}', 404)),
+    )..partnerOffers = [
+        PartnerOffer.fromJson(grouped(1, 'Пиццерия', ['Еда'], 'до 7%')),
+        PartnerOffer.fromJson(grouped(2, 'Кеды', ['Одежда'], 'до 25%')),
+        PartnerOffer.fromJson(grouped(3, 'Суши', ['Еда'], 'до 12%')),
+      ];
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: provider,
+      child: const MaterialApp(home: Scaffold(body: PartnerOffersScreen())),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('offer-grouped-view')));
+    await tester.pumpAndSettle();
+    expect(find.text('Еда'), findsOneWidget);
+    expect(find.text('2 · до 12%'), findsOneWidget);
+    expect(find.text('Одежда'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('offer-groups-filter')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+        find.byKey(const ValueKey('offer-groups-search')), 'оде');
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(CheckboxListTile, 'Еда'), findsNothing);
+    await tester.tap(find.widgetWithText(CheckboxListTile, 'Одежда'));
+    await tester.tap(find.text('Показать'));
+    await tester.pumpAndSettle();
+    expect(find.text('Кеды'), findsOneWidget);
+    expect(find.text('Пиццерия'), findsNothing);
+    expect(tester.takeException(), isNull);
+
     await tester.pumpWidget(const SizedBox.shrink());
     provider.dispose();
   });
@@ -54,6 +138,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     var requestedDetails = false;
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async {
         if (request.url.path == '/api/partner-offers/1') {
@@ -99,15 +184,14 @@ void main() {
     await tester.tap(find.byTooltip('Очистить поиск'));
     await tester.pumpAndSettle();
 
-    final bankScroller = find.byType(SingleChildScrollView).first;
-    await tester.drag(bankScroller, const Offset(-260, 0));
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Сбер'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Сбер'));
     await tester.pumpAndSettle();
     expect(find.text('Магазин А'), findsNothing);
     expect(find.text('Магазин Б'), findsOneWidget);
 
-    await tester.drag(bankScroller, const Offset(260, 0));
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Все (2)'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Все (2)'));
     await tester.pumpAndSettle();
@@ -129,6 +213,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1100, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async => http.Response(
             json.encode(_offerJson(details: true)),
@@ -157,6 +242,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(375, 812));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async => http.Response('{}', 404)),
     )..partnerOffers = [PartnerOffer.fromJson(_offerJson())];

@@ -1,0 +1,40 @@
+{
+  "scope": "synthetic in-memory SQLite; bundled reference/rules; six synthetic cards per bank",
+  "mcc_count": 1105,
+  "program_count": 6,
+  "offers_count": 1482,
+  "expanded": {
+    "utf8_bytes": 67181331,
+    "utf16_code_units": 44362140,
+    "gzip6_bytes": 2277775,
+    "gzip_base64_chars": 3037036,
+    "json_serialize_ms": 249.428,
+    "json_parse_ms": 241.487,
+    "gzip_ms": 504.865
+  },
+  "compact_schema2": {
+    "utf8_bytes": 1312596,
+    "utf16_code_units": 1031130,
+    "gzip6_bytes": 170134,
+    "gzip_base64_chars": 226848,
+    "json_serialize_ms": 8.344,
+    "json_parse_ms": 8.182,
+    "gzip_ms": 25.473
+  },
+  "normalized_revisions_prototype": {
+    "utf8_bytes": 1016442,
+    "utf16_code_units": 819330,
+    "gzip6_bytes": 109084,
+    "gzip_base64_chars": 145448,
+    "json_serialize_ms": 5.641,
+    "json_parse_ms": 5.256,
+    "gzip_ms": 18.121
+  },
+  "server_expanded_build_ms": 4586.362,
+  "compact_extra_ms": 951.186,
+  "normalized_assembly_ms": 17.325,
+  "python_lookup_5411_median_ms": 1.99,
+  "all_code_verdict_parity_ms": 2633.772,
+  "parity": "all MCC bank verdicts and offer_ids match current API at the same as_of",
+  "limitations": "Python timings only; normalized evaluator prototype is not implemented/tested in Dart; no browser/Android/network profiling"
+}

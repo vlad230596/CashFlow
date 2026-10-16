@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"text":"Кешбэк до 2 000 рублей. При покупке от 5 000 ₽", "maxCashbackAmount":2000,"minPurchaseAmount":5000},
+    {"text":"Лимит кешбэка 500 ₽.", "maxCashbackAmount":500,"minPurchaseAmount":null},
+    {"text":"Максимальный кешбэк 2 000,50 ₽. Чек не менее 1 500 р.", "maxCashbackAmount":2000.5,"minPurchaseAmount":1500},
+    {"text":"Кэшбэк не более 700 руб. Минимальная сумма покупки 1000 ₽", "maxCashbackAmount":700,"minPurchaseAmount":1000},
+    {"text":"Не более 500 ₽ кешбэка. Заказ от 200 ₽", "maxCashbackAmount":500,"minPurchaseAmount":200},
+    {"text":"Товар стоит 500 ₽. Скидка до 200 ₽", "maxCashbackAmount":null,"minPurchaseAmount":null},
+    {"text":"До 5% кешбэка. Покупка от 250,25 рублей", "maxCashbackAmount":null,"minPurchaseAmount":250.25},
+    {"text":"", "maxCashbackAmount":null,"minPurchaseAmount":null}
+  ]
+}

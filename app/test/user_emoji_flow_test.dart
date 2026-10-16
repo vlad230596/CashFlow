@@ -14,6 +14,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/mcc_test_cache.dart';
 
 Future<void> settle(WidgetTester tester) async {
   await tester.pump();
@@ -29,6 +30,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final requests = <http.Request>[];
     final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async {
         requests.add(request);

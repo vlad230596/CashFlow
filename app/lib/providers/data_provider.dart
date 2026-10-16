@@ -16,37 +16,17 @@ import '../models/mcc_rule_model.dart';
 import '../models/partner_offer_model.dart';
 import '../models/subscription_model.dart';
 import '../services/subscription_notification_service.dart';
+import '../services/mcc_cache_store.dart';
+import '../services/mcc_repository.dart';
+import '../services/api_client.dart';
+import '../services/app_log.dart';
+import '../services/timeout_client.dart';
+import '../services/import_coordinator.dart';
+import '../services/reference_data_store.dart';
+import '../services/business_clock.dart';
+export '../services/import_coordinator.dart';
 
 enum PrimaryDataPhase { initialLoading, ready, refreshing, failed }
-
-class CashbackImportResult {
-  const CashbackImportResult({
-    required this.created,
-    required this.updated,
-    required this.importedBanks,
-    required this.skippedBanks,
-    this.createdPartnerOffers = 0,
-    this.updatedPartnerOffers = 0,
-  });
-
-  final int created;
-  final int updated;
-  final int importedBanks;
-  final int skippedBanks;
-  final int createdPartnerOffers;
-  final int updatedPartnerOffers;
-
-  factory CashbackImportResult.fromJson(Map<String, dynamic> json) {
-    return CashbackImportResult(
-      created: json['created'] as int? ?? 0,
-      updated: json['updated'] as int? ?? 0,
-      importedBanks: (json['imported_banks'] as List?)?.length ?? 0,
-      skippedBanks: (json['skipped'] as List?)?.length ?? 0,
-      createdPartnerOffers: json['created_partner_offers'] as int? ?? 0,
-      updatedPartnerOffers: json['updated_partner_offers'] as int? ?? 0,
-    );
-  }
-}
 
 class AuthIdentity {
   const AuthIdentity({
@@ -72,68 +52,43 @@ class AuthIdentity {
       };
 }
 
-class _AuthenticatedClient extends http.BaseClient {
-  _AuthenticatedClient(
-    this._inner,
-    this._token,
-    this._onUnauthorized,
-    this._onSessionExpiration,
-  );
-
-  final http.Client _inner;
-  final String? Function() _token;
-  final Future<void> Function(String? token) _onUnauthorized;
-  final Future<void> Function(String? token, String expiresAt)
-      _onSessionExpiration;
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    final token = _token();
-    if (token != null) {
-      request.headers['Authorization'] = 'Bearer $token';
-    }
-    final response = await _inner.send(request);
-    if (response.statusCode == 401) {
-      await _onUnauthorized(token);
-    } else {
-      final expiresAt = response.headers.entries
-          .where(
-            (header) =>
-                header.key.toLowerCase() == 'x-cashflow-session-expires-at',
-          )
-          .map((header) => header.value)
-          .firstOrNull;
-      if (expiresAt != null) {
-        await _onSessionExpiration(token, expiresAt);
-      }
-    }
-    return response;
-  }
-
-  @override
-  void close() => _inner.close();
-}
-
 class DataProvider with ChangeNotifier {
   DataProvider({
     String? apiBaseUrl,
     FlutterSecureStorage? secureStorage,
     http.Client? httpClient,
+    BusinessClock? businessClock,
+    MccCacheStore? mccCacheStore,
     SubscriptionNotificationService? subscriptionNotificationService,
+    Future<void> Function()? afterFirstFrame,
   })  : apiBaseUrl = apiBaseUrl ?? defaultApiBaseUrl,
+        _afterFirstFrame = afterFirstFrame,
+        _businessClock = businessClock ?? BusinessClock(),
         _secureStorage = secureStorage ??
             const FlutterSecureStorage(
               aOptions: AndroidOptions(migrateWithBackup: true),
             ),
         _subscriptionNotifications = subscriptionNotificationService ??
             LocalSubscriptionNotificationService() {
-    final innerClient = httpClient ?? http.Client();
+    final innerClient = TimeoutClient(
+      httpClient ?? http.Client(),
+      onFinished: _logRequest,
+    );
     _rawClient = innerClient;
-    _client = _AuthenticatedClient(
+    _client = AuthenticatedApiClient(
       innerClient,
       () => _accessToken,
       _clearAuthentication,
       _saveSessionExpiration,
+    );
+    _mccRepository = MccRepository(
+      cache: mccCacheStore ?? MccCacheStore(),
+      get: (path, headers) => _client.get(_apiUri(path), headers: headers),
+      onChanged: () {
+        if (_disposed) return;
+        mccCatalog = _mccRepository.catalogue;
+        notifyListeners();
+      },
     );
     _notificationTapSubscription =
         _subscriptionNotifications.notificationTaps.listen((id) {
@@ -153,6 +108,8 @@ class DataProvider with ChangeNotifier {
   static const _sessionExpiresAtKey = 'cashflowSessionExpiresAt';
 
   final String apiBaseUrl;
+  final Future<void> Function()? _afterFirstFrame;
+  final BusinessClock _businessClock;
   final FlutterSecureStorage _secureStorage;
   late final http.Client _rawClient;
   late final http.Client _client;
@@ -161,6 +118,13 @@ class DataProvider with ChangeNotifier {
   String? _accessToken;
   DateTime? _sessionExpiresAt;
   final Map<int, int> _selectionMutationVersions = {};
+  final Map<int, int> _preferenceMutationVersions = {};
+  int _sessionGeneration = 0;
+  int _primaryLoadVersion = 0;
+  int _partnerLoadVersion = 0;
+  int _subscriptionLoadVersion = 0;
+  bool _isCurrentSession(int generation) => generation == _sessionGeneration;
+
   AuthIdentity? currentAuthUser;
   bool authReady = true;
   String? authError;
@@ -173,16 +137,24 @@ class DataProvider with ChangeNotifier {
   bool get isAdmin => currentAuthUser?.role == 'admin';
   String get serverIp => Uri.parse(apiBaseUrl).authority;
 
-  List<BankModel> banks = [];
-  List<UserModel> users = [];
-  List<CardModel> cards = [];
+  final ReferenceDataStore _references = ReferenceDataStore();
+  List<BankModel> get banks => _references.banks;
+  set banks(List<BankModel> value) => _references.banks = value;
+  List<UserModel> get users => _references.users;
+  set users(List<UserModel> value) => _references.users = value;
+  List<CardModel> get cards => _references.cards;
+  set cards(List<CardModel> value) => _references.cards = value;
   List<CashbackCategoryModel> cashbackCategories = [];
   List<CashbackCategoryModel> activeCashbackCategories = [];
-  List<CanonicalCategoryModel> canonicalCategories = [];
+  List<CanonicalCategoryModel> get canonicalCategories =>
+      _references.canonicalCategories;
+  set canonicalCategories(List<CanonicalCategoryModel> value) =>
+      _references.canonicalCategories = value;
 
   /// MCC reference (code and title) for search; loaded on first use.
   List<MccCodeModel> mccCatalog = [];
-  Future<List<MccCodeModel>>? _mccCatalogLoad;
+  late final MccRepository _mccRepository;
+  bool _disposed = false;
   List<PartnerOffer> partnerOffers = [];
   List<SubscriptionModel> subscriptions = [];
   PrimaryDataPhase primaryDataPhase = PrimaryDataPhase.initialLoading;
@@ -215,6 +187,17 @@ class DataProvider with ChangeNotifier {
       .where((subscription) => subscription.isArchived)
       .toList(growable: false);
 
+  static void _logRequest(http.BaseRequest request, int? statusCode,
+      Duration elapsed, Object? error) {
+    // Path only: query strings and bodies are not diagnostic log material.
+    final outcome = [
+      if (statusCode != null) '$statusCode',
+      if (error != null) 'failed ${error.runtimeType}',
+    ].join(' ');
+    AppLog.instance.event('HTTP ${request.method} ${request.url.path} '
+        '$outcome ${elapsed.inMilliseconds}ms');
+  }
+
   Uri _apiUri(String path) => Uri.parse(
         '${apiBaseUrl.replaceFirst(RegExp(r'/$'), '')}/api/$path',
       );
@@ -223,9 +206,19 @@ class DataProvider with ChangeNotifier {
     // A late 401 from an old request must not erase a newer login.
     if (token != null && token != _accessToken) return;
     final subscriptionsCacheKey = _subscriptionsCacheKey;
+    _sessionGeneration++;
     _accessToken = null;
     _sessionExpiresAt = null;
     currentAuthUser = null;
+    banks = [];
+    users = [];
+    cards = [];
+    cashbackCategories = [];
+    activeCashbackCategories = [];
+    canonicalCategories = [];
+    dataSnapshotUpdatedAt = null;
+    mccCatalog = [];
+    _mccRepository.clear();
     partnerOffers = [];
     partnerOffersError = null;
     subscriptions = [];
@@ -248,18 +241,20 @@ class DataProvider with ChangeNotifier {
     final user = currentAuthUser;
     final token = _accessToken;
     if (user == null || token == null) return;
-    await Future.wait([
-      _secureStorage.write(key: _accessTokenKey, value: token),
-      _secureStorage.write(
-        key: _authIdentityKey,
-        value: json.encode(user.toJson()),
-      ),
-      if (_sessionExpiresAt != null)
-        _secureStorage.write(
-          key: _sessionExpiresAtKey,
-          value: _sessionExpiresAt!.toUtc().toIso8601String(),
-        ),
-    ]);
+    // The web implementation creates its encryption key on the first write.
+    // Parallel first writes can each create a different key, making the saved
+    // session unreadable after a restart.
+    await _secureStorage.write(key: _accessTokenKey, value: token);
+    await _secureStorage.write(
+      key: _authIdentityKey,
+      value: json.encode(user.toJson()),
+    );
+    if (_sessionExpiresAt != null) {
+      await _secureStorage.write(
+        key: _sessionExpiresAtKey,
+        value: _sessionExpiresAt!.toUtc().toIso8601String(),
+      );
+    }
   }
 
   Future<void> _saveSessionExpiration(String? token, String value) async {
@@ -300,14 +295,10 @@ class DataProvider with ChangeNotifier {
         );
       }
       _sessionExpiresAt = DateTime.tryParse(stored[2] ?? '');
-
-      final response = await _client.get(_apiUri('auth/me'));
-      if (response.statusCode != 200) return isAuthenticated;
-      currentAuthUser = AuthIdentity.fromJson(
-        json.decode(response.body) as Map<String, dynamic>,
-      );
-      await _persistAuthentication();
-      return true;
+      // A previously verified identity can open its own local cache without
+      // waiting for the server. A token alone still needs online validation.
+      if (isAuthenticated) return true;
+      return await _validateAuthentication();
     } catch (_) {
       // Keep a previously verified session available from cached data when
       // validation is unavailable. A server 401 still clears it immediately.
@@ -315,9 +306,38 @@ class DataProvider with ChangeNotifier {
       _accessToken = null;
       _sessionExpiresAt = null;
       currentAuthUser = null;
-      authError = 'Не удалось восстановить сохранённую сессию';
+      authError =
+          'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð²Ð¾ÑÑÑ‚Ð°Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ ÑÐ¾Ñ…Ñ€Ð°Ð½Ñ‘Ð½Ð½ÑƒÑŽ ÑÐµÑÑÐ¸ÑŽ';
       return false;
     }
+  }
+
+  Future<bool> _validateAuthentication() async {
+    final session = _sessionGeneration;
+    try {
+      final response = await _client.get(_apiUri('auth/me'));
+      if (_disposed || !_isCurrentSession(session)) return false;
+      if (response.statusCode != 200) return isAuthenticated;
+      currentAuthUser = AuthIdentity.fromJson(
+        json.decode(response.body) as Map<String, dynamic>,
+      );
+      await _persistAuthentication();
+      if (_disposed || !_isCurrentSession(session)) return false;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      // Transport failure preserves a verified local session; the API client's
+      // 401 handler remains authoritative and clears a revoked session.
+      return !_disposed && _isCurrentSession(session) && isAuthenticated;
+    }
+  }
+
+  Future<void> _refreshRestoredSession() async {
+    final valid = await _validateAuthentication();
+    AppLog.instance.event('startup: session validated=$valid');
+    if (!valid) return;
+    final refreshed = await fetchAllData();
+    AppLog.instance.event('startup: data refreshed=$refreshed');
   }
 
   Future<bool> login(String username, String password) async {
@@ -330,10 +350,11 @@ class DataProvider with ChangeNotifier {
       );
       final payload = json.decode(response.body) as Map<String, dynamic>;
       if (response.statusCode != 200) {
-        authError = payload['error'] as String? ?? 'Ошибка входа';
+        authError = payload['error'] as String? ?? 'ÐžÑˆÐ¸Ð±ÐºÐ° Ð²Ñ…Ð¾Ð´Ð°';
         notifyListeners();
         return false;
       }
+      _sessionGeneration++;
       _accessToken = payload['access_token'] as String;
       _sessionExpiresAt =
           DateTime.tryParse(payload['expires_at'] as String? ?? '');
@@ -341,13 +362,15 @@ class DataProvider with ChangeNotifier {
         payload['user'] as Map<String, dynamic>,
       );
       await _persistAuthentication();
+      await loadLocalData();
       await _loadSubscriptionsCache();
       await _loadPartnerOffersCache();
+      await _loadMccCache();
       notifyListeners();
       await fetchAllData();
       return true;
     } catch (_) {
-      authError = 'Сервер недоступен';
+      authError = 'Ð¡ÐµÑ€Ð²ÐµÑ€ Ð½ÐµÐ´Ð¾ÑÑ‚ÑƒÐ¿ÐµÐ½';
       notifyListeners();
       return false;
     }
@@ -364,7 +387,7 @@ class DataProvider with ChangeNotifier {
   }
 
   DateTime get cashbackEffectiveDate =>
-      _dateOnly(_cashbackDateOverride ?? DateTime.now());
+      _dateOnly(_cashbackDateOverride ?? _businessClock.today);
 
   bool get usesCurrentCashbackDate => _cashbackDateOverride == null;
 
@@ -400,6 +423,8 @@ class DataProvider with ChangeNotifier {
       );
     }
 
+    await _loadMccCache();
+    unawaited(refreshMccSnapshot());
     notifyListeners();
   }
 
@@ -410,7 +435,11 @@ class DataProvider with ChangeNotifier {
     final response = await _client.get(_apiUri(endpoint));
 
     if (response.statusCode != 200) {
-      throw Exception('Failed to load $endpoint: ${response.statusCode}');
+      throw ApiException(
+          endpoint,
+          response.statusCode,
+          _responseError(
+              response, 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ð´Ð°Ð½Ð½Ñ‹Ðµ'));
     }
 
     final result = (json.decode(response.body) as List)
@@ -434,7 +463,8 @@ class DataProvider with ChangeNotifier {
     );
     if (response.statusCode != 200) {
       throw Exception(
-        _responseError(response, 'Не удалось загрузить правила MCC'),
+        _responseError(response,
+            'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ð¿Ñ€Ð°Ð²Ð¸Ð»Ð° MCC'),
       );
     }
     return (json.decode(response.body) as List)
@@ -446,17 +476,58 @@ class DataProvider with ChangeNotifier {
         .toList();
   }
 
+  Future<Map<String, dynamic>?> previewMccRuleSnapshot(
+      Map<String, dynamic> document,
+      {int? baseRevisionId}) async {
+    final response =
+        await _client.post(_apiUri('admin/mcc-rule-snapshots/preview'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'document': document,
+              if (baseRevisionId != null) 'base_revision_id': baseRevisionId
+            }));
+    if (response.statusCode == 501) return null;
+    if (response.statusCode == 404) {
+      Map<String, dynamic>? error;
+      try {
+        error = json.decode(response.body) as Map<String, dynamic>;
+      } catch (_) {}
+      if (error == null ||
+          error['code'] == 'endpoint_not_available' ||
+          error['error'] == null) {
+        return null;
+      }
+    }
+    if (response.statusCode != 200) {
+      throw ApiException(
+          'admin/mcc-rule-snapshots/preview',
+          response.statusCode,
+          _responseError(response,
+              'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¿Ñ€Ð¾Ð²ÐµÑ€Ð¸Ñ‚ÑŒ ÑÐ½Ð¸Ð¼Ð¾Ðº MCC'));
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
+  }
+
   Future<MccRuleRevisionModel> createMccRuleSnapshot(
-    Map<String, dynamic> document,
-  ) async {
+      Map<String, dynamic> document,
+      {Map<String, dynamic>? preview}) async {
     final response = await _client.post(
       _apiUri('admin/mcc-rule-snapshots'),
       headers: {'Content-Type': 'application/json'},
-      body: json.encode({'document': document}),
+      body: json.encode({
+        'document': document,
+        if (preview != null)
+          'preview': {
+            'base_revision_id': preview['base_revision_id'],
+            'base_hash': preview['base_hash'],
+            'normalized_hash': preview['normalized_hash'],
+          }
+      }),
     );
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception(
-        _responseError(response, 'Не удалось сохранить правила MCC'),
+        _responseError(response,
+            'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ ÑÐ¾Ñ…Ñ€Ð°Ð½Ð¸Ñ‚ÑŒ Ð¿Ñ€Ð°Ð²Ð¸Ð»Ð° MCC'),
       );
     }
     return MccRuleRevisionModel.fromJson(
@@ -470,68 +541,64 @@ class DataProvider with ChangeNotifier {
     );
     if (response.statusCode != 200) {
       throw Exception(
-        _responseError(response, 'Не удалось опубликовать правила MCC'),
+        _responseError(response,
+            'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ð¿ÑƒÐ±Ð»Ð¸ÐºÐ¾Ð²Ð°Ñ‚ÑŒ Ð¿Ñ€Ð°Ð²Ð¸Ð»Ð° MCC'),
       );
     }
+    _invalidateMccBindings();
     return MccRuleRevisionModel.fromJson(
       json.decode(response.body) as Map<String, dynamic>,
     );
   }
 
-  /// Loads the MCC reference once. A failure is not cached, so the next call
-  /// retries; an empty list means search works without MCC titles.
-  Future<List<MccCodeModel>> fetchMccCatalog() {
-    if (mccCatalog.isNotEmpty) return Future.value(mccCatalog);
-    return _mccCatalogLoad ??= () async {
-      try {
-        mccCatalog = await receiveFromServer('mcc', MccCodeModel.fromJson);
-        notifyListeners();
-      } catch (e) {
-        debugPrint('Error fetching MCC catalogue: $e');
-      } finally {
-        _mccCatalogLoad = null;
-      }
-      return mccCatalog;
-    }();
+  int get mccDataRevision => _mccRepository.revision;
+  String get mccContextIdentity =>
+      '$apiBaseUrl:${currentAuthUser?.id}:${cashbackEffectiveDate.toIso8601String()}';
+  bool get mccOfflineReady => _mccRepository.offlineReady;
+  DateTime? get mccSnapshotUpdatedAt => _mccRepository.snapshotUpdatedAt;
+
+  void _activateMccContext() => _mccRepository.activate(apiBaseUrl,
+      currentAuthUser?.id, cashbackEffectiveDate, _sessionGeneration);
+
+  Future<void> _loadMccCache() async {
+    _activateMccContext();
+    await _mccRepository.load();
+    final catalogue = _mccRepository.catalogue;
+    if (catalogue.isNotEmpty) mccCatalog = catalogue;
   }
 
-  /// The cashback date as a moment inside that Moscow day, or null for now.
-  String? get _cashbackAsOf {
-    final date = _cashbackDateOverride;
-    if (date == null) return null;
-    final day = '${date.year.toString().padLeft(4, '0')}-'
-        '${date.month.toString().padLeft(2, '0')}-'
-        '${date.day.toString().padLeft(2, '0')}';
-    return Uri.encodeQueryComponent('${day}T12:00:00+03:00');
+  Future<void> refreshMccSnapshot() async {
+    _activateMccContext();
+    try {
+      await _mccRepository.refreshSnapshot(force: true);
+    } catch (error) {
+      debugPrint('Could not refresh offline MCC snapshot: $error');
+    }
+  }
+
+  Future<List<MccCodeModel>> fetchMccCatalog() async {
+    await _loadMccCache();
+    final catalogue = await _mccRepository.fetchCatalogue();
+    if (catalogue.isNotEmpty) mccCatalog = catalogue;
+    return mccCatalog;
+  }
+
+  void _invalidateMccBindings() {
+    _activateMccContext();
+    _mccRepository.invalidateBindings();
   }
 
   /// How every bank with published rules treats [code] on the cashback date.
   Future<MccLookupModel> lookupMcc(String code) async {
-    final asOf = _cashbackAsOf;
-    final response = await _client.get(
-      _apiUri('mcc/$code/bank-rules${asOf == null ? '' : '?as_of=$asOf'}'),
-    );
-    if (response.statusCode != 200) {
-      throw Exception(_responseError(response, 'Не удалось проверить MCC'));
-    }
-    return MccLookupModel.fromJson(
-      json.decode(response.body) as Map<String, dynamic>,
-    );
+    _activateMccContext();
+    final document = await _mccRepository.document('lookups', code);
+    return MccLookupModel.fromJson(document!);
   }
 
-  /// The published bank category behind an offer, or null when the bank has
-  /// no rules for it.
   Future<OfferMccRulesModel?> fetchOfferMccRules(int offerId) async {
-    final response = await _client.get(_apiUri('cashback/$offerId/mcc-rules'));
-    if (response.statusCode == 404) return null;
-    if (response.statusCode != 200) {
-      throw Exception(
-        _responseError(response, 'Не удалось загрузить MCC категории'),
-      );
-    }
-    return OfferMccRulesModel.fromJson(
-      json.decode(response.body) as Map<String, dynamic>,
-    );
+    _activateMccContext();
+    final document = await _mccRepository.document('offer_rules', '$offerId');
+    return document == null ? null : OfferMccRulesModel.fromJson(document);
   }
 
   Future<void> autoImportMccRules(int bankId) async {
@@ -540,30 +607,56 @@ class DataProvider with ChangeNotifier {
     );
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception(
-        _responseError(response, 'Автоматическая загрузка пока недоступна'),
+        _responseError(response,
+            'ÐÐ²Ñ‚Ð¾Ð¼Ð°Ñ‚Ð¸Ñ‡ÐµÑÐºÐ°Ñ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð¿Ð¾ÐºÐ° Ð½ÐµÐ´Ð¾ÑÑ‚ÑƒÐ¿Ð½Ð°'),
       );
     }
   }
 
   Future<void> initialize() async {
+    final log = AppLog.instance;
     authReady = false;
+    log.event('startup: initialize');
     try {
       await _subscriptionNotifications.initialize();
     } catch (error) {
       debugPrint('Could not initialize subscription notifications: $error');
     }
+    log.event('startup: notifications initialized');
     await loadLocalData();
     await _synchronizeSubscriptionNotifications();
+    log.event('startup: local data loaded');
     final restored = await _restoreAuthentication();
+    log.event('startup: session restored=$restored');
     if (restored) {
+      await loadLocalData();
       await _loadSubscriptionsCache();
       await _loadPartnerOffersCache();
       await _synchronizeSubscriptionNotifications();
+      log.event('startup: account caches loaded '
+          'snapshot=${hasUsableDataSnapshot ? dataSnapshotUpdatedAt : 'none'}');
     }
     authReady = true;
     notifyListeners();
     if (restored) {
-      unawaited(fetchAllData());
+      // The MCC snapshot can be large; reading it must not delay the first
+      // frame. Every MCC consumer awaits the same memoized load.
+      unawaited(_loadDeferredMccCache());
+      unawaited(_refreshRestoredSession());
+    }
+  }
+
+  Future<void> _loadDeferredMccCache() async {
+    final session = _sessionGeneration;
+    try {
+      await _afterFirstFrame?.call();
+      if (_disposed || !_isCurrentSession(session)) return;
+      await _loadMccCache();
+      if (_disposed || !_isCurrentSession(session)) return;
+      AppLog.instance.event('startup: MCC cache loaded');
+      notifyListeners();
+    } catch (error) {
+      debugPrint('Could not load MCC cache: $error');
     }
   }
 
@@ -597,10 +690,14 @@ class DataProvider with ChangeNotifier {
         _apiUri('$endpoint/$id'),
       );
 
-      if (response.statusCode == 204) {
+      if (response.statusCode == 204 || response.statusCode == 200) {
         debugPrint('Delete from server item with id $id from $endpoint');
       } else {
-        throw Exception('Failed to delete bank');
+        throw ApiException(
+            endpoint,
+            response.statusCode,
+            _responseError(
+                response, 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ ÑƒÐ´Ð°Ð»Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ð¸ÑÑŒ'));
       }
     } catch (e) {
       debugPrint('Error deleting bank: $e');
@@ -624,7 +721,11 @@ class DataProvider with ChangeNotifier {
       if (response.statusCode == 200) {
         return fromJson(json.decode(response.body));
       } else {
-        throw Exception('Failed to update bank');
+        throw ApiException(
+            endpoint,
+            response.statusCode,
+            _responseError(
+                response, 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ð±Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ Ð·Ð°Ð¿Ð¸ÑÑŒ'));
       }
     } catch (e) {
       debugPrint('Error updating bank: $e');
@@ -633,6 +734,10 @@ class DataProvider with ChangeNotifier {
   }
 
   Future<bool> fetchAllData() async {
+    final session = _sessionGeneration;
+    final version = ++_primaryLoadVersion;
+    bool current() =>
+        _isCurrentSession(session) && version == _primaryLoadVersion;
     primaryDataPhase = hasUsableDataSnapshot
         ? PrimaryDataPhase.refreshing
         : PrimaryDataPhase.initialLoading;
@@ -650,31 +755,50 @@ class DataProvider with ChangeNotifier {
         "cashback",
         CashbackCategoryModel.fromJson,
       );
-      final fetchedSubscriptions = await _receiveSubscriptions('all');
+      if (!current()) return false;
 
+      final mccBindingsChanged =
+          json.encode(cards.map(CardModel.toJson).toList()) !=
+                  json.encode(fetchedCards.map(CardModel.toJson).toList()) ||
+              json.encode(cashbackCategories
+                      .map(CashbackCategoryModel.toJson)
+                      .toList()) !=
+                  json.encode(fetchedCashbackCategories
+                      .map(CashbackCategoryModel.toJson)
+                      .toList());
       banks = fetchedBanks;
       users = fetchedUsers;
       cards = fetchedCards;
       activeCashbackCategories = fetchedActiveCashbackCategories;
       cashbackCategories = fetchedCashbackCategories;
-      subscriptions = fetchedSubscriptions
-          .map(_mergeCachedSubscriptionDetails)
-          .toList(growable: false);
+      if (mccBindingsChanged) _invalidateMccBindings();
+
       dataSnapshotUpdatedAt = DateTime.now();
       lastUpdated = dataSnapshotUpdatedAt.toString();
       primaryDataPhase = PrimaryDataPhase.ready;
       await fetchCanonicalCategories();
-      unawaited(fetchMccCatalog());
+      if (!current()) return false;
+      unawaited(fetchMccCatalog().then<void>((_) {},
+          onError: (Object error, StackTrace stack) {
+        debugPrint('MCC catalogue unavailable: $error');
+      }));
+      unawaited(refreshMccSnapshot());
+      if (!current()) return false;
       await _saveDataLocally();
+      if (!current()) return false;
       await _synchronizeSubscriptionNotifications();
+      await fetchSubscriptions();
+      if (!current()) return false;
       await fetchPartnerOffers();
+      if (!current()) return false;
       notifyListeners();
       return true;
     } catch (e) {
       // Handle errors
       debugPrint('Error fetching data: $e');
+      if (!current()) return false;
       primaryDataPhase = PrimaryDataPhase.failed;
-      primaryDataError = 'Не удалось обновить данные';
+      primaryDataError = 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ð±Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ Ð´Ð°Ð½Ð½Ñ‹Ðµ';
       notifyListeners();
       return false;
     }
@@ -683,17 +807,20 @@ class DataProvider with ChangeNotifier {
   /// Loads the unified category catalogue. Failures keep the cached list, so
   /// an older server without the endpoint only disables canonical grouping.
   Future<void> fetchCanonicalCategories() async {
+    final session = _sessionGeneration;
     try {
-      canonicalCategories = await receiveFromServer(
+      final fetched = await receiveFromServer(
         'canonical-categories',
         CanonicalCategoryModel.fromJson,
       );
+      if (_isCurrentSession(session)) canonicalCategories = fetched;
     } catch (e) {
       debugPrint('Error fetching canonical categories: $e');
     }
   }
 
   Future<void> fetchCashbackCategories() async {
+    final session = _sessionGeneration;
     try {
       final response = await _client.get(
         _apiUri('cashback'),
@@ -702,8 +829,10 @@ class DataProvider with ChangeNotifier {
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
+        if (!_isCurrentSession(session)) return;
         cashbackCategories =
             data.map((json) => CashbackCategoryModel.fromJson(json)).toList();
+        await _saveDataLocally();
         notifyListeners();
       } else {
         throw Exception('Failed to load categories: ${response.statusCode}');
@@ -723,7 +852,7 @@ class DataProvider with ChangeNotifier {
   //       final List<dynamic> data = json.decode(response.body);
   //       _cashbacks = data.map((json) => CashbackModel.fromJson(json)).toList();
   //       print('Server returned: $data');
-  //       await _saveCashbacksLocally(data); // Сохраняем данные локально
+  //       await _saveCashbacksLocally(data); // Ð¡Ð¾Ñ…Ñ€Ð°Ð½ÑÐµÐ¼ Ð´Ð°Ð½Ð½Ñ‹Ðµ Ð»Ð¾ÐºÐ°Ð»ÑŒÐ½Ð¾
   //       notifyListeners();
   //     } else {
   //       throw Exception('Failed to load data');
@@ -733,22 +862,43 @@ class DataProvider with ChangeNotifier {
   //   }
   // }
 
+  String _dataCacheKey(String name) => currentAuthUser == null
+      ? name
+      : 'data:v1:${Uri.encodeComponent(apiBaseUrl)}:${currentAuthUser!.id}:$name';
+
+  String? _loadedReferenceScope;
   Future<void> loadLocalData() async {
+    final scope = _dataCacheKey('banks');
+    if (_loadedReferenceScope != null && _loadedReferenceScope != scope) {
+      banks = [];
+      users = [];
+      cards = [];
+      cashbackCategories = [];
+      activeCashbackCategories = [];
+      canonicalCategories = [];
+      dataSnapshotUpdatedAt = null;
+      lastUpdated = null;
+      primaryDataPhase = PrimaryDataPhase.initialLoading;
+    }
+    _loadedReferenceScope = scope;
     final prefs = await SharedPreferences.getInstance();
     // Remove the pre-user-scoping key from early development builds.
     await prefs.remove('subscriptions');
+    if (scope != _dataCacheKey('banks')) return;
     try {
-      final cachedBanks = prefs.getString('banks');
-      final cachedUsers = prefs.getString('users');
-      final cachedCards = prefs.getString('cards');
-      final cachedCashbackCategories = prefs.getString('cashbackCategories');
+      final cachedBanks = prefs.getString(_dataCacheKey('banks'));
+      final cachedUsers = prefs.getString(_dataCacheKey('users'));
+      final cachedCards = prefs.getString(_dataCacheKey('cards'));
+      final cachedCashbackCategories =
+          prefs.getString(_dataCacheKey('cashbackCategories'));
       final cachedActiveCashbackCategories =
-          prefs.getString('activeCashbackCategories');
-      final cachedCanonicalCategories = prefs.getString('canonicalCategories');
+          prefs.getString(_dataCacheKey('activeCashbackCategories'));
+      final cachedCanonicalCategories =
+          prefs.getString(_dataCacheKey('canonicalCategories'));
       final cachedCashbackEffectiveDate =
           prefs.getString('cashbackEffectiveDate');
       final cachedDataSnapshotUpdatedAt =
-          prefs.getString('dataSnapshotUpdatedAt');
+          prefs.getString(_dataCacheKey('dataSnapshotUpdatedAt'));
 
       if (cachedDataSnapshotUpdatedAt != null) {
         dataSnapshotUpdatedAt = DateTime.tryParse(cachedDataSnapshotUpdatedAt);
@@ -804,46 +954,25 @@ class DataProvider with ChangeNotifier {
   }
 
   Future<void> _saveDataLocally() async {
+    // Capture both keys and values before waiting for disk: a new login must
+    // never redirect an old snapshot into the new account's cache.
+    final values = <String, String>{
+      for (final entry in _references.serialize().entries)
+        _dataCacheKey(entry.key): entry.value,
+      _dataCacheKey('cashbackCategories'): json.encode(
+          cashbackCategories.map(CashbackCategoryModel.toJson).toList()),
+      _dataCacheKey('activeCashbackCategories'): json.encode(
+          activeCashbackCategories.map(CashbackCategoryModel.toJson).toList()),
+      if (_subscriptionsCacheKey != null)
+        _subscriptionsCacheKey!:
+            json.encode(subscriptions.map((item) => item.toJson()).toList()),
+      if (dataSnapshotUpdatedAt != null)
+        _dataCacheKey('dataSnapshotUpdatedAt'):
+            dataSnapshotUpdatedAt!.toIso8601String(),
+    };
     final prefs = await SharedPreferences.getInstance();
-    prefs.setString('banks',
-        json.encode(banks.map((bank) => BankModel.toJson(bank)).toList()));
-    await _saveUsersLocally();
-    prefs.setString('cards',
-        json.encode(cards.map((card) => CardModel.toJson(card)).toList()));
-    prefs.setString(
-        'cashbackCategories',
-        json.encode(cashbackCategories
-            .map((cashbackCategory) =>
-                CashbackCategoryModel.toJson(cashbackCategory))
-            .toList()));
-    prefs.setString(
-        'canonicalCategories',
-        json.encode(canonicalCategories
-            .map((category) => CanonicalCategoryModel.toJson(category))
-            .toList()));
-    prefs.setString(
-        'activeCashbackCategories',
-        json.encode(activeCashbackCategories
-            .map((cashbackCategory) =>
-                CashbackCategoryModel.toJson(cashbackCategory))
-            .toList()));
-    final subscriptionsCacheKey = _subscriptionsCacheKey;
-    if (subscriptionsCacheKey != null) {
-      prefs.setString(
-        subscriptionsCacheKey,
-        json.encode(
-          subscriptions
-              .map((subscription) => subscription.toJson())
-              .toList(growable: false),
-        ),
-      );
-    }
-    if (dataSnapshotUpdatedAt != null) {
-      prefs.setString(
-        'dataSnapshotUpdatedAt',
-        dataSnapshotUpdatedAt!.toIso8601String(),
-      );
-    }
+    await Future.wait(
+        values.entries.map((item) => prefs.setString(item.key, item.value)));
   }
 
   Future<List<SubscriptionModel>> _receiveSubscriptions(String status) async {
@@ -865,11 +994,16 @@ class DataProvider with ChangeNotifier {
   }
 
   Future<bool> fetchSubscriptions({String status = 'all'}) async {
+    final session = _sessionGeneration;
+    final version = ++_subscriptionLoadVersion;
+    bool current() =>
+        _isCurrentSession(session) && version == _subscriptionLoadVersion;
     subscriptionsLoading = true;
     subscriptionsError = null;
     notifyListeners();
     try {
       final fetched = await _receiveSubscriptions(status);
+      if (!current()) return false;
       final merged =
           fetched.map(_mergeCachedSubscriptionDetails).toList(growable: false);
       if (status == 'all') {
@@ -887,12 +1021,15 @@ class DataProvider with ChangeNotifier {
       await _synchronizeSubscriptionNotifications();
       return true;
     } catch (error) {
+      if (!current()) return false;
       subscriptionsError = error.toString();
       debugPrint('Error fetching subscriptions: $error');
       return false;
     } finally {
-      subscriptionsLoading = false;
-      notifyListeners();
+      if (current()) {
+        subscriptionsLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1098,14 +1235,14 @@ class DataProvider with ChangeNotifier {
 
   String? get _subscriptionsCacheKey {
     final authUserId = currentAuthUser?.id;
-    return authUserId == null ? null : 'subscriptions:$authUserId';
+    return authUserId == null ? null : _dataCacheKey('subscriptions');
   }
 
   Future<void> _loadSubscriptionsCache() async {
     final key = _subscriptionsCacheKey;
     if (key == null) return;
     final cached = (await SharedPreferences.getInstance()).getString(key);
-    if (cached == null) return;
+    if (cached == null || key != _subscriptionsCacheKey) return;
     try {
       subscriptions = (json.decode(cached) as List)
           .map((item) =>
@@ -1122,7 +1259,7 @@ class DataProvider with ChangeNotifier {
 
   String? get _partnerOffersCacheKey {
     final authUserId = currentAuthUser?.id;
-    return authUserId == null ? null : 'partnerOffers:$authUserId';
+    return authUserId == null ? null : _dataCacheKey('partnerOffers');
   }
 
   Future<void> _loadPartnerOffersCache() async {
@@ -1130,7 +1267,7 @@ class DataProvider with ChangeNotifier {
     if (key == null) return;
     final prefs = await SharedPreferences.getInstance();
     final cached = prefs.getString(key);
-    if (cached == null) return;
+    if (cached == null || key != _partnerOffersCacheKey) return;
     try {
       partnerOffers = (json.decode(cached) as List)
           .map((item) => PartnerOffer.fromJson(item as Map<String, dynamic>))
@@ -1143,14 +1280,16 @@ class DataProvider with ChangeNotifier {
   Future<void> _savePartnerOffersCache() async {
     final key = _partnerOffersCacheKey;
     if (key == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      key,
-      json.encode(partnerOffers.map((offer) => offer.toJson()).toList()),
-    );
+    final value =
+        json.encode(partnerOffers.map((offer) => offer.toJson()).toList());
+    await (await SharedPreferences.getInstance()).setString(key, value);
   }
 
   Future<bool> fetchPartnerOffers({String? rating}) async {
+    final session = _sessionGeneration;
+    final version = ++_partnerLoadVersion;
+    bool current() =>
+        _isCurrentSession(session) && version == _partnerLoadVersion;
     partnerOffersLoading = true;
     partnerOffersError = null;
     notifyListeners();
@@ -1161,7 +1300,7 @@ class DataProvider with ChangeNotifier {
       final fetched = <PartnerOffer>[];
       do {
         final parameters = <String, String>{
-          'active_only': 'true',
+          'active_only': 'false',
           'limit': '$pageSize',
           'offset': '$offset',
           if (rating != null) 'rating': rating,
@@ -1172,7 +1311,8 @@ class DataProvider with ChangeNotifier {
         final response = await _client.get(uri);
         if (response.statusCode != 200) {
           throw Exception(
-            _responseError(response, 'Не удалось загрузить предложения'),
+            _responseError(response,
+                'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ð¿Ñ€ÐµÐ´Ð»Ð¾Ð¶ÐµÐ½Ð¸Ñ'),
           );
         }
         final payload = json.decode(response.body) as Map<String, dynamic>;
@@ -1184,21 +1324,27 @@ class DataProvider with ChangeNotifier {
         offset += page.length;
         if (page.isEmpty) break;
       } while (offset < total);
+      if (!current()) return false;
       partnerOffers = fetched;
       _partnerOffersRating = rating;
       if (rating == null) await _savePartnerOffersCache();
       return true;
     } catch (error) {
-      partnerOffersError = 'Не удалось обновить предложения';
+      if (!current()) return false;
+      partnerOffersError =
+          'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ð±Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ Ð¿Ñ€ÐµÐ´Ð»Ð¾Ð¶ÐµÐ½Ð¸Ñ';
       debugPrint('Error fetching partner offers: $error');
       if (rating == null) {
         await _loadPartnerOffersCache();
+        await _loadMccCache();
         _partnerOffersRating = null;
       }
       return false;
     } finally {
-      partnerOffersLoading = false;
-      notifyListeners();
+      if (current()) {
+        partnerOffersLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1206,7 +1352,8 @@ class DataProvider with ChangeNotifier {
     final response = await _client.get(_apiUri('partner-offers/$offerId'));
     if (response.statusCode != 200) {
       throw Exception(
-        _responseError(response, 'Не удалось загрузить условия'),
+        _responseError(
+            response, 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ ÑƒÑÐ»Ð¾Ð²Ð¸Ñ'),
       );
     }
     return PartnerOffer.fromJson(
@@ -1218,6 +1365,12 @@ class DataProvider with ChangeNotifier {
     int offerId,
     String rating,
   ) async {
+    final session = _sessionGeneration;
+    final version = (_preferenceMutationVersions[offerId] ?? 0) + 1;
+    _preferenceMutationVersions[offerId] = version;
+    bool current() =>
+        _isCurrentSession(session) &&
+        _preferenceMutationVersions[offerId] == version;
     const allowed = {'interesting', 'undecided', 'hidden'};
     if (!allowed.contains(rating)) {
       throw ArgumentError.value(rating, 'rating');
@@ -1236,12 +1389,15 @@ class DataProvider with ChangeNotifier {
       );
       if (response.statusCode != 200) {
         throw Exception(
-          _responseError(response, 'Не удалось сохранить оценку'),
+          _responseError(
+              response, 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ ÑÐ¾Ñ…Ñ€Ð°Ð½Ð¸Ñ‚ÑŒ Ð¾Ñ†ÐµÐ½ÐºÑƒ'),
         );
       }
-      if (_partnerOffersRating == null) await _savePartnerOffersCache();
+      if (current() && _partnerOffersRating == null) {
+        await _savePartnerOffersCache();
+      }
     } catch (_) {
-      if (original != null) {
+      if (current() && original != null) {
         final rollback =
             partnerOffers.indexWhere((offer) => offer.id == offerId);
         if (rollback != -1) partnerOffers[rollback] = original;
@@ -1261,6 +1417,7 @@ class DataProvider with ChangeNotifier {
     final result = await addItemToServer(
         "banks", item, BankModel.fromJson, BankModel.toJson);
     banks.add(result);
+    await _saveDataLocally();
     notifyListeners();
   }
 
@@ -1278,6 +1435,7 @@ class DataProvider with ChangeNotifier {
           BankModel.fromJson,
           BankModel.toJson);
       banks[banks.indexWhere((bank) => bank.id == id)] = updated;
+      await _saveDataLocally();
       notifyListeners();
     } catch (e) {
       debugPrint('Error updating bank: $e');
@@ -1289,6 +1447,7 @@ class DataProvider with ChangeNotifier {
     try {
       await deleteItemFromServer('banks', id);
       banks.removeWhere((bank) => bank.id == id);
+      await _saveDataLocally();
       notifyListeners();
     } catch (e) {
       debugPrint('Error deleting bank: $e');
@@ -1297,9 +1456,9 @@ class DataProvider with ChangeNotifier {
   }
 
   Future<void> _saveUsersLocally() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('users',
-        json.encode(users.map((user) => UserModel.toJson(user)).toList()));
+    final key = _dataCacheKey('users');
+    final value = json.encode(users.map(UserModel.toJson).toList());
+    await (await SharedPreferences.getInstance()).setString(key, value);
   }
 
   Future<void> addUser(String name, {String iconKey = 'boy'}) async {
@@ -1368,8 +1527,9 @@ class DataProvider with ChangeNotifier {
         _apiUri('users/$id'),
       );
 
-      if (response.statusCode == 204) {
+      if (response.statusCode == 204 || response.statusCode == 200) {
         users.removeWhere((user) => user.id == id);
+        await _saveUsersLocally();
         notifyListeners();
       } else {
         throw Exception('Failed to delete user');
@@ -1396,31 +1556,24 @@ class DataProvider with ChangeNotifier {
     final result = await addItemToServer(
         "cards", item, CardModel.fromJson, CardModel.toJson);
     cards.add(result);
+    _invalidateMccBindings();
+    await _saveDataLocally();
     notifyListeners();
   }
 
-  CardModel getCardById(int cardId) {
-    return cards.firstWhere(
-      (card) => card.id == cardId,
-      orElse: () => CardModel(
+  CardModel getCardById(int cardId) =>
+      _references.cardsById[cardId] ??
+      CardModel(
         id: cardId,
         paymentSystem: '',
         cardType: '',
         lastFourDigits: '????',
-      ),
-    );
-  }
+      );
 
   String getCardName(int cardId) {
     final card = getCardById(cardId);
-    final userName = users
-        .where((user) => user.id == card.userId)
-        .map((user) => user.name)
-        .firstOrNull;
-    final bankName = banks
-        .where((bank) => bank.id == card.bankId)
-        .map((bank) => bank.name)
-        .firstOrNull;
+    final userName = _references.usersById[card.userId]?.name;
+    final bankName = _references.banksById[card.bankId]?.name;
 
     if (userName == null && bankName == null) {
       return 'Unknown card';
@@ -1456,14 +1609,10 @@ class DataProvider with ChangeNotifier {
       if (response.statusCode == 200) {
         final index = cards.indexWhere((card) => card.id == id);
         if (index != -1) {
-          cards[index] = CardModel(
-            id: id,
-            paymentSystem: paymentSystem,
-            cardType: cardType,
-            lastFourDigits: lastFourDigits,
-            bankId: bankId,
-            userId: userId,
-          );
+          _invalidateMccBindings();
+          cards[index] = CardModel.fromJson(
+              json.decode(response.body) as Map<String, dynamic>);
+          await _saveDataLocally();
           notifyListeners();
         }
       } else {
@@ -1481,8 +1630,10 @@ class DataProvider with ChangeNotifier {
         _apiUri('cards/$id'),
       );
 
-      if (response.statusCode == 204) {
+      if (response.statusCode == 204 || response.statusCode == 200) {
         cards.removeWhere((card) => card.id == id);
+        _invalidateMccBindings();
+        await _saveDataLocally();
         notifyListeners();
       } else {
         throw Exception('Failed to delete card');
@@ -1552,6 +1703,8 @@ class DataProvider with ChangeNotifier {
         final newCategory =
             CashbackCategoryModel.fromJson(json.decode(response.body));
         cashbackCategories.add(newCategory);
+        _invalidateMccBindings();
+        await _saveDataLocally();
         if (notify) {
           notifyListeners();
         }
@@ -1571,62 +1724,16 @@ class DataProvider with ChangeNotifier {
   Future<CashbackImportResult> importCashbackDocument(
     String contents,
     int userId,
-  ) async {
-    final decoded = json.decode(contents);
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('JSON должен содержать объект импорта');
-    }
-
-    final response = await _client.post(
-      _apiUri('cashback/import'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'document': decoded,
-        'user_id': userId,
-      }),
-    );
-
-    final responseData = json.decode(response.body);
-    if (response.statusCode != 200) {
-      final message =
-          responseData is Map<String, dynamic> ? responseData['error'] : null;
-      throw Exception(message ?? 'Ошибка импорта: ${response.statusCode}');
-    }
-
-    final result = CashbackImportResult.fromJson(
-      responseData as Map<String, dynamic>,
-    );
-    final partnerResponse = await _client.post(
-      _apiUri('partner-offers/import'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'document': decoded,
-        'card_user_id': userId,
-      }),
-    );
-    final partnerData = json.decode(partnerResponse.body);
-    if (partnerResponse.statusCode != 200) {
-      final message =
-          partnerData is Map<String, dynamic> ? partnerData['error'] : null;
-      throw Exception(
-        'Категории импортированы, но предложения сохранить не удалось: '
-        '${message ?? partnerResponse.statusCode}',
-      );
-    }
-    final partnerResult = partnerData as Map<String, dynamic>;
-    final refreshed = await fetchAllData();
-    if (!refreshed) {
-      throw Exception('Импорт выполнен, но обновить данные не удалось');
-    }
-    return CashbackImportResult(
-      created: result.created,
-      updated: result.updated,
-      importedBanks: result.importedBanks,
-      skippedBanks: result.skippedBanks,
-      createdPartnerOffers: partnerResult['created_offers'] as int? ?? 0,
-      updatedPartnerOffers: partnerResult['updated_offers'] as int? ?? 0,
-    );
-  }
+  ) =>
+      ImportCoordinator(
+        post: (path, body) => _client.post(_apiUri(path),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode(body)),
+        refresh: () async {
+          _invalidateMccBindings();
+          return fetchAllData();
+        },
+      ).run(contents, userId);
 
   Future<void> updateCashbackCategory(
     CashbackCategoryModel category,
@@ -1641,6 +1748,7 @@ class DataProvider with ChangeNotifier {
       if (response.statusCode == 200) {
         final updatedCategory =
             CashbackCategoryModel.fromJson(json.decode(response.body));
+        _invalidateMccBindings();
         final index =
             cashbackCategories.indexWhere((c) => c.id == updatedCategory.id);
         if (index != -1) {
@@ -1700,7 +1808,10 @@ class DataProvider with ChangeNotifier {
       if (response.statusCode != 200) {
         throw Exception('Failed to update category: ${response.statusCode}');
       }
-      await _saveDataLocally();
+      if (_selectionMutationVersions[categoryId] == version) {
+        _invalidateMccBindings();
+        await _saveDataLocally();
+      }
     } catch (e) {
       if (_selectionMutationVersions[categoryId] == version) {
         final rollbackIndex =
@@ -1730,6 +1841,8 @@ class DataProvider with ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _mccRepository.dispose();
     _notificationTapSubscription.cancel();
     _client.close();
     super.dispose();

@@ -7,6 +7,7 @@ import 'package:cashflow/theme/cashflow_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   testWidgets('compact shell fits five destinations at 360 px', (tester) async {
@@ -94,6 +95,8 @@ DataProvider _providerWithSubscriptions() {
 }
 
 class _TestDataProvider extends DataProvider {
+  _TestDataProvider() : super(mccCacheStore: isolatedMccCache());
+
   @override
   Future<SubscriptionModel> fetchSubscription(int id) async =>
       subscriptions.firstWhere((item) => item.id == id);

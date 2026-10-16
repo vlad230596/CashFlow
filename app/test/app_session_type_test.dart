@@ -4,6 +4,7 @@ import 'package:cashflow/services/app_session_type.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   test('cashback desktop tools are available only in Windows sessions', () {
@@ -28,7 +29,9 @@ void main() {
     for (final sessionType in [AppSessionType.android, AppSessionType.web]) {
       await tester.pumpWidget(
         ChangeNotifierProvider(
-          create: (_) => DataProvider(),
+          create: (_) => DataProvider(
+            mccCacheStore: isolatedMccCache(),
+          ),
           child: MaterialApp(home: HomeScreen(sessionType: sessionType)),
         ),
       );
@@ -43,8 +46,9 @@ void main() {
   });
 
   testWidgets('Windows session shows its desktop actions', (tester) async {
-    final provider = DataProvider()
-      ..currentAuthUser = AuthIdentity(
+    final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
+    )..currentAuthUser = AuthIdentity(
         id: 1,
         username: 'editor',
         role: 'editor',
@@ -74,7 +78,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       ChangeNotifierProvider(
-        create: (_) => DataProvider(),
+        create: (_) => DataProvider(
+          mccCacheStore: isolatedMccCache(),
+        ),
         child: const MaterialApp(home: HomeScreen()),
       ),
     );
@@ -109,7 +115,9 @@ void main() {
 
     await tester.pumpWidget(
       ChangeNotifierProvider(
-        create: (_) => DataProvider(),
+        create: (_) => DataProvider(
+          mccCacheStore: isolatedMccCache(),
+        ),
         child: const MaterialApp(home: HomeScreen()),
       ),
     );

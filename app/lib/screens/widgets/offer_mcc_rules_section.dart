@@ -1,3 +1,4 @@
+import '../../utils/cashflow_formatters.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/mcc_lookup_model.dart';
@@ -8,9 +9,11 @@ typedef OfferMccRulesLoader = Future<OfferMccRulesModel?> Function();
 /// MCC codes of the bank category behind a card offer, with a filter, the
 /// category's own exclusions and the program-wide exclusions.
 class OfferMccRulesSection extends StatefulWidget {
-  const OfferMccRulesSection({super.key, required this.load});
+  const OfferMccRulesSection(
+      {super.key, required this.load, this.dataRevision = 0});
 
   final OfferMccRulesLoader load;
+  final int dataRevision;
 
   @override
   State<OfferMccRulesSection> createState() => _OfferMccRulesSectionState();
@@ -28,6 +31,14 @@ class _OfferMccRulesSectionState extends State<OfferMccRulesSection> {
     super.initState();
     _rules = widget.load();
     _filter.addListener(() => setState(() {}));
+  }
+
+  @override
+  void didUpdateWidget(covariant OfferMccRulesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dataRevision != widget.dataRevision) {
+      _rules = widget.load();
+    }
   }
 
   @override
@@ -55,7 +66,8 @@ class _OfferMccRulesSectionState extends State<OfferMccRulesSection> {
         FutureBuilder<OfferMccRulesModel?>(
           future: _rules,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
+            if (snapshot.connectionState != ConnectionState.done &&
+                !snapshot.hasData) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: LinearProgressIndicator(),
@@ -103,6 +115,9 @@ class _OfferMccRulesSectionState extends State<OfferMccRulesSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (rules.isFromCache)
+          Text(mccCacheLabel(rules.snapshotUpdatedAt, rules.snapshotAsOf),
+              style: textTheme.bodySmall),
         Text(
           [
             rules.programName,

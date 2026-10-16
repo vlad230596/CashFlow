@@ -5,6 +5,9 @@ import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
+import '../services/card_context.dart';
+import '../utils/cashback_period.dart';
+import '../utils/cashflow_formatters.dart';
 import '../services/cashback_import_launcher.dart';
 
 typedef CashbackFilePicker = Future<CashbackImportFile?> Function();
@@ -22,6 +25,7 @@ class PlanConfirmationScreen extends StatefulWidget {
   const PlanConfirmationScreen({
     super.key,
     this.onBack,
+    this.period,
     this.filePicker,
     this.documentImporter,
     this.sessionType,
@@ -29,6 +33,7 @@ class PlanConfirmationScreen extends StatefulWidget {
   });
 
   final VoidCallback? onBack;
+  final CashbackPeriod? period;
   final CashbackFilePicker? filePicker;
   final CashbackDocumentImporter? documentImporter;
   final AppSessionType? sessionType;
@@ -80,22 +85,16 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
   }
 
   List<_ConfirmationCard> _plannedCards(DataProvider provider) {
-    final grouped = <int, List<CashbackCategoryModel>>{};
-    for (final category in provider.cashbackCategories) {
-      if (!category.isSelectable || !category.isSelected) continue;
-      grouped.putIfAbsent(category.cardId, () => []).add(category);
-    }
+    final grouped = selectedCategoriesByCard(provider.cashbackCategories,
+        widget.period ?? CashbackPeriod.month(DateTime.now()));
 
+    final contexts = CardContextCatalog(
+        cards: provider.cards, banks: provider.banks, users: provider.users);
     final cards = grouped.entries.map((entry) {
-      final card = provider.getCardById(entry.key);
-      final bankName = provider.banks
-          .where((bank) => bank.id == card.bankId)
-          .map((bank) => bank.name)
-          .firstOrNull;
-      final userName = provider.users
-          .where((user) => user.id == card.userId)
-          .map((user) => user.name)
-          .firstOrNull;
+      final context = contexts.forId(entry.key);
+      final card = context.card;
+      final bankName = context.bankName;
+      final userName = context.ownerName;
       final categories = [...entry.value];
       return _ConfirmationCard(
         card: card,
@@ -1358,31 +1357,6 @@ class _EmptyPlan extends StatelessWidget {
   }
 }
 
-String _formatPercent(double value) {
-  final amount = value == value.roundToDouble()
-      ? value.toInt().toString()
-      : value.toStringAsFixed(1).replaceAll('.', ',');
-  return '$amount%';
-}
-
-String _formatMonth(DateTime value) {
-  const months = [
-    'Январь',
-    'Февраль',
-    'Март',
-    'Апрель',
-    'Май',
-    'Июнь',
-    'Июль',
-    'Август',
-    'Сентябрь',
-    'Октябрь',
-    'Ноябрь',
-    'Декабрь',
-  ];
-  return '${months[value.month - 1]} ${value.year}';
-}
-
-String _formatTime(DateTime value) =>
-    '${value.hour.toString().padLeft(2, '0')}:'
-    '${value.minute.toString().padLeft(2, '0')}';
+String _formatPercent(double value) => CashFlowFormatters.percent(value);
+String _formatMonth(DateTime value) => CashFlowFormatters.month(value);
+String _formatTime(DateTime value) => CashFlowFormatters.time(value);

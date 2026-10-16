@@ -1,3 +1,5 @@
+import '../services/card_context.dart';
+import '../utils/cashflow_formatters.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -1212,13 +1214,11 @@ DateTime _clampedDate(int year, int month, int day) {
 String _cardLabel(DataProvider provider, int cardId) =>
     _cardLabelFromCard(provider, provider.getCardById(cardId));
 
-String _cardLabelFromCard(DataProvider provider, CardModel card) {
-  final owner = card.id == null ? 'Карта' : provider.getCardName(card.id!);
-  final digits = card.lastFourDigits?.isNotEmpty == true
-      ? ' ••${card.lastFourDigits}'
-      : '';
-  return '$owner$digits';
-}
+String _cardLabelFromCard(DataProvider provider, CardModel card) =>
+    CardContextCatalog(
+            cards: provider.cards, banks: provider.banks, users: provider.users)
+        .forCard(card)
+        .subscriptionLabel;
 
 String _money(double amount, String currency) {
   final value = amount == amount.roundToDouble()
@@ -1233,8 +1233,7 @@ String _money(double amount, String currency) {
   return '$value $symbol';
 }
 
-String _date(DateTime value) =>
-    '${value.day.toString().padLeft(2, '0')}.${value.month.toString().padLeft(2, '0')}.${value.year}';
+String _date(DateTime value) => CashFlowFormatters.calendarDate(value);
 
 DateTime _dateOnly(DateTime value) =>
     DateTime(value.year, value.month, value.day);

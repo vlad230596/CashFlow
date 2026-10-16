@@ -1,8 +1,10 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cashflow/models/bank_model.dart';
 import 'package:cashflow/models/card_model.dart';
 import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/models/user_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
+import 'package:cashflow/services/mcc_cache_store.dart';
 import 'package:cashflow/screens/cashback_category_detail_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,7 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   CashbackCategoryModel category() => CashbackCategoryModel(
         id: 17,
         name: 'Аптеки',
@@ -26,6 +29,7 @@ void main() {
       );
 
   DataProvider provider(String role) => DataProvider(
+        mccCacheStore: MccCacheStore(storage: MemoryMccStorage()),
         apiBaseUrl: 'https://cashflow.test',
         httpClient: MockClient((_) async => http.Response('{}', 404)),
       )
@@ -105,7 +109,7 @@ void main() {
     );
 
     final edit = find.text('Редактировать данные');
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -700));
+    await tester.ensureVisible(edit);
     await tester.pumpAndSettle();
     await tester.tap(edit);
     await tester.pumpAndSettle();

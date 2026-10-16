@@ -1,0 +1,163 @@
+steps:
+- script:
+    path: ../../tests/android/scripts/prepare.mjs
+- launch: com.example.cash_app.offlineqa
+- await:
+    visible:
+      text: Войти в семью
+- await:
+    idle: true
+- type:
+    into:
+      id: login-password
+    text: '{{secret:OFFLINE_QA_PASSWORD}}'
+    submit: false
+- type:
+    into:
+      id: login-username
+    text: '{{secret:OFFLINE_QA_USER}}'
+    submit: false
+- tool: button
+  args:
+    button: back
+- tap:
+    text: Войти
+- await:
+    visible:
+      id: benefit-search
+- await:
+    idle: true
+- await:
+    visible:
+      text: Тестовый банк, Тестовый участник, Offline groceries, 5%
+- script:
+    path: ../../tests/android/scripts/wait-warm.mjs
+- echo: Disable Wi-Fi and mobile data and reset API connections. Restart from disk; cached 5% must appear within
+    2000 ms.
+- script:
+    path: ../../tests/android/scripts/offline.mjs
+- launch: com.example.cash_app.offlineqa
+- await:
+    visible:
+      id: benefit-search
+- await:
+    idle: true
+- await:
+    visible:
+      text: Тестовый банк, Тестовый участник, Offline groceries, 5%
+- script:
+    path: ../../tests/android/scripts/assert-startup.mjs
+- await:
+    visible:
+      text: Данные могли устареть
+- type:
+    into:
+      id: benefit-search
+    text: Offline
+    submit: false
+- assert:
+    text:
+      in:
+        id: benefit-search
+      contains: Offline
+- tool: button
+  args:
+    button: back
+- await:
+    visible:
+      text: 'Offline groceries · •4242
+
+        5%'
+- await:
+    visible:
+      text: Иконка банка Тестовый банк
+- await:
+    visible:
+      text: Иконка пользователя Тестовый участник
+- script:
+    path: ../../tests/android/scripts/restore-nine.mjs
+- tap:
+    text: Повторить
+- await:
+    visible:
+      text: 'Offline groceries · •4242
+
+        9%'
+- await:
+    hidden:
+      text: 'Offline groceries · •4242
+
+        5%'
+- await:
+    hidden:
+      text: Данные могли устареть
+- assert:
+    text:
+      in:
+        id: benefit-search
+      contains: Offline
+- echo: Hold API responses and restart. Cached 9% must render within 2000 ms and remain available for the full 30-second
+    response window.
+- script:
+    path: ../../tests/android/scripts/hanging.mjs
+- launch: com.example.cash_app.offlineqa
+- await:
+    visible:
+      id: benefit-search
+- await:
+    idle: true
+- await:
+    visible:
+      text: Тестовый банк, Тестовый участник, Offline groceries, 9%
+- script:
+    path: ../../tests/android/scripts/assert-startup.mjs
+- type:
+    into:
+      id: benefit-search
+    text: Offline
+    submit: false
+- assert:
+    text:
+      in:
+        id: benefit-search
+      contains: Offline
+- tool: button
+  args:
+    button: back
+- await:
+    visible:
+      text: 'Offline groceries · •4242
+
+        9%'
+- script:
+    path: ../../tests/android/scripts/hold-30s.mjs
+- await:
+    visible:
+      text: 'Offline groceries · •4242
+
+        9%'
+- script:
+    path: ../../tests/android/scripts/restore-thirteen.mjs
+- await:
+    visible:
+      text: 'Offline groceries · •4242
+
+        13%'
+- await:
+    hidden:
+      text: 'Offline groceries · •4242
+
+        9%'
+- assert:
+    text:
+      in:
+        id: benefit-search
+      contains: Offline
+- await:
+    visible:
+      text: Иконка банка Тестовый банк
+- await:
+    visible:
+      text: Иконка пользователя Тестовый участник
+- script:
+    path: ../../tests/android/scripts/cleanup.mjs

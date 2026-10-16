@@ -213,11 +213,11 @@ void main() {
     expect(find.byIcon(personMarkerPalette[0].icon), findsOneWidget);
     expect(find.byIcon(personMarkerPalette[1].icon), findsOneWidget);
     expect(
-      find.bySemanticsLabel('Т-Банк, владелец Тест, карта •1002, 5%'),
+      find.bySemanticsLabel('Т-Банк, владелец Тест, карта •1002, 5%. Что выбрано по карте'),
       findsOneWidget,
     );
     expect(
-      find.bySemanticsLabel('Альфа-Банк, владелец Анна, карта •2003, 5%'),
+      find.bySemanticsLabel('Альфа-Банк, владелец Анна, карта •2003, 5%. Что выбрано по карте'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);

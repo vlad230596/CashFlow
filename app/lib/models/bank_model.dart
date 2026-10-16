@@ -3,8 +3,9 @@ class BankModel {
   final String? name;
   final String? description;
   final String? iconKey;
+  final String? bankKey;
 
-  BankModel({this.id, this.name, this.description, this.iconKey});
+  BankModel({this.id, this.name, this.description, this.iconKey, this.bankKey});
 
   factory BankModel.fromJson(Map<String, dynamic> json) {
     return BankModel(
@@ -12,6 +13,7 @@ class BankModel {
       name: json['name'] as String,
       description: json['description'] as String?,
       iconKey: json['icon_key'] as String?,
+      bankKey: json['bank_key'] as String?,
     );
   }
 
@@ -21,6 +23,7 @@ class BankModel {
       if (model.name != null) 'name': model.name,
       if (model.description != null) 'description': model.description,
       if (model.iconKey != null) 'icon_key': model.iconKey,
+      if (model.bankKey != null) 'bank_key': model.bankKey,
     };
     return jsonMap;
   }

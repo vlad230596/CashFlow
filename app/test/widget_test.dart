@@ -2,12 +2,15 @@ import 'package:cashflow/main.dart';
 import 'package:cashflow/providers/data_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   testWidgets('CashFlow app starts', (tester) async {
     await tester.pumpWidget(
       ChangeNotifierProvider(
-        create: (_) => DataProvider(),
+        create: (_) => DataProvider(
+          mccCacheStore: isolatedMccCache(),
+        ),
         child: const MyApp(),
       ),
     );

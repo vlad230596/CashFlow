@@ -15,8 +15,13 @@ def releaseSigningConfigured = [
     releaseKeyAlias,
     releaseKeyPassword,
 ].every { value -> value != null && !value.trim().isEmpty() }
+// Derive package isolation from the same Flutter define that enables metrics.
+// This avoids a daemon/environment mismatch producing a normal-package QA APK.
+def offlineQaBuild = (project.findProperty("dart-defines") ?: "").split(",").any {
+    new String(it.decodeBase64(), "UTF-8") == "CASHFLOW_OFFLINE_QA_METRICS=true"
+}
 
-if (System.getenv("CI") == "true" && !releaseSigningConfigured) {
+if (System.getenv("CI") == "true" && !releaseSigningConfigured && !offlineQaBuild) {
     throw new GradleException("CashFlow release signing environment is incomplete.")
 }
 
@@ -37,7 +42,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.cash_app"
+        applicationId = offlineQaBuild ? "com.example.cash_app.offlineqa" : "com.example.cash_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdkVersion = flutter.minSdkVersion

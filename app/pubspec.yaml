@@ -35,6 +35,8 @@ dependencies:
   web: ^1.1.1
   flutter_secure_storage: ^10.0.0
   shared_preferences: ^2.0.6
+  path_provider: ^2.1.6
+  crypto: ^3.0.6
   flutter_local_notifications: ^19.4.2
   flutter_timezone: ^5.0.0
   timezone: ^0.10.1

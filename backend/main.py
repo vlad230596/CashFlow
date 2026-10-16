@@ -6,9 +6,11 @@ import json
 import os
 import re
 import secrets
+from collections import OrderedDict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
+from threading import RLock
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -20,11 +22,22 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from bank_identity import BANK_IMPORT_NAMES, bank_key_for_name, validated_bank_key
+from business_time import MOSCOW, utc_naive_now
+from business_time import as_utc as _as_utc
+from business_time import iso_datetime as _iso_datetime
+from business_time import utc_now as _utc_now
 from canonical_categories import (
     compute_canonical_links,
     normalize_category_name,
     resolve_canonical_by_name,
 )
+from cashback_validation import validate_cashback_payload
+from mcc_evaluation import _evaluate_mcc_in_revision, _offer_mcc_payload, _offers_earning_mcc
+from mcc_preview import snapshot_diff
+from mcc_routes import create_mcc_blueprint
+from mcc_snapshot import compact_snapshot
+from mcc_snapshot_v3 import build_offer_bindings, build_rule_content
 from partner_validity import offer_deadline, parse_offer_date
 
 app = Flask(__name__)
@@ -60,8 +73,8 @@ allowed_origins = [
 CORS(
     app,
     origins=allowed_origins or [],
-    allow_headers=['Authorization', 'Content-Type'],
-    expose_headers=['X-CashFlow-Session-Expires-At'],
+    allow_headers=['Authorization', 'Content-Type', 'If-None-Match'],
+    expose_headers=['X-CashFlow-Session-Expires-At', 'ETag'],
 )
 if app.config['CASHFLOW_ENVIRONMENT'] == 'production':
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
@@ -70,6 +83,7 @@ if app.config['CASHFLOW_ENVIRONMENT'] == 'production':
 class Bank(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(50), unique=True, nullable=False)
+    bank_key = db.Column(db.String(24), unique=True, index=True, nullable=True)
     description = db.Column(db.Text)
     icon_key = db.Column(db.String(24), nullable=False, default='generic')
 
@@ -78,6 +92,7 @@ class Bank(db.Model):
             'id': self.id,
             'name': self.name,
             'description': self.description,
+            'bank_key': self.bank_key,
             'icon_key': self.icon_key,
         }
 
@@ -107,7 +122,7 @@ class BankCard(db.Model):
 
     user_id = db.Column(db.Integer, db.ForeignKey('card_user.id'), nullable=False)
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_naive_now)
     is_active = db.Column(db.Boolean, default=True)
     max_cashback_categories = db.Column(db.Integer, default=4)
 
@@ -803,16 +818,6 @@ PARTNER_ICON_MAX_BYTES = 5 * 1024 * 1024
 USERNAME_PATTERN = re.compile(r'^[a-z0-9][a-z0-9._-]{2,63}$')
 
 
-def _utc_now():
-    return datetime.now(timezone.utc)
-
-
-def _as_utc(value):
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def _normalize_username(value):
     username = str(value or '').strip().lower()
     if not USERNAME_PATTERN.fullmatch(username):
@@ -1209,9 +1214,13 @@ def banks():
 
         try:
             icon_key = _icon_key(data, BANK_ICON_KEYS, 'generic')
+            bank_key = validated_bank_key(data.get('bank_key', bank_key_for_name(data['name'])))
         except ValueError as error:
             return jsonify({'error': str(error)}), 400
+        if bank_key and Bank.query.filter_by(bank_key=bank_key).first():
+            return jsonify({'error': 'Bank integration key is already configured'}), 409
         bank = Bank(
+            bank_key=bank_key,
             name=data['name'],
             description=data.get('description'),
             icon_key=icon_key,
@@ -1238,10 +1247,14 @@ def bank_detail(bank_id):
 
     data = request.get_json(silent=True) or {}
     try:
+        bank_key = validated_bank_key(data.get('bank_key', bank.bank_key))
+        if bank_key and Bank.query.filter(Bank.bank_key == bank_key, Bank.id != bank.id).first():
+            return jsonify({'error': 'Bank integration key is already configured'}), 409
         if 'icon_key' in data:
             bank.icon_key = _icon_key(data, BANK_ICON_KEYS, bank.icon_key)
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
+    bank.bank_key = bank_key
     if 'name' in data:
         bank.name = data['name']
     if 'description' in data:
@@ -1382,44 +1395,20 @@ def card_detail(card_id):
     elif request.method == 'DELETE':
         db.session.delete(card)
         db.session.commit()
-        return jsonify({'message': 'Card deleted successfully'})
+        return '', 204
 
 
 # Роуты для категорий кешбека
 @app.route('/api/cashback', methods=['GET', 'POST'])
 def cashback_categories():
     if request.method == 'POST':
-        data = request.json
-
-        required_fields = ['name', 'start_date', 'end_date', 'cashback_percent', 'card_id']
-        if not all(field in data for field in required_fields):
-            return jsonify({'error': 'Missing required fields'}), 400
-
-        if not BankCard.query.get(data['card_id']):
-            return jsonify({'error': 'Card not found'}), 404
-
         try:
-            start_date = datetime.fromisoformat(data['start_date'])
-            end_date = datetime.fromisoformat(data['end_date'])
-        except ValueError:
-            return jsonify({'error': 'Invalid date format. Use ISO format'}), 400
-
-        if start_date >= end_date:
-            return jsonify({'error': 'End date must be after start date'}), 400
-
-        new_category = CashbackCategory(
-            name=data['name'],
-            start_date=start_date,
-            end_date=end_date,
-            cashback_percent=data['cashback_percent'],
-            card_id=data['card_id'],
-            is_selected=data.get('is_selected', False),
-            description=data.get('description'),
-            category_type=data.get('category_type', 'standard'),
-            is_selection_locked=data.get('is_selection_locked', False),
-            max_cashback_amount=data.get('max_cashback_amount'),
-            min_purchase_amount=data.get('min_purchase_amount')
-        )
+            values = validate_cashback_payload(request.get_json(silent=True))
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
+        if not db.session.get(BankCard, values['card_id']):
+            return jsonify({'error': 'Card not found'}), 404
+        new_category = CashbackCategory(**values)
 
         db.session.add(new_category)
         db.session.commit()
@@ -1431,61 +1420,28 @@ def cashback_categories():
 
 @app.route('/api/cashback/<int:category_id>', methods=['GET', 'PUT', 'DELETE'])
 def cashback_category_detail(category_id):
-    category = CashbackCategory.query.get_or_404(category_id)
+    category = db.session.get(CashbackCategory, category_id)
+    if category is None:
+        return jsonify({'error': 'Cashback category not found'}), 404
 
     if request.method == 'GET':
         return jsonify(category.to_dict())
 
     elif request.method == 'PUT':
-        data = request.json
-        # Editing the offer cannot preserve proof for different bank terms.
-        if any(key in data and data[key] != category.to_dict().get(key) for key in (
-            'name', 'start_date', 'end_date', 'cashback_percent', 'card_id', 'category_type',
+        try:
+            values = validate_cashback_payload(request.get_json(silent=True), category)
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
+        if 'card_id' in values and not db.session.get(BankCard, values['card_id']):
+            return jsonify({'error': 'Card not found'}), 404
+        # Validate before changing ORM state or invalidating bank evidence.
+        if any(key in values and values[key] != getattr(category, key) for key in (
+            'name', 'start_date', 'end_date', 'cashback_percent', 'card_id',
+            'category_type', 'is_selected',
         )):
             category.is_bank_confirmed = False
-
-        if 'name' in data:
-            category.name = data['name']
-
-        if 'start_date' in data:
-            try:
-                category.start_date = datetime.fromisoformat(data['start_date'])
-            except ValueError:
-                return jsonify({'error': 'Invalid start date format'}), 400
-
-        if 'end_date' in data:
-            try:
-                category.end_date = datetime.fromisoformat(data['end_date'])
-            except ValueError:
-                return jsonify({'error': 'Invalid end date format'}), 400
-
-        if 'cashback_percent' in data:
-            category.cashback_percent = data['cashback_percent']
-
-        if 'is_selected' in data:
-            if category.is_selected != data['is_selected']:
-                category.is_bank_confirmed = False
-            category.is_selected = data['is_selected']
-
-        if 'description' in data:
-            category.description = data['description']
-
-        if 'category_type' in data:
-            category.category_type = data['category_type']
-
-        if 'is_selection_locked' in data:
-            category.is_selection_locked = data['is_selection_locked']
-
-        if 'max_cashback_amount' in data:
-            category.max_cashback_amount = data['max_cashback_amount']
-
-        if 'min_purchase_amount' in data:
-            category.min_purchase_amount = data['min_purchase_amount']
-
-        if 'card_id' in data:
-            if not BankCard.query.get(data['card_id']):
-                return jsonify({'error': 'Card not found'}), 404
-            category.card_id = data['card_id']
+        for key, value in values.items():
+            setattr(category, key, value)
 
         db.session.commit()
         return jsonify(category.to_dict())
@@ -1994,10 +1950,6 @@ def _parse_rule_datetime(value, field_name):
     return parsed.astimezone(timezone.utc)
 
 
-def _iso_datetime(value):
-    return _as_utc(value).isoformat() if value is not None else None
-
-
 def _validate_mcc_list(value, field_name):
     if value is None:
         return []
@@ -2083,16 +2035,18 @@ def _validate_canonical_keys(value, field_name):
 def _resolve_rules_bank(bank_id):
     if isinstance(bank_id, int) and not isinstance(bank_id, bool):
         return db.session.get(Bank, bank_id)
-    if isinstance(bank_id, str):
-        bank_name = BANK_IMPORT_NAMES.get(bank_id, bank_id)
-        bank = Bank.query.filter_by(name=bank_name).first()
-        if bank is not None or bank_id not in BANK_ICON_KEYS - {'generic'}:
+    if not isinstance(bank_id, str):
+        return None
+    if bank_id in BANK_IMPORT_NAMES:
+        bank = Bank.query.filter_by(bank_key=bank_id).first()
+        if bank is not None:
             return bank
-        # Environments name banks differently («Альфа», «Альфа-Банк»); migration 0009 derives
-        # the icon key from the name, so a single bank with that key is the same bank.
-        candidates = Bank.query.filter_by(icon_key=bank_id).limit(2).all()
+        # Legacy cache/fixtures may not have keys. Match known names only;
+        # user-selected icons do not establish bank identity.
+        candidates = [bank for bank in Bank.query.filter(Bank.bank_key.is_(None)).all()
+                      if bank_key_for_name(bank.name) == bank_id]
         return candidates[0] if len(candidates) == 1 else None
-    return None
+    return Bank.query.filter_by(name=bank_id).first()
 
 
 def _normalize_mcc_snapshot(document):
@@ -2275,24 +2229,32 @@ def _revision_to_dict(revision, include_rules=True):
         .order_by(BankCategoryRevision.original_name, BankCategory.id)
         .all()
     )
+    category_ids = [item.id for item, _ in category_revisions]
+    rules_by_category = {key: [] for key in category_ids}
+    conditions_by_category = {key: [] for key in category_ids}
+    links_by_category = {key: [] for key in category_ids}
+    if category_ids:
+        for rule in BankCategoryMccRule.query.filter(
+            BankCategoryMccRule.category_revision_id.in_(category_ids),
+        ).order_by(BankCategoryMccRule.mcc_code).all():
+            rules_by_category[rule.category_revision_id].append(rule)
+        for condition in BankRuleCondition.query.filter(
+            BankRuleCondition.category_revision_id.in_(category_ids),
+        ).order_by(BankRuleCondition.id).all():
+            conditions_by_category[condition.category_revision_id].append(condition)
+        for link, canonical in (
+            db.session.query(BankCategoryCanonicalLink, CanonicalCategory)
+            .join(CanonicalCategory,
+                  CanonicalCategory.key == BankCategoryCanonicalLink.canonical_key)
+            .filter(BankCategoryCanonicalLink.category_revision_id.in_(category_ids))
+            .order_by(CanonicalCategory.sort_order).all()
+        ):
+            links_by_category[link.category_revision_id].append((link, canonical))
     categories = []
     for category_revision, category in category_revisions:
-        mcc_rules = BankCategoryMccRule.query.filter_by(
-            category_revision_id=category_revision.id,
-        ).order_by(BankCategoryMccRule.mcc_code).all()
-        conditions = BankRuleCondition.query.filter_by(
-            category_revision_id=category_revision.id,
-        ).order_by(BankRuleCondition.id).all()
-        links = (
-            db.session.query(BankCategoryCanonicalLink, CanonicalCategory)
-            .join(
-                CanonicalCategory,
-                CanonicalCategory.key == BankCategoryCanonicalLink.canonical_key,
-            )
-            .filter(BankCategoryCanonicalLink.category_revision_id == category_revision.id)
-            .order_by(CanonicalCategory.sort_order)
-            .all()
-        )
+        mcc_rules = rules_by_category[category_revision.id]
+        conditions = conditions_by_category[category_revision.id]
+        links = links_by_category[category_revision.id]
         source_payload = category_revision.source_payload or {}
         categories.append({
             'id': category.id,
@@ -2544,10 +2506,103 @@ def _publish_mcc_revision(revision):
     revision.published_recorded_at = now
 
 
+def _mcc_preview_base(parsed, explicit_id=None):
+    program = BankCashbackProgram.query.filter_by(
+        bank_id=parsed['bank'].id, source_key=parsed['normalized']['programKey'],
+    ).first()
+    if explicit_id is not None:
+        if isinstance(explicit_id, bool) or not isinstance(explicit_id, int):
+            raise ValueError('base_revision_id must be an integer')
+        revision = db.session.get(BankRuleRevision, explicit_id)
+        if revision is None or program is None or revision.program_id != program.id:
+            raise LookupError('MCC base revision not found for this program')
+        return revision
+    if program is None:
+        return None
+    query = BankRuleRevision.query.filter_by(program_id=program.id)
+    published = query.filter_by(status='published', superseded_at=None).order_by(
+        BankRuleRevision.valid_from.desc(), BankRuleRevision.id.desc(),
+    ).first()
+    return published or query.order_by(BankRuleRevision.id.desc()).first()
+
+
+def _preview_mcc_snapshot(document, base_revision_id=None):
+    parsed = _normalize_mcc_snapshot(document)
+    normalized = parsed['normalized']
+    base = _mcc_preview_base(parsed, base_revision_id)
+    old = None
+    if base is not None:
+        source = db.session.get(RuleSourceSnapshot, base.source_snapshot_id)
+        old = _normalize_mcc_snapshot(json.loads(source.raw_content))['normalized']
+        old_payload = _revision_to_dict(base)
+        links = {item['source_key']: item['canonical'] for item in old_payload['categories']}
+        old = {**old, 'categories': [
+            {**item, 'canonicalLinks': sorted([
+                {'canonical_key': link['key'], 'relation': link['relation'],
+                 'coverage': link['coverage'], 'source': link['source']}
+                for link in links.get(item['sourceKey'], [])
+            ], key=lambda link: link['canonical_key'])} for item in old['categories']
+        ]}
+    cores = _canonical_cores()
+    proposed = {**normalized, 'categories': [
+        {**item, 'canonicalLinks': sorted(
+            _category_canonical_links(item, item.get('kind', 'mcc'), cores),
+            key=lambda link: link['canonical_key'])}
+        for item in normalized['categories']
+    ]}
+    # Return a valid import document, retaining provenance independently of terms.
+    accepted = {
+        **normalized, 'schemaVersion': 1, 'kind': 'bank_mcc_rules_snapshot',
+        'collectedAt': _iso_datetime(parsed['collected_at']), 'source': parsed['source'],
+        'categories': [
+            {**{key: value for key, value in item.items() if key != 'sourceExternalId'},
+             **({'sourceId': item['sourceExternalId']}
+                if item['sourceExternalId'] is not None else {})}
+            for item in normalized['categories']
+        ],
+    }
+    if 'exclusions' in normalized:
+        accepted['exclusions'] = [{**item, 'mcc': [item['mcc']]}
+                                  for item in normalized['exclusions']]
+    return {
+        'normalized_document': accepted, 'normalized_hash': _sha256_json(normalized),
+        'base_revision_id': base.id if base else None,
+        'base_hash': base.normalized_hash if base else None,
+        'diff': snapshot_diff(old, proposed), 'diagnostics': [],
+    }
+
+
+@app.post('/api/admin/mcc-rule-snapshots/preview')
+def preview_mcc_rule_snapshot():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'error': 'JSON body must be an object'}), 400
+    try:
+        result = _preview_mcc_snapshot(payload.get('document'), payload.get('base_revision_id'))
+        return jsonify(result)
+    except LookupError as error:
+        return jsonify({'error': str(error), 'code': 'mcc_preview_base_not_found'}), 404
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+
+
 @app.post('/api/admin/mcc-rule-snapshots')
 def create_mcc_rule_snapshot():
-    document = (request.get_json(silent=True) or {}).get('document')
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({'error': 'JSON body must be an object'}), 400
+    document = payload.get('document')
     try:
+        preview = payload.get('preview')
+        if preview is not None:
+            if not isinstance(preview, dict):
+                raise ValueError('preview must be an object')
+            current = _preview_mcc_snapshot(document)
+            if any(preview.get(key) != current[key] for key in (
+                'base_revision_id', 'base_hash', 'normalized_hash',
+            )):
+                return jsonify({'error': 'MCC preview is stale; review the snapshot again',
+                                'code': 'mcc_preview_stale'}), 409
         revision, created = _import_mcc_snapshot(document)
         db.session.commit()
         return jsonify(_revision_to_dict(revision)), 201 if created else 200
@@ -2717,44 +2772,6 @@ def get_bank_category_mcc_rules(bank_id, category_id):
     })
 
 
-def _evaluate_mcc_in_revision(payload, code):
-    """Explain what one MCC earns under a published revision payload.
-
-    Status precedence follows the bank documents: an unconditional program exclusion wins
-    over any category; "unless_category" codes earn only inside a category listing them;
-    a category's own exclusion removes the code from that category.
-    """
-    exclusion = next((item for item in payload['exclusions'] if item['mcc'] == code), None)
-    matched = [
-        {
-            'id': category['id'],
-            'name': category['name'],
-            'kind': category['kind'],
-            'canonical': category['canonical'],
-        }
-        for category in payload['categories']
-        if code in category['included_mcc'] and code not in category['excluded_mcc']
-    ]
-    if exclusion and exclusion['kind'] == 'always':
-        status = 'excluded'
-    elif exclusion and exclusion['kind'] == 'unless_category':
-        status = 'category_only' if matched else 'excluded'
-    elif exclusion and exclusion['kind'] == 'conditional':
-        status = 'conditional'
-    elif matched:
-        status = 'category'
-    else:
-        status = 'not_in_categories'
-    return {
-        'revision_id': payload['id'],
-        'program': payload['program'],
-        'completeness': payload['completeness'],
-        'status': status,
-        'exclusion': exclusion,
-        'categories': matched,
-    }
-
-
 def _published_payloads(as_of):
     """Yield (bank, revision payload) for every program with rules valid at ``as_of``."""
     programs = (
@@ -2773,7 +2790,6 @@ def _as_of_argument():
     return _parse_rule_datetime(request.args.get('as_of') or _utc_now().isoformat(), 'as_of')
 
 
-@app.get('/api/mcc')
 def list_mcc_codes():
     """The whole MCC reference without long descriptions, for client-side search."""
     return jsonify([
@@ -2783,7 +2799,7 @@ def list_mcc_codes():
 
 
 # Offer periods are stored as naive project-local (Europe/Moscow, no DST) datetimes.
-MOSCOW_TZ = timezone(timedelta(hours=3))
+MOSCOW_TZ = MOSCOW
 
 
 def _active_offers_by_bank(as_of):
@@ -2799,24 +2815,6 @@ def _active_offers_by_bank(as_of):
     for offer, bank_id in rows:
         result.setdefault(bank_id, []).append(offer)
     return result
-
-
-def _offers_earning_mcc(offers, payload, evaluation, code):
-    """Ids of the offers whose bank category earns ``code``.
-
-    An offer is tied to a published category by name, the same way canonical links are
-    inherited. "All purchases" categories earn any code the program does not exclude.
-    """
-    if evaluation['status'] == 'excluded':
-        return []
-    matched = {normalize_category_name(item['name']) for item in evaluation['categories']}
-    if evaluation['status'] != 'category_only':
-        matched |= {
-            normalize_category_name(item['name'])
-            for item in payload['categories']
-            if item['kind'] == 'all_purchases' and code not in item['excluded_mcc']
-        }
-    return sorted(offer.id for offer in offers if normalize_category_name(offer.name) in matched)
 
 
 @app.get('/api/mcc/<string:code>/bank-rules')
@@ -2899,36 +2897,188 @@ def get_offer_mcc_rules(offer_id):
             *category['excluded_mcc'],
             *(item['mcc'] for item in payload['exclusions']),
         ])
-        return jsonify({
-            'offer_id': offer.id,
-            'bank_id': card.bank_id,
-            'as_of': _iso_datetime(as_of),
-            'revision_id': payload['id'],
-            'program': payload['program'],
-            'valid_from': payload['valid_from'],
-            'valid_to': payload['valid_to'],
-            'source': payload['source'],
-            'category': {
-                'id': category['id'],
-                'name': category['name'],
-                'description': category['description'],
-                'kind': category['kind'],
-                'completeness': category['completeness'],
-                'conditions': category['conditions'],
-                'included': [
-                    {'code': code, 'title': titles.get(code)}
-                    for code in category['included_mcc']
-                ],
-                'excluded': [
-                    {'code': code, 'title': titles.get(code)}
-                    for code in category['excluded_mcc']
-                ],
-            },
-            'exclusions': [
-                {**item, 'title': titles.get(item['mcc'])} for item in payload['exclusions']
-            ],
-        })
+        return jsonify(_offer_mcc_payload(offer, card.bank_id, as_of, payload, category, titles))
     return jsonify({'error': 'MCC rules for this category are not published'}), 404
+
+
+def _build_mcc_offline_snapshot(as_of_value=None):
+    """Complete authenticated offline search snapshot for the requested instant.
+
+    Load revisions and offers once. Never issue one HTTP/SQL lookup per MCC.
+    Offer rules follow the explicit as_of semantics of the single-offer route.
+    """
+    as_of = _parse_rule_datetime(as_of_value or _utc_now().isoformat(), 'as_of')
+    catalogue = MccCode.query.order_by(MccCode.code).all()
+    titles = {item.code: item.title for item in catalogue}
+    canonical_by_code = {}
+    for code, category in (
+        db.session.query(CanonicalCategoryMcc.mcc_code, CanonicalCategory)
+        .join(CanonicalCategory, CanonicalCategory.key == CanonicalCategoryMcc.canonical_key)
+        .order_by(CanonicalCategory.sort_order)
+        .all()
+    ):
+        canonical_by_code.setdefault(code, []).append(_canonical_category_to_dict(category))
+    published = list(_published_payloads(as_of))
+    active_offers = _active_offers_by_bank(as_of)
+    lookups = {}
+    for mcc in catalogue:
+        banks = []
+        for bank, payload in published:
+            evaluation = _evaluate_mcc_in_revision(payload, mcc.code)
+            banks.append({
+                'bank': bank.to_dict(), **evaluation,
+                'offer_ids': _offers_earning_mcc(
+                    active_offers.get(bank.id, []), payload, evaluation, mcc.code,
+                ),
+            })
+        lookups[mcc.code] = {
+            'mcc': mcc.to_dict(), 'as_of': _iso_datetime(as_of),
+            'canonical': canonical_by_code.get(mcc.code, []), 'banks': banks,
+        }
+    offer_rules = {}
+    for offer, bank_id in (
+        db.session.query(CashbackCategory, BankCard.bank_id)
+        .join(BankCard, BankCard.id == CashbackCategory.card_id).all()
+    ):
+        offer_rules[str(offer.id)] = None
+        for bank, payload in published:
+            if bank.id != bank_id:
+                continue
+            category = next((item for item in payload['categories']
+                             if normalize_category_name(item['name'])
+                             == normalize_category_name(offer.name)), None)
+            if category is not None:
+                offer_rules[str(offer.id)] = _offer_mcc_payload(
+                    offer, bank_id, as_of, payload, category, titles,
+                )
+                break
+    return compact_snapshot({
+        'schema_version': 1, 'as_of': _iso_datetime(as_of),
+        'generated_at': _iso_datetime(_utc_now()),
+        'catalogue': [{'code': item.code, 'title': item.title} for item in catalogue],
+        'lookups': lookups, 'offer_rules': offer_rules,
+    })
+
+
+# Versioned rule content is immutable inside the cache. Dynamic personal-offer
+# bindings are rebuilt separately, never repeated for every MCC.
+_MCC_V3_RULE_CACHE = OrderedDict()
+_MCC_V3_RULE_CACHE_LIMIT = 4
+_MCC_V3_RULE_CACHE_LOCK = RLock()
+
+
+def _mcc_source_hash(value):
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+                         default=lambda item: item.isoformat())
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+
+
+def _mcc_v3_source(as_of_value, auth_user_id):
+    as_of = _parse_rule_datetime(
+        as_of_value or _utc_now().astimezone(MOSCOW).date().isoformat(), 'as_of',
+    )
+    mcc = {item.code: item.to_dict() for item in MccCode.query.order_by(MccCode.code).all()}
+    canonical = {item.key: _canonical_category_to_dict(item)
+                 for item in CanonicalCategory.query.order_by(CanonicalCategory.sort_order).all()}
+    canonical_mcc = {}
+    for code, key in (
+        db.session.query(CanonicalCategoryMcc.mcc_code, CanonicalCategoryMcc.canonical_key)
+        .join(CanonicalCategory, CanonicalCategory.key == CanonicalCategoryMcc.canonical_key)
+        .order_by(CanonicalCategory.sort_order, CanonicalCategoryMcc.mcc_code).all()
+    ):
+        canonical_mcc.setdefault(code, []).append(key)
+    selected, banks, program_versions = [], {}, []
+    for program, bank in (
+        db.session.query(BankCashbackProgram, Bank)
+        .join(Bank, Bank.id == BankCashbackProgram.bank_id)
+        .order_by(Bank.name, BankCashbackProgram.id).all()
+    ):
+        revision = _rules_revision_query(program.id, as_of)
+        if revision is not None:
+            selected.append(revision)
+            banks[str(bank.id)] = bank.to_dict()
+            program_versions.append([program.id, program.source_key, program.name,
+                                     program.product_scope])
+    revision_versions = [
+        [getattr(item, column.name) for column in BankRuleRevision.__table__.columns]
+        for item in selected
+    ]
+    category_identities = [list(row) for row in db.session.query(
+        BankCategoryRevision.rule_revision_id, BankCategoryRevision.bank_category_id,
+    ).filter(BankCategoryRevision.rule_revision_id.in_([item.id for item in selected]))
+        .order_by(BankCategoryRevision.rule_revision_id,
+                  BankCategoryRevision.bank_category_id).all()]
+    source_ids = {item.source_snapshot_id for item in selected}
+    source_versions = [list(row) for row in db.session.query(
+        RuleSourceSnapshot.id, RuleSourceSnapshot.source_type, RuleSourceSnapshot.source_url,
+        RuleSourceSnapshot.fetched_at, RuleSourceSnapshot.published_at,
+        RuleSourceSnapshot.content_hash, RuleSourceSnapshot.parser_name,
+        RuleSourceSnapshot.parser_version,
+    ).filter(RuleSourceSnapshot.id.in_(source_ids)).order_by(RuleSourceSnapshot.id).all()]
+    # Revisions and their child rules are immutable after import. The normalized
+    # hash identifies them; publishing/importing changes the selected revision.
+    rules_version = _mcc_source_hash([
+        'mcc-index-v3.0', mcc, canonical, canonical_mcc, banks,
+        program_versions, revision_versions, category_identities, source_versions,
+    ])
+    offers = db.session.query(
+        CashbackCategory.id, BankCard.bank_id, CashbackCategory.name,
+        CashbackCategory.start_date, CashbackCategory.end_date,
+    ).join(BankCard, BankCard.id == CashbackCategory.card_id).order_by(CashbackCategory.id).all()
+    moment = as_of.astimezone(MOSCOW).replace(tzinfo=None)
+    bindings_version = _mcc_source_hash([
+        auth_user_id, rules_version, [[offer_id, bank_id, name, start, end, start <= moment < end]
+                       for offer_id, bank_id, name, start, end in offers],
+    ])
+    manifest = {
+        'schema_version': 3, 'as_of': _iso_datetime(as_of),
+        'rules_version': rules_version, 'bindings_version': bindings_version,
+        'content_version': _mcc_source_hash([
+            3, auth_user_id, _iso_datetime(as_of), rules_version, bindings_version,
+        ]),
+    }
+    return manifest, selected, banks, mcc, canonical, canonical_mcc, offers, as_of
+
+
+def _versioned_mcc_snapshot(as_of_value, auth_user_id, manifest_only=False):
+    source = _mcc_v3_source(as_of_value, auth_user_id)
+    manifest, selected, banks, mcc, canonical, canonical_mcc, offers, as_of = source
+    etag = f"mcc-v3-{manifest['content_version']}"
+    if request.if_none_match.contains_weak(etag):
+        response = Response(status=304)
+    elif manifest_only:
+        response = jsonify(manifest)
+    else:
+        rules_version = manifest['rules_version']
+        with _MCC_V3_RULE_CACHE_LOCK:
+            content = _MCC_V3_RULE_CACHE.get(rules_version)
+            if content is not None:
+                _MCC_V3_RULE_CACHE.move_to_end(rules_version)
+        if content is None:
+            content = build_rule_content(
+                [_revision_to_dict(item) for item in selected],
+                banks, mcc, canonical, canonical_mcc,
+            )
+            with _MCC_V3_RULE_CACHE_LOCK:
+                _MCC_V3_RULE_CACHE[rules_version] = content
+                while len(_MCC_V3_RULE_CACHE) > _MCC_V3_RULE_CACHE_LIMIT:
+                    _MCC_V3_RULE_CACHE.popitem(last=False)
+        response = jsonify({
+            **manifest, **content, 'generated_at': _iso_datetime(_utc_now()),
+            'offer_bindings': build_offer_bindings(offers, content['revisions'], as_of),
+        })
+    # A weak validator deliberately ignores generated_at while representing the
+    # exact same semantic content. Validators never cross authenticated accounts.
+    response.set_etag(etag, weak=True)
+    response.headers['Cache-Control'] = 'private, max-age=0, must-revalidate'
+    response.vary.add('Authorization')
+    return response
+
+
+app.register_blueprint(
+    create_mcc_blueprint(list_mcc_codes, _build_mcc_offline_snapshot, _versioned_mcc_snapshot),
+    url_prefix='/api/mcc',
+)
 
 
 def _canonical_category_to_dict(category, core_mcc=None):
@@ -3056,15 +3206,6 @@ def get_canonical_bank_categories(key):
     })
 
 
-BANK_IMPORT_NAMES = {
-    'tbank': 'Т-Банк',
-    'yandex': 'Яндекс',
-    'alfa': 'Альфа',
-    'sber': 'Сбер',
-    'ozon': 'Озон',
-    'vtb': 'ВТБ',
-}
-
 RUSSIAN_MONTHS = {
     'января': 1,
     'февраля': 2,
@@ -3129,7 +3270,7 @@ def _resolve_import_card(bank_id, user_id, explicit_card_ids):
     if bank_name is None:
         return None, f'Unsupported bank: {bank_id}'
 
-    bank = Bank.query.filter_by(name=bank_name).first()
+    bank = _resolve_rules_bank(bank_id)
     if bank is None:
         return None, f'Bank is not configured: {bank_name}'
 
@@ -3185,6 +3326,9 @@ def _extract_cashback_amounts(imported):
         max_patterns = (
             rf'к[еэ]шб[еэ]к\s+до\s+{amount}\s*{currency}',
             rf'лимит\s+к[еэ]шб[еэ]ка[^\d]{{0,40}}{amount}\s*{currency}',
+            rf'максимальн(?:ый|ая|ое)\s+(?:размер\s+|сумма\s+)?к[еэ]шб[еэ]к(?:а)?[^\d]{{0,20}}{amount}\s*{currency}',
+            rf'к[еэ]шб[еэ]к(?:а)?\s+(?:не\s+более|максимум)\s+{amount}\s*{currency}',
+            rf'не\s+более\s+{amount}\s*{currency}\s+к[еэ]шб[еэ]к(?:а)?',
         )
         for pattern in max_patterns:
             max_amount = _amount_from_match(re.search(pattern, source_text, re.IGNORECASE))
@@ -3193,7 +3337,7 @@ def _extract_cashback_amounts(imported):
 
     if min_amount is None:
         min_patterns = (
-            rf'(?:покупк[а-яё]*|заказ[а-яё]*|чек[а-яё]*)[^.\n]{{0,60}}?\sот\s+{amount}\s*{currency}',
+            rf'(?:покупк[а-яё]*|заказ[а-яё]*|чек[а-яё]*)[^.\n]{{0,60}}?\s(?:от|не\s+менее)\s+{amount}\s*{currency}',
             rf'минимальн[а-яё]*\s+(?:сумм[а-яё]*|чек[а-яё]*)[^\d]{{0,30}}{amount}\s*{currency}',
         )
         for pattern in min_patterns:
@@ -3364,7 +3508,7 @@ def import_cashback():
 
 @app.route('/api/active_cashback', methods=['GET'])
 def get_active_cashback():
-    today = datetime.now()
+    today = _utc_now().astimezone(MOSCOW).replace(tzinfo=None)
 
     categories = CashbackCategory.query.where(
         CashbackCategory.is_selected == True,
@@ -3374,48 +3518,6 @@ def get_active_cashback():
 
     )
     return jsonify([category.to_dict() for category in categories])
-
-
-    # SQLAlchemy 2.0 style query with joins
-    stmt = (
-        select(
-            Bank.name.label('bank_name'),
-            CardUser.name.label('user_name'),
-            BankCard.last_four_digits,
-            CashbackCategory.name.label('category_name'),
-            CashbackCategory.cashback_percent
-        )
-        .select_from(BankCard)
-        .join(Bank, BankCard.bank_id == Bank.id)
-        .join(CardUser, BankCard.user_id == CardUser.id)
-        .join(CashbackCategory, CashbackCategory.card_id == BankCard.id)
-        .where(
-            # BankCard.is_active == True,
-            CashbackCategory.is_selected == True,
-            # CashbackCategory.start_date <= today,
-            # CashbackCategory.end_date >= today
-        )
-        .order_by(BankCard.id)
-    )
-
-    # Execute query and process results
-    result = {}
-    for row in db.session.execute(stmt):
-        card_key = f"{row.bank_name} {row.user_name} ({row.last_four_digits})"
-
-        if card_key not in result:
-            result[card_key] = {
-                "name": f'{row.bank_name} {row.user_name}',
-                "number": row.last_four_digits,
-                "categories": []
-            }
-
-        result[card_key]["categories"].append({
-            "name": row.category_name,
-            "percent": row.cashback_percent
-        })
-
-    return jsonify(list(result.values()))
 
 
 PARTNER_RATINGS = {'interesting', 'undecided', 'hidden'}
@@ -3557,10 +3659,30 @@ def _add_partner_limits(snapshot, raw):
         ))
 
 
-def _partner_snapshot_to_dict(snapshot):
-    limits = PartnerOfferLimit.query.filter_by(snapshot_id=snapshot.id).order_by(
-        PartnerOfferLimit.id
-    ).all()
+def _partner_groups(raw_json):
+    """Bank catalogue sections the offer was collected from, e.g. «Еда», «Онлайн».
+
+    The extension joins several sections with ", "; older imports have none.
+    """
+    try:
+        group = json.loads(raw_json).get('group')
+    except (TypeError, ValueError, AttributeError):
+        return []
+    if not isinstance(group, str):
+        return []
+    groups = []
+    for part in group.split(','):
+        name = ' '.join(part.split())
+        if name and name not in groups:
+            groups.append(name)
+    return groups
+
+
+def _partner_snapshot_to_dict(snapshot, limits=None):
+    if limits is None:
+        limits = PartnerOfferLimit.query.filter_by(snapshot_id=snapshot.id).order_by(
+            PartnerOfferLimit.id
+        ).all()
     return {
         'id': snapshot.id,
         'collected_at': _as_utc(snapshot.collected_at).isoformat(),
@@ -3588,6 +3710,7 @@ def _partner_snapshot_to_dict(snapshot):
         'source_url': snapshot.source_url,
         'icon_url': snapshot.icon_url,
         'artwork_url': snapshot.artwork_url,
+        'groups': _partner_groups(snapshot.raw_json),
         'limits': [
             {
                 'type': limit.limit_type,
@@ -3651,9 +3774,15 @@ def _partner_preference(offer_id, auth_user_id):
     ).first()
 
 
-def _partner_offer_to_dict(offer, snapshot, auth_user_id, include_details=False):
-    preference = _partner_preference(offer.id, auth_user_id)
-    bank = db.session.get(Bank, offer.bank_id)
+_NOT_LOADED = object()
+
+
+def _partner_offer_to_dict(offer, snapshot, auth_user_id, include_details=False,
+                           *, preference=_NOT_LOADED, bank=_NOT_LOADED, limits=None):
+    if preference is _NOT_LOADED:
+        preference = _partner_preference(offer.id, auth_user_id)
+    if bank is _NOT_LOADED:
+        bank = db.session.get(Bank, offer.bank_id)
     data = {
         'id': offer.id,
         'bank_id': offer.bank_id,
@@ -3665,7 +3794,7 @@ def _partner_offer_to_dict(offer, snapshot, auth_user_id, include_details=False)
         'first_seen_at': _as_utc(offer.first_seen_at).isoformat(),
         'last_seen_at': _as_utc(offer.last_seen_at).isoformat(),
         'preference': preference.rating if preference else 'undecided',
-        'snapshot': _partner_snapshot_to_dict(snapshot),
+        'snapshot': _partner_snapshot_to_dict(snapshot, limits),
     }
     if snapshot.icon_url:
         data['snapshot']['icon_url'] = url_for(
@@ -3722,7 +3851,7 @@ def import_partner_offers():
             if bank_name is None:
                 skipped.append({'bank_id': source_bank_id, 'reason': 'Unsupported bank'})
                 continue
-            bank = Bank.query.filter_by(name=bank_name).first()
+            bank = _resolve_rules_bank(source_bank_id)
             if bank is None:
                 skipped.append({'bank_id': source_bank_id, 'reason': 'Bank is not configured'})
                 continue
@@ -3910,8 +4039,9 @@ def list_partner_offers():
         return jsonify({'error': 'limit and offset must be integers'}), 400
 
     query = (
-        db.session.query(PartnerOffer, PartnerOfferSnapshot)
+        db.session.query(PartnerOffer, PartnerOfferSnapshot, PartnerOfferPreference, Bank)
         .join(PartnerOfferSnapshot, PartnerOffer.current_snapshot_id == PartnerOfferSnapshot.id)
+        .outerjoin(Bank, Bank.id == PartnerOffer.bank_id)
         .outerjoin(
             PartnerOfferPreference,
             (PartnerOfferPreference.offer_id == PartnerOffer.id)
@@ -3959,10 +4089,19 @@ def list_partner_offers():
     )
     total = query.count()
     rows = query.offset(offset).limit(limit).all()
+    limits_by_snapshot = {snapshot.id: [] for _, snapshot, _, _ in rows}
+    if limits_by_snapshot:
+        for item in PartnerOfferLimit.query.filter(
+            PartnerOfferLimit.snapshot_id.in_(limits_by_snapshot)
+        ).order_by(PartnerOfferLimit.id).all():
+            limits_by_snapshot[item.snapshot_id].append(item)
     return jsonify({
         'items': [
-            _partner_offer_to_dict(offer, snapshot, g.auth_user.id)
-            for offer, snapshot in rows
+            _partner_offer_to_dict(
+                offer, snapshot, g.auth_user.id, preference=preference, bank=bank,
+                limits=limits_by_snapshot[snapshot.id],
+            )
+            for offer, snapshot, preference, bank in rows
         ],
         'total': total,
         'limit': limit,
@@ -4013,6 +4152,7 @@ def import_bank_mcc_rules(paths, publish, create_missing_banks):
                 continue
             db.session.add(Bank(
                 name=BANK_IMPORT_NAMES.get(bank_key, bank_key),
+                bank_key=bank_key if bank_key in BANK_IMPORT_NAMES else None,
                 icon_key=bank_key if bank_key in BANK_ICON_KEYS else 'generic',
             ))
             db.session.flush()

@@ -2,6 +2,13 @@
 
 Schema changes are managed by Alembic. Runtime startup never creates or alters tables.
 
+Current repository head: `0011_bank_identity` (2026-10-14). It adds a nullable, unique
+`bank.bank_key` for supported integration identities. Known legacy names are backfilled
+using exact normalized aliases; custom banks remain null. If several old rows name the
+same integration, only the lowest ID receives the key. Icons never determine identity.
+Changing a display name or icon preserves the key. This revision requires the normal
+explicit deployment migration; creating the file does not migrate deployed databases.
+
 On Windows, do not pass a relative SQLite URL through `CASHFLOW_DATABASE_URL`: Flask resolves
 relative SQLite paths against its instance directory while standalone Alembic resolves them
 against the current directory. Use the default `alembic.ini` local URL or a fully absolute URL

@@ -1,3 +1,4 @@
+import '../../utils/cashflow_formatters.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/mcc_lookup_model.dart';
@@ -27,7 +28,8 @@ class MccPaymentOptionsView extends StatelessWidget {
   Widget build(BuildContext context) => FutureBuilder<MccLookupModel>(
         future: lookup,
         builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
+          if (snapshot.connectionState != ConnectionState.done &&
+              !snapshot.hasData) {
             return const Center(
               key: Key('benefit-mcc-loading'),
               child: CircularProgressIndicator(),
@@ -63,7 +65,8 @@ class MccPaymentOptionsView extends StatelessWidget {
     final rules = {for (final rule in lookup.banks) rule.bankId: rule};
     final earning = items
         .where((item) =>
-            rules[item.bankId]?.offerIds.contains(item.category.id) ?? false)
+            lookup.offerLinksCurrent &&
+            (rules[item.bankId]?.offerIds.contains(item.category.id) ?? false))
         .toList()
       ..sort((a, b) =>
           b.category.cashbackPercent.compareTo(a.category.cashbackPercent));
@@ -76,6 +79,7 @@ class MccPaymentOptionsView extends StatelessWidget {
           bankIconKey: rule.bankIconKey,
           rule: rule,
           earns: earning.any((item) => item.bankId == rule.bankId),
+          selectionKnown: lookup.offerLinksCurrent,
           cards: items.where((item) => item.bankId == rule.bankId).toList(),
         ),
     ];
@@ -95,6 +99,9 @@ class MccPaymentOptionsView extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(13, 4, 13, 24),
       children: [
         _MccHeader(mcc: lookup.mcc),
+        if (lookup.isFromCache)
+          Text(mccCacheLabel(lookup.snapshotUpdatedAt, lookup.snapshotAsOf),
+              style: textTheme.bodySmall),
         const SizedBox(height: 14),
         if (earning.isNotEmpty) ...[
           Text('Повышенный кешбэк', style: textTheme.titleSmall),
@@ -109,10 +116,13 @@ class MccPaymentOptionsView extends StatelessWidget {
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Text(
-              'Код не входит ни в одну активную категорию ваших карт. '
-              'Подойдёт карта с базовым кешбэком — ниже, как код учитывает '
-              'каждый банк.',
+            child: Text(
+              lookup.offerLinksCurrent
+                  ? 'Код не входит ни в одну активную категорию ваших карт. '
+                      'Подойдёт карта с базовым кешбэком — ниже, как код учитывает '
+                      'каждый банк.'
+                  : 'Сохранённые правила доступны. Чтобы проверить выгоду '
+                      'по текущим категориям ваших карт, обновите данные при подключении к сети.',
             ),
           ),
         const SizedBox(height: 16),
@@ -272,6 +282,7 @@ class _BankRow extends StatelessWidget {
     this.bankIconKey,
     this.rule,
     this.earns = false,
+    this.selectionKnown = true,
   });
 
   final String bankName;
@@ -280,6 +291,7 @@ class _BankRow extends StatelessWidget {
 
   /// Whether an active offer on this bank's cards earns for the code.
   final bool earns;
+  final bool selectionKnown;
   final List<BenefitItemData> cards;
 
   (String, _Tone) get _verdict {
@@ -289,6 +301,8 @@ class _BankRow extends StatelessWidget {
     final suffix = reason == null || reason.isEmpty ? '' : ' · $reason';
     final names = rule.categories.map((item) => '«${item.name}»').join(', ');
     final active = earns;
+    final selectionSuffix =
+        active || !selectionKnown ? '' : ' — у вас не выбрана';
     return switch (rule.status) {
       'excluded' => (
           'В исключениях — кешбэк не начисляется$suffix',
@@ -296,12 +310,12 @@ class _BankRow extends StatelessWidget {
         ),
       'category_only' => (
           'Исключение: начисляется только в $names'
-              '${active ? '' : ' — у вас не выбрана'}',
+              '$selectionSuffix',
           active ? _Tone.positive : _Tone.warning,
         ),
       'conditional' => ('Условное исключение$suffix', _Tone.warning),
       'category' => (
-          'Входит в $names${active ? '' : ' — у вас не выбрана'}',
+          'Входит в $names$selectionSuffix',
           active ? _Tone.positive : _Tone.neutral,
         ),
       _ => (

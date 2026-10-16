@@ -46,10 +46,15 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
 
+  offline-browser:
+    uses: ./.github/workflows/offline-browser-ci.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   required:
     name: Required checks
     if: always()
-    needs: [backend, frontend, browser-extension, integration]
+    needs: [backend, frontend, browser-extension, integration, offline-browser]
     runs-on: ubuntu-latest
     steps:
       - name: Verify every component check
@@ -58,12 +63,14 @@ jobs:
           FRONTEND_RESULT: ${{ needs.frontend.result }}
           EXTENSION_RESULT: ${{ needs.browser-extension.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
+          OFFLINE_BROWSER_RESULT: ${{ needs.offline-browser.result }}
         run: |
           results=(
             "$BACKEND_RESULT"
             "$FRONTEND_RESULT"
             "$EXTENSION_RESULT"
             "$INTEGRATION_RESULT"
+            "$OFFLINE_BROWSER_RESULT"
           )
           printf 'Component results: %s\n' "${results[*]}"
           for result in "${results[@]}"; do

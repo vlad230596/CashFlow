@@ -7,6 +7,8 @@ import '../../models/bank_model.dart';
 import '../../models/mcc_rule_model.dart';
 import '../../providers/data_provider.dart';
 import '../../services/cashback_import_launcher.dart';
+import '../../services/mcc_snapshot_analyzer.dart';
+import '../../services/api_client.dart';
 import '../widgets/versioned_app_bar_title.dart';
 
 typedef MccSnapshotCreator = Future<MccRuleRevisionModel> Function(
@@ -38,72 +40,18 @@ class MccImportReviewScreen extends StatefulWidget {
   State<MccImportReviewScreen> createState() => _MccImportReviewScreenState();
 }
 
-enum _ChangeKind { added, changed, removed, unchanged }
-
-class _CategoryChange {
-  const _CategoryChange({
-    required this.kind,
-    required this.name,
-    required this.sourceKey,
-    required this.summary,
-    required this.details,
-  });
-
-  final _ChangeKind kind;
-  final String name;
-  final String sourceKey;
-  final String summary;
-  final String details;
-}
-
-class _ImportAnalysis {
-  const _ImportAnalysis({
-    required this.document,
-    required this.programName,
-    required this.validFrom,
-    required this.validTo,
-    required this.completeness,
-    required this.sourceType,
-    required this.collectedAt,
-    required this.categoryCount,
-    required this.includedCount,
-    required this.excludedCount,
-    required this.conditionCount,
-    required this.changes,
-    required this.errors,
-    required this.warnings,
-  });
-
-  final Map<String, dynamic> document;
-  final String programName;
-  final String validFrom;
-  final String? validTo;
-  final String completeness;
-  final String sourceType;
-  final String? collectedAt;
-  final int categoryCount;
-  final int includedCount;
-  final int excludedCount;
-  final int conditionCount;
-  final List<_CategoryChange> changes;
-  final List<String> errors;
-  final List<String> warnings;
-
-  int count(_ChangeKind kind) =>
-      changes.where((change) => change.kind == kind).length;
-}
-
 class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
   final FocusNode _errorFocus = FocusNode(debugLabel: 'MCC import errors');
   CashbackImportFile? _file;
-  _ImportAnalysis? _analysis;
-  _ChangeKind? _filter;
+  MccImportAnalysis? _analysis;
+  MccChangeKind? _filter;
   String _query = '';
   bool _reading = false;
   bool _warningsReviewed = false;
   bool _submitting = false;
   bool _publishing = false;
   String? _requestError;
+  bool _serverPreviewApplied = false;
   MccRuleRevisionModel? _revision;
 
   @override
@@ -139,24 +87,25 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
       _requestError = null;
       _revision = null;
       _warningsReviewed = false;
+      _serverPreviewApplied = false;
     });
     await Future<void>.delayed(Duration.zero);
-    late _ImportAnalysis result;
+    late MccImportAnalysis result;
     try {
       final decoded = json.decode(file.contents);
       if (decoded is! Map<String, dynamic>) {
         throw const FormatException('Корневое значение должно быть объектом');
       }
-      result = _analyze(
+      result = analyzeMccSnapshot(
         decoded,
         widget.baseRevision,
         widget.bank.id,
-        widget.bank.iconKey,
+        widget.bank.bankKey ?? widget.bank.iconKey,
       );
     } on FormatException catch (error) {
-      result = _invalidAnalysis('JSON: ${error.message}');
+      result = invalidMccAnalysis('JSON: ${error.message}');
     } catch (error) {
-      result = _invalidAnalysis('Не удалось прочитать JSON: $error');
+      result = invalidMccAnalysis('Не удалось прочитать JSON: $error');
     }
     if (!mounted) return;
     setState(() {
@@ -182,9 +131,45 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
       _requestError = null;
     });
     try {
-      final creator = widget.snapshotCreator ??
-          context.read<DataProvider>().createMccRuleSnapshot;
-      final revision = await creator(analysis.document);
+      late MccRuleRevisionModel revision;
+      if (widget.snapshotCreator case final creator?) {
+        revision = await creator(analysis.document);
+      } else {
+        final provider = context.read<DataProvider>();
+        Map<String, dynamic>? preview;
+        try {
+          preview = await provider.previewMccRuleSnapshot(analysis.document,
+              baseRevisionId: widget.baseRevision?.id);
+        } on ApiException catch (error) {
+          final unavailable = error.statusCode == 501 ||
+              (error.statusCode == 404 &&
+                  error.message == 'Не удалось проверить снимок MCC');
+          if (!unavailable) rethrow;
+        }
+        if (!mounted) return;
+        if (preview != null) {
+          final authoritative = analysisFromMccPreview(
+              preview,
+              widget.baseRevision,
+              widget.bank.id,
+              widget.bank.bankKey ?? widget.bank.iconKey);
+          setState(() {
+            _analysis = authoritative;
+            _serverPreviewApplied = true;
+          });
+          revision = await provider
+              .createMccRuleSnapshot(authoritative.document, preview: {
+            for (final key in [
+              'base_revision_id',
+              'base_hash',
+              'normalized_hash'
+            ])
+              key: preview[key]
+          });
+        } else {
+          revision = await provider.createMccRuleSnapshot(analysis.document);
+        }
+      }
       if (!mounted) return;
       setState(() => _revision = revision);
     } catch (error) {
@@ -209,7 +194,7 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
         content: Text(
           '${widget.bank.name ?? 'Банк'} · ${analysis.programName}\n'
           '${_period(analysis.validFrom, analysis.validTo)}\n'
-          '${analysis.changes.where((item) => item.kind != _ChangeKind.unchanged).length} изменений. '
+          '${analysis.changes.where((item) => item.kind != MccChangeKind.unchanged).length} изменений. '
           'После публикации ревизия станет неизменяемой.',
         ),
         actions: [
@@ -404,8 +389,9 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
             'Ревизия №${widget.baseRevision!.id} · '
             '${widget.baseRevision!.status == 'published' ? 'опубликована' : 'черновик'}',
           ),
-          const Text(
-              'Diff рассчитан локально и не является гарантией сервера.'),
+          Text(_serverPreviewApplied
+              ? 'Изменения проверены сервером перед созданием черновика.'
+              : 'Diff рассчитан локально и не является гарантией сервера.'),
         ],
       ],
     );
@@ -469,16 +455,16 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
                 children: [
                   _filterChip('Все · ${analysis.changes.length}', null),
                   _filterChip(
-                    'Добавлено · ${analysis.count(_ChangeKind.added)}',
-                    _ChangeKind.added,
+                    'Добавлено · ${analysis.count(MccChangeKind.added)}',
+                    MccChangeKind.added,
                   ),
                   _filterChip(
-                    'Изменено · ${analysis.count(_ChangeKind.changed)}',
-                    _ChangeKind.changed,
+                    'Изменено · ${analysis.count(MccChangeKind.changed)}',
+                    MccChangeKind.changed,
                   ),
                   _filterChip(
-                    'Удалено · ${analysis.count(_ChangeKind.removed)}',
-                    _ChangeKind.removed,
+                    'Удалено · ${analysis.count(MccChangeKind.removed)}',
+                    MccChangeKind.removed,
                   ),
                 ],
               ),
@@ -511,7 +497,7 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
     );
   }
 
-  Widget _filterChip(String label, _ChangeKind? value) {
+  Widget _filterChip(String label, MccChangeKind? value) {
     return ChoiceChip(
       label: Text(label),
       selected: _filter == value,
@@ -519,12 +505,12 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
     );
   }
 
-  Widget _changeTile(_CategoryChange change) {
+  Widget _changeTile(MccCategoryChange change) {
     final (icon, label) = switch (change.kind) {
-      _ChangeKind.added => (Icons.add_circle_outline, 'Добавлено'),
-      _ChangeKind.changed => (Icons.change_circle_outlined, 'Изменено'),
-      _ChangeKind.removed => (Icons.remove_circle_outline, 'Удалено'),
-      _ChangeKind.unchanged => (Icons.check_circle_outline, 'Без изменений'),
+      MccChangeKind.added => (Icons.add_circle_outline, 'Добавлено'),
+      MccChangeKind.changed => (Icons.change_circle_outlined, 'Изменено'),
+      MccChangeKind.removed => (Icons.remove_circle_outline, 'Удалено'),
+      MccChangeKind.unchanged => (Icons.check_circle_outline, 'Без изменений'),
     };
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -616,7 +602,7 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
     );
   }
 
-  Widget _primaryAction(_ImportAnalysis analysis) {
+  Widget _primaryAction(MccImportAnalysis analysis) {
     final revision = _revision;
     if (revision?.status == 'published') {
       return FilledButton.icon(
@@ -654,7 +640,7 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
     );
   }
 
-  Widget _statusCard(_ImportAnalysis analysis) {
+  Widget _statusCard(MccImportAnalysis analysis) {
     final hasErrors = analysis.errors.isNotEmpty || _requestError != null;
     final published = _revision?.status == 'published';
     final title = published
@@ -683,7 +669,7 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
     );
   }
 
-  Widget _diagnostics(_ImportAnalysis analysis) {
+  Widget _diagnostics(MccImportAnalysis analysis) {
     final errors = [
       if (_requestError != null) _requestError!,
       ...analysis.errors
@@ -725,15 +711,15 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
     );
   }
 
-  Widget _metrics(_ImportAnalysis analysis) {
+  Widget _metrics(MccImportAnalysis analysis) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        _metric('Добавлено', analysis.count(_ChangeKind.added)),
-        _metric('Изменено', analysis.count(_ChangeKind.changed)),
-        _metric('Удалено', analysis.count(_ChangeKind.removed)),
-        _metric('Без изменений', analysis.count(_ChangeKind.unchanged)),
+        _metric('Добавлено', analysis.count(MccChangeKind.added)),
+        _metric('Изменено', analysis.count(MccChangeKind.changed)),
+        _metric('Удалено', analysis.count(MccChangeKind.removed)),
+        _metric('Без изменений', analysis.count(MccChangeKind.unchanged)),
       ],
     );
   }
@@ -774,226 +760,6 @@ class _MccImportReviewScreenState extends State<MccImportReviewScreen> {
     );
   }
 }
-
-_ImportAnalysis _invalidAnalysis(String error) => _ImportAnalysis(
-      document: const {},
-      programName: 'Не распознано',
-      validFrom: '—',
-      validTo: null,
-      completeness: '—',
-      sourceType: '—',
-      collectedAt: null,
-      categoryCount: 0,
-      includedCount: 0,
-      excludedCount: 0,
-      conditionCount: 0,
-      changes: const [],
-      errors: [error],
-      warnings: const [],
-    );
-
-_ImportAnalysis _analyze(
-  Map<String, dynamic> input,
-  MccRuleRevisionModel? base,
-  int? expectedBankId,
-  String? expectedBankKey,
-) {
-  final errors = <String>[];
-  final warnings = <String>[];
-  var document = input;
-  if (document['schemaVersion'] != 1) {
-    errors.add('schemaVersion: ожидается значение 1.');
-  }
-  if (document['kind'] != 'bank_mcc_rules_snapshot') {
-    errors.add('kind: ожидается bank_mcc_rules_snapshot.');
-  }
-  final bankId = document['bankId'];
-  if (bankId is String) {
-    // Bundled snapshots name the bank by key (ozon, vtb, …) because database ids differ
-    // between environments. The key must match the selected bank's icon key.
-    if (expectedBankId == null || bankId != expectedBankKey) {
-      errors.add(
-        'bankId: файл для банка «$bankId», а выбран банк с ключом '
-        '«${expectedBankKey ?? 'не задан'}».',
-      );
-    } else {
-      document = {...document, 'bankId': expectedBankId};
-    }
-  } else if (bankId is! int) {
-    errors.add('bankId: укажите идентификатор или ключ банка.');
-  } else if (expectedBankId != null && bankId != expectedBankId) {
-    errors.add('bankId: файл относится к другому банку ($bankId).');
-  }
-  final programName = _requiredString(document, 'programName', errors);
-  _requiredString(document, 'programKey', errors);
-  final validity = _map(document['validity'], 'validity', errors);
-  final validFrom = _requiredString(validity, 'from', errors);
-  final validTo = validity['to'] as String?;
-  final completeness = document['completeness'] as String? ?? 'не указано';
-  if (!{'exact_mcc', 'partial_mcc', 'unknown'}.contains(completeness)) {
-    errors.add('completeness: недопустимое значение «$completeness».');
-  }
-  final source = _map(document['source'], 'source', errors);
-  final sourceType = source['type'] as String? ?? 'не указано';
-  if (!{'public_page', 'pdf', 'api', 'browser', 'manual_verified'}
-      .contains(sourceType)) {
-    errors.add('source.type: недопустимое значение «$sourceType».');
-  }
-  final rawCategories = document['categories'];
-  final categories = rawCategories is List ? rawCategories : const [];
-  if (rawCategories is! List) errors.add('categories: ожидается массив.');
-  final current = <String, Map<String, dynamic>>{};
-  var includedCount = 0;
-  var excludedCount = 0;
-  var conditionCount = _list(document['conditions']).length;
-  for (var index = 0; index < categories.length; index++) {
-    final raw = categories[index];
-    if (raw is! Map<String, dynamic>) {
-      errors.add('categories[$index]: ожидается объект.');
-      continue;
-    }
-    final key = raw['sourceKey'] as String?;
-    final name = raw['name'] as String?;
-    if (key == null || key.trim().isEmpty) {
-      errors.add('categories[$index].sourceKey: обязательное поле.');
-      continue;
-    }
-    if (current.containsKey(key)) {
-      errors.add('categories[$index].sourceKey: «$key» уже используется.');
-      continue;
-    }
-    if (name == null || name.trim().isEmpty) {
-      errors.add('categories[$index].name: обязательное поле.');
-    }
-    final included =
-        _mccList(raw['includedMcc'], 'categories[$index].includedMcc', errors);
-    final excluded =
-        _mccList(raw['excludedMcc'], 'categories[$index].excludedMcc', errors);
-    final overlap = included.toSet().intersection(excluded.toSet());
-    if (overlap.isNotEmpty) {
-      errors.add(
-        'categories[$index]: MCC ${overlap.join(', ')} одновременно включён и исключён.',
-      );
-    }
-    includedCount += included.length;
-    excludedCount += excluded.length;
-    conditionCount += _list(raw['conditions']).length;
-    current[key] = raw;
-  }
-  final baseCategories = <String, MccBankCategoryModel>{
-    for (final item in base?.categories ?? const <MccBankCategoryModel>[])
-      item.sourceKey: item,
-  };
-  final changes = <_CategoryChange>[];
-  for (final entry in current.entries) {
-    final raw = entry.value;
-    final name = raw['name'] as String? ?? entry.key;
-    final included = _stringList(raw['includedMcc']);
-    final excluded = _stringList(raw['excludedMcc']);
-    final previous = baseCategories.remove(entry.key);
-    if (previous == null) {
-      changes.add(_CategoryChange(
-        kind: _ChangeKind.added,
-        name: name,
-        sourceKey: entry.key,
-        summary: '${included.length} включённых MCC',
-        details: [...included, ...excluded.map((item) => '−$item')].join(', '),
-      ));
-      continue;
-    }
-    final same = previous.name == name &&
-        _sameSet(previous.includedMcc, included) &&
-        _sameSet(previous.excludedMcc, excluded);
-    if (!same &&
-        previous.includedMcc.length >= 4 &&
-        included.length * 2 < previous.includedMcc.length) {
-      warnings.add(
-        'Категория «$name» заметно сократилась: было '
-        '${previous.includedMcc.length} включённых MCC, стало ${included.length}.',
-      );
-    }
-    changes.add(_CategoryChange(
-      kind: same ? _ChangeKind.unchanged : _ChangeKind.changed,
-      name: name,
-      sourceKey: entry.key,
-      summary: same
-          ? 'Полный список совпадает'
-          : '${included.length} включений · ${excluded.length} исключений',
-      details: [...included, ...excluded.map((item) => '−$item')].join(', '),
-    ));
-  }
-  for (final previous in baseCategories.values) {
-    changes.add(_CategoryChange(
-      kind: _ChangeKind.removed,
-      name: previous.name,
-      sourceKey: previous.sourceKey,
-      summary: 'Категория отсутствует в новом наборе',
-      details: previous.includedMcc.join(', '),
-    ));
-  }
-  if (categories.isEmpty) {
-    warnings.add(
-        'Набор категорий пуст. Backend пока не блокирует публикацию пустого набора.');
-  }
-  return _ImportAnalysis(
-    document: document,
-    programName: programName,
-    validFrom: validFrom,
-    validTo: validTo,
-    completeness: completeness,
-    sourceType: sourceType,
-    collectedAt: document['collectedAt'] as String?,
-    categoryCount: current.length,
-    includedCount: includedCount,
-    excludedCount: excludedCount,
-    conditionCount: conditionCount,
-    changes: changes,
-    errors: errors,
-    warnings: warnings,
-  );
-}
-
-Map<String, dynamic> _map(dynamic value, String path, List<String> errors) {
-  if (value is Map<String, dynamic>) return value;
-  errors.add('$path: ожидается объект.');
-  return const {};
-}
-
-String _requiredString(
-  Map<String, dynamic> map,
-  String key,
-  List<String> errors,
-) {
-  final value = map[key];
-  if (value is String && value.trim().isNotEmpty) return value;
-  errors.add('$key: обязательная непустая строка.');
-  return '—';
-}
-
-List<dynamic> _list(dynamic value) => value is List ? value : const [];
-
-List<String> _mccList(dynamic value, String path, List<String> errors) {
-  if (value is! List) {
-    errors.add('$path: ожидается массив.');
-    return const [];
-  }
-  final result = <String>[];
-  for (var index = 0; index < value.length; index++) {
-    final code = value[index];
-    if (code is! String || !RegExp(r'^\d{4}$').hasMatch(code)) {
-      errors.add('$path[$index]: MCC должен быть строкой из четырёх цифр.');
-    } else {
-      result.add(code);
-    }
-  }
-  return result;
-}
-
-List<String> _stringList(dynamic value) =>
-    value is List ? value.whereType<String>().toList() : const [];
-
-bool _sameSet(List<String> left, List<String> right) =>
-    left.length == right.length && left.toSet().containsAll(right);
 
 String _period(String from, String? to) => '$from — ${to ?? 'без ограничения'}';
 

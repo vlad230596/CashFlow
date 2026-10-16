@@ -81,13 +81,30 @@ class MccBankRuleModel {
 
 /// Answer to "where does this MCC earn": the code and every bank's verdict.
 class MccLookupModel {
-  const MccLookupModel({required this.mcc, required this.banks});
+  const MccLookupModel(
+      {required this.mcc,
+      required this.banks,
+      this.isFromCache = false,
+      this.offerLinksCurrent = true,
+      this.snapshotUpdatedAt,
+      this.snapshotAsOf});
 
   final MccCodeModel mcc;
   final List<MccBankRuleModel> banks;
+  final bool isFromCache;
+
+  /// False when saved rules cannot establish the current card offer links.
+  final bool offerLinksCurrent;
+  final DateTime? snapshotUpdatedAt;
+  final DateTime? snapshotAsOf;
 
   factory MccLookupModel.fromJson(Map<String, dynamic> json) => MccLookupModel(
         mcc: MccCodeModel.fromJson(json['mcc'] as Map<String, dynamic>),
+        isFromCache: json['_cached'] as bool? ?? false,
+        offerLinksCurrent: json['_offer_links_current'] as bool? ?? true,
+        snapshotUpdatedAt:
+            DateTime.tryParse(json['_updated_at'] as String? ?? ''),
+        snapshotAsOf: DateTime.tryParse(json['_as_of'] as String? ?? ''),
         banks: (json['banks'] as List? ?? const [])
             .map((item) =>
                 MccBankRuleModel.fromJson(item as Map<String, dynamic>))
@@ -107,6 +124,9 @@ class OfferMccRulesModel {
     required this.exclusions,
     required this.validFrom,
     this.validTo,
+    this.isFromCache = false,
+    this.snapshotUpdatedAt,
+    this.snapshotAsOf,
   });
 
   final String programName;
@@ -120,6 +140,9 @@ class OfferMccRulesModel {
   final List<MccExclusionModel> exclusions;
   final DateTime validFrom;
   final DateTime? validTo;
+  final bool isFromCache;
+  final DateTime? snapshotUpdatedAt;
+  final DateTime? snapshotAsOf;
 
   factory OfferMccRulesModel.fromJson(Map<String, dynamic> json) {
     final category = json['category'] as Map<String, dynamic>;
@@ -128,6 +151,10 @@ class OfferMccRulesModel {
         .map((item) => MccCodeModel.fromJson(item as Map<String, dynamic>))
         .toList();
     return OfferMccRulesModel(
+      isFromCache: json['_cached'] as bool? ?? false,
+      snapshotUpdatedAt:
+          DateTime.tryParse(json['_updated_at'] as String? ?? ''),
+      snapshotAsOf: DateTime.tryParse(json['_as_of'] as String? ?? ''),
       programName: program['name'] as String,
       categoryName: category['name'] as String,
       kind: category['kind'] as String? ?? 'mcc',

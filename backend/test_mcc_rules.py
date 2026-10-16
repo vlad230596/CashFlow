@@ -96,6 +96,123 @@ def publish(client, headers, revision_id):
     )
 
 
+def test_preview_is_read_only_and_catches_terms_only_changes(client_and_headers):
+    from main import BankCashbackProgram, RuleSourceSnapshot
+
+    client, headers, bank_id = client_and_headers
+    document = snapshot(bank_id)
+    base = upload(client, headers, document).get_json()
+    assert publish(client, headers, base['id']).status_code == 200
+    before = (BankCashbackProgram.query.count(), BankRuleRevision.query.count(),
+              RuleSourceSnapshot.query.count())
+    document['conditions'][0]['originalText'] = 'Changed program condition'
+    document['categories'][0]['conditions'] = [
+        {'kind': 'minimum_purchase', 'value': 500, 'originalText': 'New minimum purchase'},
+    ]
+    document['exclusions'] = [{'mcc': ['0005'], 'kind': 'conditional', 'reason': 'New exclusion'}]
+    response = client.post('/api/admin/mcc-rule-snapshots/preview', headers=headers,
+                           json={'document': document, 'base_revision_id': base['id']})
+    assert response.status_code == 200
+    preview = response.get_json()
+    assert preview['base_revision_id'] == base['id']
+    assert preview['base_hash']
+    assert preview['normalized_hash']
+    assert 'conditions' in preview['diff']['changed_fields']
+    assert 'exclusions' in preview['diff']['changed_fields']
+    assert preview['diff']['categories'][0]['status'] == 'changed'
+    assert 'conditions' in preview['diff']['categories'][0]['changed_fields']
+    assert before == (BankCashbackProgram.query.count(), BankRuleRevision.query.count(),
+                      RuleSourceSnapshot.query.count())
+    created = client.post('/api/admin/mcc-rule-snapshots', headers=headers,
+                          json={'document': preview['normalized_document'], 'preview': preview})
+    assert created.status_code == 201
+
+
+def test_preview_rejects_changed_document_and_stale_base_before_persistence(client_and_headers):
+    client, headers, bank_id = client_and_headers
+    document = snapshot(bank_id)
+    preview = client.post('/api/admin/mcc-rule-snapshots/preview', headers=headers,
+                          json={'document': document}).get_json()
+    assert BankRuleRevision.query.count() == 0
+    modified = {**preview['normalized_document'], 'programName': 'Edited after preview'}
+    response = client.post('/api/admin/mcc-rule-snapshots', headers=headers,
+                           json={'document': modified, 'preview': preview})
+    assert response.status_code == 409
+    assert response.get_json()['code'] == 'mcc_preview_stale'
+    assert BankRuleRevision.query.count() == 0
+    assert upload(client, headers, document).status_code == 201
+    response = client.post('/api/admin/mcc-rule-snapshots', headers=headers,
+                           json={'document': preview['normalized_document'], 'preview': preview})
+    assert response.status_code == 409
+    assert BankRuleRevision.query.count() == 1
+    missing = client.post('/api/admin/mcc-rule-snapshots/preview', headers=headers,
+                          json={'document': document, 'base_revision_id': 999})
+    assert missing.status_code == 404
+    assert missing.get_json()['code'] == 'mcc_preview_base_not_found'
+
+
+def test_offline_snapshot_matches_individual_rules_and_bounds_queries(client_and_headers):
+    from sqlalchemy import event
+
+    from main import BankCard, CardUser, CashbackCategory, MccCode
+
+    client, headers, bank_id = client_and_headers
+    revision = upload(client, headers, snapshot(bank_id)).get_json()
+    assert publish(client, headers, revision['id']).status_code == 200
+    db.session.add(CardUser(name='Synthetic owner'))
+    db.session.flush()
+    card = BankCard(bank_id=bank_id, user_id=1, last_four_digits='1234',
+                    payment_system='Visa', card_type='physical')
+    db.session.add(card)
+    db.session.flush()
+    offer = CashbackCategory(name='Синтетический спорт', card_id=card.id,
+                             start_date=datetime(2026, 9, 1), end_date=datetime(2026, 10, 1),
+                             cashback_percent=5)
+    db.session.add(offer)
+    db.session.commit()
+    path = '/api/mcc/offline-snapshot?as_of=2026-09-15'
+    statements = []
+    def record(*args):
+        statements.append(args[2])
+    event.listen(db.engine, 'before_cursor_execute', record)
+    try:
+        first = client.get(path, headers=headers)
+        first_count = len(statements)
+        for number in range(1000, 1100):
+            db.session.add(MccCode(code=str(number), title='Unused code'))
+        db.session.commit()
+        statements.clear()
+        second = client.get(path, headers=headers)
+        assert len(statements) <= first_count + 1
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', record)
+    assert first.status_code == second.status_code == 200
+    result = second.get_json()
+    assert result['schema_version'] == 2
+    assert result['mcc_details']['1099']['title'] == 'Unused code'
+    def resolve(value):
+        if isinstance(value, dict):
+            if set(value) == {'$ref'}:
+                return resolve(result['shared_payloads'][value['$ref']])
+            return {key: resolve(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        return value
+    for code in ('0001', '0002', '0004', '1099'):
+        individual = client.get(f'/api/mcc/{code}/bank-rules?as_of=2026-09-15', headers=headers)
+        inflated = {'mcc': result['mcc_details'][code], 'as_of': result['as_of'],
+                    'canonical': resolve(result['canonical'].get(code, [])),
+                    'banks': [resolve(result['lookup_payloads'][key])
+                              for key in result['lookup_refs'][code]]}
+        assert inflated == individual.get_json()
+    individual = client.get(f'/api/cashback/{offer.id}/mcc-rules?as_of=2026-09-15', headers=headers)
+    inflated = {**resolve(result['offer_rule_payloads'][result['offer_rule_refs'][str(offer.id)]]),
+                'offer_id': offer.id, 'as_of': result['as_of']}
+    assert inflated == individual.get_json()
+    assert client.get(path).status_code == 401
+    assert client.get('/api/mcc/offline-snapshot?as_of=bad', headers=headers).status_code == 400
+
+
 def test_snapshot_is_draft_until_published(client_and_headers):
     client, headers, bank_id = client_and_headers
 

@@ -13,8 +13,12 @@ import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
 import '../services/cashback_import_launcher.dart';
 import '../services/cashback_selection_plan.dart';
+import '../services/monthly_plan_projection.dart';
 import '../utils/cashback_needs.dart';
 import '../utils/category_info.dart';
+import '../utils/cashback_period.dart';
+import '../utils/cashflow_formatters.dart';
+import '../utils/identity_icons.dart';
 import 'cashback_category_edit_screen.dart';
 import 'widgets/cashback_description_button.dart';
 import 'widgets/cashback_limits_label.dart';
@@ -78,21 +82,6 @@ class _BrowserProfileChoice {
   final int? userId;
 }
 
-class _CategoryGroup {
-  const _CategoryGroup({required this.title, required this.offers});
-
-  final String title;
-  final List<CashbackCategoryModel> offers;
-
-  bool get isCovered => offers.any((offer) => offer.isSelected);
-  int get selectedCount => offers.where((offer) => offer.isSelected).length;
-  double get bestPercent => offers.fold<double>(
-        0,
-        (best, offer) =>
-            offer.cashbackPercent > best ? offer.cashbackPercent : best,
-      );
-}
-
 class MonthlyCashbackScreen extends StatefulWidget {
   const MonthlyCashbackScreen({
     super.key,
@@ -116,7 +105,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   _MonthlyView _view = _MonthlyView.categories;
   _CategoryFilter _filter = _CategoryFilter.all;
   _MobileNeedFilter _mobileNeedFilter = _MobileNeedFilter.required;
-  String? _mobileEditingGroupTitle;
+  String? _mobileEditingGroupKey;
   int? _mobileSelectedOfferId;
   bool _mobileReviewingPlan = false;
   String _query = '';
@@ -168,33 +157,11 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     }
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')}.'
-        '${date.month.toString().padLeft(2, '0')}.${date.year}';
-  }
-
-  String _formatMonth(DateTime date) {
-    const months = [
-      'Январь',
-      'Февраль',
-      'Март',
-      'Апрель',
-      'Май',
-      'Июнь',
-      'Июль',
-      'Август',
-      'Сентябрь',
-      'Октябрь',
-      'Ноябрь',
-      'Декабрь',
-    ];
-    return '${months[date.month - 1]} ${date.year}';
-  }
+  String _formatDate(DateTime date) => CashFlowFormatters.calendarDate(date);
+  String _formatMonth(DateTime date) => CashFlowFormatters.month(date);
 
   bool _isCategoryInSelectedPeriod(CashbackCategoryModel category) {
-    final categoryStart = DateUtils.dateOnly(category.startDate);
-    final categoryEnd = DateUtils.dateOnly(category.endDate);
-    return categoryEnd.isAfter(_startDate) && !categoryStart.isAfter(_endDate);
+    return CashbackPeriod(_startDate, _endDate).overlaps(category);
   }
 
   List<CashbackCategoryModel> _periodCategories(DataProvider dataProvider) {
@@ -203,45 +170,19 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
         .toList();
   }
 
-  List<_CategoryGroup> _categoryGroups(DataProvider dataProvider) {
-    final grouped = <String, List<CashbackCategoryModel>>{};
-    for (final category in _periodCategories(dataProvider)) {
-      for (final title in _needs.titlesFor(category)) {
-        grouped.putIfAbsent(title, () => []).add(category);
-      }
-    }
+  MonthlyPlanProjection _projection(DataProvider provider) =>
+      MonthlyPlanProjection(
+          categories: _periodCategories(provider), catalog: _needs);
 
-    final groups = grouped.entries.map((entry) {
-      entry.value.sort((a, b) {
-        if (a.isSelected != b.isSelected) return a.isSelected ? -1 : 1;
-        final aRejected = _rejectedCategoryIds.contains(a.id);
-        final bRejected = _rejectedCategoryIds.contains(b.id);
-        if (aRejected != bRejected) return aRejected ? 1 : -1;
-        return b.cashbackPercent.compareTo(a.cashbackPercent);
-      });
-      return _CategoryGroup(title: entry.key, offers: entry.value);
-    }).where((group) {
-      if (_filter == _CategoryFilter.uncovered && group.isCovered) return false;
-      if (_filter == _CategoryFilter.duplicates && group.selectedCount < 2) {
-        return false;
-      }
-      if (_query.isEmpty) return true;
-      final query = _query.toLowerCase();
-      return group.title.toLowerCase().contains(query) ||
-          _needs
-              .aliases(group.title)
-              .any((alias) => alias.toLowerCase().contains(query)) ||
-          group.offers.any((offer) => offer.name.toLowerCase().contains(query));
-    }).toList();
-
-    groups.sort((a, b) {
-      final priorityComparison =
-          _needs.priority(a.title).compareTo(_needs.priority(b.title));
-      if (priorityComparison != 0) return priorityComparison;
-      return a.title.compareTo(b.title);
-    });
-    return groups;
-  }
+  List<MonthlyPlanGroup> _categoryGroups(DataProvider dataProvider) =>
+      _projection(dataProvider).groups(
+          filter: switch (_filter) {
+            _CategoryFilter.all => MonthlyPlanFilter.all,
+            _CategoryFilter.uncovered => MonthlyPlanFilter.uncovered,
+            _CategoryFilter.duplicates => MonthlyPlanFilter.duplicates,
+          },
+          query: _query,
+          rejectedCategoryIds: _rejectedCategoryIds);
 
   int _getMaxCategories(int cardId, int? serverValue) {
     return _maxCategoriesPerCard.putIfAbsent(
@@ -258,18 +199,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   }
 
   int _selectedStandardCount(
-    Iterable<CashbackCategoryModel> categories,
-    int cardId,
-  ) {
-    return categories
-        .where(
-          (category) =>
-              category.cardId == cardId &&
-              category.isSelected &&
-              category.isSelectable,
-        )
-        .length;
-  }
+          Iterable<CashbackCategoryModel> categories, int cardId) =>
+      selectedStandardCount(categories, cardId);
 
   Future<void> _openCategoryEditor(
     BuildContext context,
@@ -288,7 +219,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     DataProvider dataProvider,
     CashbackCategoryModel category,
     bool value,
-    _CategoryGroup? group,
+    MonthlyPlanGroup? group,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     if (category.isTaskBonus) return;
@@ -427,6 +358,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
 
     final plan = buildCashbackSelectionPlan(
       now: DateTime.now(),
+      period: CashbackPeriod(_startDate, _endDate),
       banks: dataProvider.banks,
       users: dataProvider.users,
       cards: dataProvider.cards,
@@ -439,7 +371,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'На сегодня нет категорий для поддерживаемых банков.',
+            'В выбранном периоде нет категорий для поддерживаемых банков.',
           ),
         ),
       );
@@ -462,7 +394,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
       SnackBar(
         content: Text(
           error ??
-              'План на сегодня передан в Chrome. Справа открыт чек-лист без автоматических кликов.',
+              'План выбранного периода передан в Chrome. Справа открыт чек-лист без автоматических кликов.',
         ),
       ),
     );
@@ -474,13 +406,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     _needs = CashbackNeedCatalog(dataProvider.canonicalCategories);
     final periodCategories = _periodCategories(dataProvider);
     final visibleGroups = _categoryGroups(dataProvider);
-    final totalGroups = <String>{
-      for (final category in periodCategories) ..._needs.titlesFor(category),
-    }.length;
-    final coveredGroups = <String>{
-      for (final category in periodCategories)
-        if (category.isSelected) ..._needs.titlesFor(category),
-    }.length;
+    final projection = _projection(dataProvider);
+    final totalGroups = projection.needKeys.length;
+    final coveredGroups = projection.coveredNeedKeys.length;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -530,7 +458,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildMobilePlan(
     BuildContext context,
     DataProvider dataProvider,
-    List<_CategoryGroup> allGroups,
+    List<MonthlyPlanGroup> allGroups,
   ) {
     final requiredGroups =
         allGroups.where((group) => _needs.priority(group.title) <= 50).toList();
@@ -550,10 +478,10 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
         requiredGroups.where((group) => group.isCovered).length;
     final familyNames =
         dataProvider.users.take(2).map((user) => user.name).join(' и ');
-    final editingGroup = _mobileEditingGroupTitle == null
+    final editingGroup = _mobileEditingGroupKey == null
         ? null
         : allGroups
-            .where((group) => group.title == _mobileEditingGroupTitle)
+            .where((group) => group.key == _mobileEditingGroupKey)
             .firstOrNull;
 
     if (_mobileReviewingPlan) {
@@ -707,7 +635,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildMobilePlanReview(
     BuildContext context,
     DataProvider dataProvider,
-    List<_CategoryGroup> allGroups,
+    List<MonthlyPlanGroup> allGroups,
   ) {
     final periodCategories = _periodCategories(dataProvider)
         .where((category) => category.isSelectable)
@@ -895,6 +823,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                     context,
                     MaterialPageRoute<void>(
                       builder: (_) => PlanConfirmationScreen(
+                        period: CashbackPeriod(_startDate, _endDate),
                         onShellDestinationSelected:
                             widget.onShellDestinationSelected,
                       ),
@@ -951,12 +880,6 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             .map((user) => user.name)
             .firstOrNull ??
         'Владелец';
-    final normalizedBank = bankName.toLowerCase();
-    final (logo, logoColor) = normalizedBank.contains('втб')
-        ? ('ВТБ', const Color(0xFF1682BA))
-        : normalizedBank.contains('т-банк') || normalizedBank.contains('тинь')
-            ? ('Т', const Color(0xFF171717))
-            : ('A', const Color(0xFF17386B));
     final full = categories.length >= maximum;
 
     return Container(
@@ -974,23 +897,17 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             color: const Color(0xFFF0F4F8),
             child: Row(
               children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: logoColor,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    logo,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 8,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
+                SizedBox(
+                    width: 28,
+                    child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: BankIconBadge(
+                            bankName: bankName,
+                            iconKey: dataProvider.banks
+                                .where((bank) => bank.id == card.bankId)
+                                .firstOrNull
+                                ?.iconKey,
+                            size: 28))),
                 const SizedBox(width: 9),
                 Expanded(
                   child: Column(
@@ -1224,7 +1141,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildMobileNeedCard(
     BuildContext context,
     DataProvider dataProvider,
-    _CategoryGroup group, {
+    MonthlyPlanGroup group, {
     required bool expanded,
   }) {
     final selectedOffer =
@@ -1329,7 +1246,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildMobileOffer(
     BuildContext context,
     DataProvider dataProvider,
-    _CategoryGroup group,
+    MonthlyPlanGroup group,
     CashbackCategoryModel offer,
   ) {
     final card = dataProvider.getCardById(offer.cardId);
@@ -1338,17 +1255,11 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             .map((bank) => bank.name)
             .firstOrNull ??
         dataProvider.getCardName(offer.cardId);
-    final normalizedBank = bankName.toLowerCase();
-    final (logo, logoColor) = normalizedBank.contains('втб')
-        ? ('ВТБ', const Color(0xFF1682BA))
-        : normalizedBank.contains('т-банк') || normalizedBank.contains('тинь')
-            ? ('Т', const Color(0xFF171717))
-            : ('A', const Color(0xFF17386B));
     return InkWell(
       onTap: offer.isSelectionLocked || offer.isTaskBonus
           ? null
           : () => setState(() {
-                _mobileEditingGroupTitle = group.title;
+                _mobileEditingGroupKey = group.key;
                 _mobileSelectedOfferId = offer.id;
               }),
       child: SizedBox(
@@ -1357,23 +1268,17 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 11),
           child: Row(
             children: [
-              Container(
-                width: 138,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: logoColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  logo,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
+              SizedBox(
+                  width: 138,
+                  child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: BankIconBadge(
+                          bankName: bankName,
+                          iconKey: dataProvider.banks
+                              .where((bank) => bank.id == card.bankId)
+                              .firstOrNull
+                              ?.iconKey,
+                          size: 28))),
               const SizedBox(width: 9),
               Expanded(
                 child: Text(
@@ -1405,7 +1310,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildMobileCardSelector(
     BuildContext context,
     DataProvider dataProvider,
-    _CategoryGroup group,
+    MonthlyPlanGroup group,
   ) {
     final selected = group.offers
         .where((offer) => offer.id == _mobileSelectedOfferId)
@@ -1482,7 +1387,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                     ),
                     OutlinedButton(
                       onPressed: () => setState(() {
-                        _mobileEditingGroupTitle = null;
+                        _mobileEditingGroupKey = null;
                         _mobileSelectedOfferId = null;
                       }),
                       style: OutlinedButton.styleFrom(
@@ -1570,7 +1475,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                         );
                         if (!mounted) return;
                         setState(() {
-                          _mobileEditingGroupTitle = null;
+                          _mobileEditingGroupKey = null;
                           _mobileSelectedOfferId = null;
                         });
                       },
@@ -1583,7 +1488,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
               const SizedBox(height: 8),
               OutlinedButton(
                 onPressed: () => setState(() {
-                  _mobileEditingGroupTitle = null;
+                  _mobileEditingGroupKey = null;
                   _mobileSelectedOfferId = null;
                 }),
                 child: const Text('Оставить без карты'),
@@ -1616,12 +1521,6 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             .firstOrNull ??
         'Владелец';
     final bankName = _mobileBankName(dataProvider, offer.cardId);
-    final normalizedBank = bankName.toLowerCase();
-    final (logo, logoColor) = normalizedBank.contains('втб')
-        ? ('ВТБ', const Color(0xFF1682BA))
-        : normalizedBank.contains('т-банк') || normalizedBank.contains('тинь')
-            ? ('Т', const Color(0xFF171717))
-            : ('A', const Color(0xFF17386B));
 
     return Material(
       color: Colors.white,
@@ -1656,23 +1555,17 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                     ),
                   ),
                   const SizedBox(width: 9),
-                  Container(
-                    width: 30,
-                    height: 30,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: logoColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      logo,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
+                  SizedBox(
+                      width: 30,
+                      child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: BankIconBadge(
+                              bankName: bankName,
+                              iconKey: dataProvider.banks
+                                  .where((bank) => bank.id == card.bankId)
+                                  .firstOrNull
+                                  ?.iconKey,
+                              size: 30))),
                   const SizedBox(width: 9),
                   Expanded(
                     child: Column(
@@ -1843,6 +1736,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 context,
                 MaterialPageRoute<void>(
                   builder: (_) => PlanConfirmationScreen(
+                    period: CashbackPeriod(_startDate, _endDate),
                     onShellDestinationSelected:
                         widget.onShellDestinationSelected,
                   ),
@@ -1907,7 +1801,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildCategoryView(
     BuildContext context,
     DataProvider dataProvider,
-    List<_CategoryGroup> groups,
+    List<MonthlyPlanGroup> groups,
   ) {
     return Column(
       children: [
@@ -2044,7 +1938,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildCategoryCard(
     BuildContext context,
     DataProvider dataProvider,
-    _CategoryGroup group,
+    MonthlyPlanGroup group,
   ) {
     final color = CategoryInfo.getCategoryColor(group.title);
     final selectedOffers = group.offers.where((offer) => offer.isSelected);
@@ -2128,7 +2022,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   Widget _buildOfferRow(
     BuildContext context,
     DataProvider dataProvider,
-    _CategoryGroup group,
+    MonthlyPlanGroup group,
     CashbackCategoryModel offer,
   ) {
     final isBest = offer.cashbackPercent == group.bestPercent;
@@ -2270,7 +2164,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     BuildContext context,
     DataProvider dataProvider,
     CashbackCategoryModel category,
-    _CategoryGroup? group,
+    MonthlyPlanGroup? group,
   ) {
     final disabled = category.isSelectionLocked || category.isTaskBonus;
     final rejected = _rejectedCategoryIds.contains(category.id);
@@ -2491,13 +2385,13 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                               context,
                               dataProvider,
                               category,
-                              _CategoryGroup(
+                              MonthlyPlanGroup(
+                                key: _needs.keysFor(category).first,
                                 title: groupTitle,
                                 offers: _periodCategories(dataProvider)
                                     .where(
-                                      (offer) => _needs
-                                          .titlesFor(offer)
-                                          .contains(groupTitle),
+                                      (offer) => _needs.keysFor(offer).contains(
+                                          _needs.keysFor(category).first),
                                     )
                                     .toList(),
                               ),
@@ -2541,13 +2435,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
       selected += _selectedStandardCount(periodCategories, cardId);
       maximum += _getMaxCategories(cardId, card.maxCashbackCategories);
     }
-    final duplicateCount = <String, int>{};
-    for (final category in periodCategories.where((item) => item.isSelected)) {
-      for (final title in _needs.titlesFor(category)) {
-        duplicateCount[title] = (duplicateCount[title] ?? 0) + 1;
-      }
-    }
-    final duplicates = duplicateCount.values.where((count) => count > 1).length;
+    final duplicates =
+        MonthlyPlanProjection(categories: periodCategories, catalog: _needs)
+            .duplicateCount;
 
     return SafeArea(
       top: false,
@@ -2606,12 +2496,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     return '${dataProvider.getCardName(cardId)}$suffix';
   }
 
-  String _formatPercent(double value) {
-    final text = value == value.roundToDouble()
-        ? value.toInt().toString()
-        : value.toStringAsFixed(1).replaceAll('.', ',');
-    return '$text%';
-  }
+  String _formatPercent(double value) => CashFlowFormatters.percent(value);
 
   void _showAddCategoriesDialog(BuildContext context, int cardId) {
     final inputController = TextEditingController();

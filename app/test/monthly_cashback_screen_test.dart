@@ -8,6 +8,7 @@ import 'package:cashflow/screens/monthly_cashback_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   testWidgets('mobile plan follows the manual needs-first layout',
@@ -19,7 +20,9 @@ void main() {
 
     final now = DateTime.now();
     final month = DateTime(now.year, now.day <= 20 ? now.month : now.month + 1);
-    final provider = DataProvider();
+    final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
+    );
     provider
       ..banks = [
         BankModel(id: 1, name: 'Первый банк', description: ''),
@@ -106,7 +109,9 @@ void main() {
 
     final now = DateTime.now();
     final month = DateTime(now.year, now.day <= 20 ? now.month : now.month + 1);
-    final provider = DataProvider()
+    final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
+    )
       ..banks = [BankModel(id: 1, name: 'Первый банк', description: '')]
       ..users = [UserModel(id: 1, name: 'Анна')]
       ..cards = [
@@ -168,7 +173,9 @@ void main() {
 
     final now = DateTime.now();
     final month = DateTime(now.year, now.day <= 20 ? now.month : now.month + 1);
-    final provider = DataProvider()
+    final provider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
+    )
       ..banks = [BankModel(id: 1, name: 'Первый банк', description: '')]
       ..users = [UserModel(id: 1, name: 'Анна')]
       ..cards = [

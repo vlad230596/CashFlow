@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -49,7 +50,9 @@ void main() {
     expect(find.text('Импортировать JSON'), findsOneWidget);
     expect(find.text('Запросить кешбэк'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
+    // Card count in management and in «Карты и категории».
+    expect(find.text('3'), findsNWidgets(2));
+    expect(find.text('Карты и категории'), findsOneWidget);
     expect(find.text('anna · Администратор'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -138,7 +141,9 @@ DateTime _fixedNow() => DateTime(2026, 9, 22, 10);
 
 class _TestDataProvider extends DataProvider {
   _TestDataProvider({required String role})
-      : super(apiBaseUrl: 'https://cashflow.test') {
+      : super(
+            apiBaseUrl: 'https://cashflow.test',
+            mccCacheStore: isolatedMccCache()) {
     currentAuthUser = AuthIdentity(id: 1, username: 'anna', role: role);
     lastUpdated = '2026-09-22T09:38:00';
   }

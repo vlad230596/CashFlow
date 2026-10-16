@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,7 @@ void main() {
       return http.Response('{}', 404);
     });
     return DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: client,
       secureStorage: const FlutterSecureStorage(),

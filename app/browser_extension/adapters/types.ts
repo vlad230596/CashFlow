@@ -86,5 +86,7 @@ export type CashbackSelectionPlanDocument = {
   kind: 'cashback_selection_plan';
   generatedAt: string;
   effectiveDate: string;
+  /** Inclusive calendar range selected in the monthly plan. */
+  period?: { from: string; to: string };
   banks: CashbackSelectionPlanBank[];
 };

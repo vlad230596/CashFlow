@@ -390,7 +390,9 @@ def test_personal_offers_inherit_bank_rule_links(client_and_headers):
     assert keys[(cards['ozon'], 'Пятёрочка')] == []
 
 
-def test_import_finds_differently_named_bank_by_icon_key(client_and_headers):
+def test_import_finds_renamed_bank_by_stable_key_ignoring_custom_icons(client_and_headers):
+    for key, name in BANK_IMPORT_NAMES.items():
+        Bank.query.filter_by(name=name).one().bank_key = key
     Bank.query.filter_by(name=BANK_IMPORT_NAMES['ozon']).one().name = 'Ozon Банк'
     Bank.query.filter_by(name=BANK_IMPORT_NAMES['yandex']).one().name = 'Яндекс Пэй'
     Bank.query.filter_by(name=BANK_IMPORT_NAMES['alfa']).one().name = 'Альфа-Банк'
@@ -400,8 +402,8 @@ def test_import_finds_differently_named_bank_by_icon_key(client_and_headers):
     result = app.test_cli_runner().invoke(args=['import-bank-mcc-rules', '--draft'])
 
     assert result.exit_code == 0, result.output
-    # Two banks share the alfa key, so the import refuses to guess.
-    assert 'skipped alfa.json:alfa' in result.output
+    # A custom bank choosing the alfa icon does not change integration identity.
+    assert 'created alfa.json:alfa' in result.output
     assert 'created ozon.json:ozon' in result.output
     assert 'created yandex.json:yandex' in result.output
-    assert 'created: 5, unchanged: 0, published: 0, skipped: 1' in result.output
+    assert 'created: 6, unchanged: 0, published: 0, skipped: 0' in result.output

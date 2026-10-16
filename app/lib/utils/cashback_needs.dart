@@ -120,15 +120,35 @@ class CashbackNeedCatalog {
   final Map<String, CanonicalCategoryModel> _byKey;
   final Map<String, CanonicalCategoryModel> _byTitle;
 
-  List<String> titlesFor(CashbackCategoryModel offer) {
-    final titles = [
+  CategoryResolution resolve(CashbackCategoryModel offer) {
+    final canonical = [
       for (final key in offer.canonicalKeys)
-        if (_byKey[key] case final category?) category.title,
+        if (_byKey[key] case final category?)
+          ResolvedCashbackNeed(key: 'canonical:$key', title: category.title)
     ];
-    return titles.isNotEmpty
-        ? titles
-        : [normalizedCashbackCategoryName(offer.name)];
+    if (canonical.isNotEmpty) {
+      return CategoryResolution(
+          needs: canonical,
+          method: CategoryResolutionMethod.canonical,
+          originalName: offer.name);
+    }
+    final title = normalizedCashbackCategoryName(offer.name);
+    return CategoryResolution(
+        needs: [
+          ResolvedCashbackNeed(
+              key:
+                  'approximate:${_fallbackNeedKeys[title] ?? normalizeNeedQuery(title)}',
+              title: title)
+        ],
+        method: CategoryResolutionMethod.approximateName,
+        originalName: offer.name);
   }
+
+  List<String> titlesFor(CashbackCategoryModel offer) =>
+      resolve(offer).needs.map((need) => need.title).toList();
+
+  List<String> keysFor(CashbackCategoryModel offer) =>
+      resolve(offer).needs.map((need) => need.key).toList();
 
   String primaryTitle(CashbackCategoryModel offer) => titlesFor(offer).first;
 
@@ -156,3 +176,39 @@ enum NeedMatch { none, title, alias }
 
 String normalizeNeedQuery(String value) =>
     value.toLowerCase().replaceAll('ё', 'е').trim();
+
+enum CategoryResolutionMethod { canonical, approximateName }
+
+class ResolvedCashbackNeed {
+  const ResolvedCashbackNeed({required this.key, required this.title});
+  final String key;
+  final String title;
+}
+
+class CategoryResolution {
+  const CategoryResolution(
+      {required this.needs, required this.method, required this.originalName});
+  final List<ResolvedCashbackNeed> needs;
+  final CategoryResolutionMethod method;
+  final String originalName;
+  bool get isApproximate => method == CategoryResolutionMethod.approximateName;
+}
+
+const _fallbackNeedKeys = {
+  'Аптеки': 'pharmacies',
+  'Продукты и супермаркеты': 'groceries',
+  'Кафе и рестораны': 'dining',
+  'Одежда и обувь': 'fashion',
+  'Детские товары': 'children',
+  'АЗС и топливо': 'fuel',
+  'Красота и уход': 'beauty',
+  'Такси и каршеринг': 'taxi_carsharing',
+  'Общественный транспорт': 'public_transport',
+  'Дом и ремонт': 'home',
+  'Спорт и активный отдых': 'sports',
+  'Образование': 'education_books',
+  'Развлечения': 'entertainment',
+  'Путешествия': 'travel',
+  'Все покупки': 'all_purchases',
+  'Онлайн-покупки': 'online',
+};

@@ -1,3 +1,4 @@
+import '../utils/cashback_period.dart';
 import '../models/bank_model.dart';
 import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
@@ -31,17 +32,20 @@ Map<String, dynamic> buildCashbackSelectionPlan({
   required List<CashbackCategoryModel> categories,
   required Iterable<String> requestedBankIds,
   int? userId,
+  CashbackPeriod? period,
 }) {
-  final today = DateTime(now.year, now.month, now.day);
+  final today = period?.start ?? DateTime(now.year, now.month, now.day);
   final requested = requestedBankIds.toSet();
   final bankNames = {for (final bank in banks) bank.id: bank.name};
+  final bankKeys = {for (final bank in banks) bank.id: bank.bankKey};
   final userNames = {for (final user in users) user.id: user.name};
   final planBanks = <Map<String, dynamic>>[];
 
   for (final card in cards) {
     if (userId != null && card.userId != userId) continue;
     final cardId = card.id;
-    final bankId = cashbackBankId(bankNames[card.bankId]);
+    final bankId =
+        bankKeys[card.bankId] ?? cashbackBankId(bankNames[card.bankId]);
     if (cardId == null || bankId == null || !requested.contains(bankId)) {
       continue;
     }
@@ -58,8 +62,9 @@ Map<String, dynamic> buildCashbackSelectionPlan({
         category.endDate.day,
       );
       return category.cardId == cardId &&
-          !today.isBefore(start) &&
-          today.isBefore(end) &&
+          (period != null
+              ? period.overlaps(category)
+              : !today.isBefore(start) && today.isBefore(end)) &&
           category.isSelectable;
     }).toList();
     if (active.isEmpty) continue;
@@ -94,6 +99,15 @@ Map<String, dynamic> buildCashbackSelectionPlan({
     'generatedAt': now.toUtc().toIso8601String(),
     'effectiveDate':
         '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}',
+    if (period != null)
+      'period': {
+        'from': _calendarIso(period.start),
+        'to':
+            _calendarIso(period.endExclusive.subtract(const Duration(days: 1))),
+      },
     'banks': planBanks,
   };
 }
+
+String _calendarIso(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';

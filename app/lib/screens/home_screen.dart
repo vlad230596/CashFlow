@@ -38,7 +38,10 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
     const PartnerOffersScreen(),
     SubscriptionsScreen(key: _subscriptionsKey),
-    MoreScreen(sessionType: widget.sessionType ?? detectAppSessionType()),
+    MoreScreen(
+      sessionType: widget.sessionType ?? detectAppSessionType(),
+      onShellDestinationSelected: _selectDestination,
+    ),
   ];
 
   void _selectDestination(int value) {

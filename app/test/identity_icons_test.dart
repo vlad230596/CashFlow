@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 Future<void> _pumpBadges(WidgetTester tester, List<Widget> badges) async {
   await tester.pumpWidget(
@@ -111,7 +112,9 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       ChangeNotifierProvider(
-        create: (_) => DataProvider(),
+        create: (_) => DataProvider(
+          mccCacheStore: isolatedMccCache(),
+        ),
         child: MaterialApp(
           home: BankEditScreen(
             existingBank: BankModel(id: 3, name: 'ВТБ', iconKey: 'vtb'),

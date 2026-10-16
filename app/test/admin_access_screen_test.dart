@@ -12,12 +12,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'support/mcc_test_cache.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   DataProvider provider({String role = 'admin'}) {
     return DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test:8443',
       secureStorage: const FlutterSecureStorage(),
       httpClient: MockClient((_) async => http.Response('{}', 404)),
@@ -114,6 +116,7 @@ void main() {
 
   testWidgets('login maps backend authentication failures', (tester) async {
     final loginProvider = DataProvider(
+      mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test:8443',
       secureStorage: const FlutterSecureStorage(),
       httpClient: MockClient(

@@ -88,7 +88,8 @@ the original SQLite deployment, recovery work, tests, or migrations. They are
 not replicas of production and may have old dates, old rows, and an old Alembic
 revision. In particular, the workspace copy observed on 2026-09-30 was at
 `0002_authentication`, while the repository migration head was
-`0009_identity_icons` (since 2026-10-05 it is `0010_canonical_categories`).
+`0009_identity_icons`. The current repository head is `0011_bank_identity`
+(since 2026-10-14; this does not imply deployed environments have been migrated).
 
 The `sqlite:///cards.db` fallback in `backend/main.py` exists for explicitly
 local development. Its presence never means that a nearby `cards.db` is the
@@ -106,6 +107,11 @@ verification facts, not the current production inventory.
 - `BACKUPS.md`: production backup and restore-verification procedures.
 - `backend/MIGRATIONS.md`: schema migrations and the legacy SQLite importer.
 - `docs/project-status.md`: currently released version, implemented scope, and backlog.
+- `docs/refactoring-handoff.md`: local refactoring coverage, unfinished work,
+  code entry points, acceptance checks, and limits of verification. Read before
+  continuing the 14–15 October changes; local implementation is not proof of deployment.
+- `backend/MCC_OFFLINE_CONTRACT.md`: schema 3, joins, version identities, ETag,
+  and compatibility with older MCC clients.
 - `app/AGENTS.md`: Flutter-specific implementation guidance.
 
 When environment topology, migration head, or access procedures change, update

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
+import 'card_cashback_screen.dart';
 import 'widgets/offer_mcc_rules_section.dart';
 
 typedef CashbackCategorySaver = Future<void> Function(
@@ -18,9 +19,14 @@ class CashbackCategoryDetailScreen extends StatefulWidget {
     this.onOpenPlan,
     this.onSave,
     this.onShellDestinationSelected,
+    this.showCardSelection = true,
   });
 
   final CashbackCategoryModel category;
+
+  /// Offers a way to the card's other selected categories; off when the
+  /// screen was itself opened from that list.
+  final bool showCardSelection;
   final VoidCallback? onOpenPlan;
   final CashbackCategorySaver? onSave;
   final ValueChanged<int>? onShellDestinationSelected;
@@ -327,8 +333,26 @@ class _CashbackCategoryDetailScreenState
   }
 
   Widget _mccSection(DataProvider provider) => OfferMccRulesSection(
-        key: ValueKey('offer-mcc-${widget.category.id}'),
+        key: ValueKey(
+            'offer-mcc-${provider.mccContextIdentity}-${widget.category.id}'),
+        dataRevision: provider.mccDataRevision,
         load: () => provider.fetchOfferMccRules(widget.category.id),
+      );
+
+  Widget _cardSelectionButton() => OutlinedButton.icon(
+        key: const ValueKey('open-card-selection'),
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => CardCashbackScreen(
+              cardId: widget.category.cardId,
+              highlightCategoryId: widget.category.id,
+              onShellDestinationSelected: widget.onShellDestinationSelected,
+            ),
+          ),
+        ),
+        icon: const Icon(Icons.credit_card_outlined),
+        label: const Text('Что выбрано по этой карте'),
       );
 
   void _selectShellDestination(int index) {
@@ -677,6 +701,10 @@ class _CashbackCategoryDetailScreenState
                             ? 'Категория найдена в банковском снимке'
                             : 'Нужен банковский снимок',
                       ),
+                      if (widget.showCardSelection) ...[
+                        const SizedBox(height: 12),
+                        _cardSelectionButton(),
+                      ],
                       if (!provider.canEdit) ...[
                         const SizedBox(height: 12),
                         Container(
@@ -779,6 +807,10 @@ class _CashbackCategoryDetailScreenState
                     ? 'Категория найдена в банковском снимке'
                     : 'Нужен свежий банковский снимок',
               ),
+              if (widget.showCardSelection) ...[
+                const SizedBox(height: 16),
+                _cardSelectionButton(),
+              ],
               if (widget.onOpenPlan != null) ...[
                 const SizedBox(height: 16),
                 OutlinedButton.icon(

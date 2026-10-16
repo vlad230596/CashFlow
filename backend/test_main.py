@@ -1,5 +1,7 @@
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from main import (
     _category_period,
@@ -80,6 +82,15 @@ class CashbackImportDatesTest(unittest.TestCase):
             'description': 'Кешбэк до 500 рублей',
         }
         self.assertEqual(_extract_cashback_amounts(imported), (750.0, 1200.0))
+
+    def test_shared_extension_amount_contract(self):
+        fixture = Path(__file__).parent.parent / 'contracts' / 'cashback-amounts.v1.json'
+        for example in json.loads(fixture.read_text(encoding='utf-8'))['cases']:
+            with self.subTest(text=example['text']):
+                self.assertEqual(
+                    _extract_cashback_amounts({'description': example['text']}),
+                    (example['maxCashbackAmount'], example['minPurchaseAmount']),
+                )
 
     def test_cleans_vtb_limit_and_mcc_explanation(self):
         description = (

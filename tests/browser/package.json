@@ -1,0 +1,13 @@
+{
+  "name": "cashflow-offline-browser-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:repeat": "playwright test --repeat-each=2",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

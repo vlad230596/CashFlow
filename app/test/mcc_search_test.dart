@@ -1,4 +1,6 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:cashflow/models/bank_model.dart';
 import 'package:cashflow/models/card_model.dart';
@@ -6,7 +8,9 @@ import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/models/mcc_lookup_model.dart';
 import 'package:cashflow/models/user_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
+import 'package:cashflow/services/mcc_cache_store.dart';
 import 'package:cashflow/screens/cashback_category_detail_screen.dart';
+import 'package:cashflow/screens/cashback_screen.dart';
 import 'package:cashflow/screens/settings/mcc_rules_settings_screen.dart';
 import 'package:cashflow/screens/widgets/benefit_states_view.dart';
 import 'package:flutter/material.dart';
@@ -17,9 +21,106 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('benefit MCC search', () {
+    testWidgets(
+        'cached MCC catalogue remains searchable when card refresh fails',
+        (tester) async {
+      await _setViewport(tester, const Size(390, 844));
+      final provider = _CatalogueOnlyProvider()
+        ..primaryDataPhase = PrimaryDataPhase.failed
+        ..mccCatalog = [
+          const MccCodeModel(code: '5814', title: 'Фастфуд'),
+        ];
+      addTearDown(provider.dispose);
+      await tester.pumpWidget(ChangeNotifierProvider<DataProvider>.value(
+          value: provider,
+          child: const MaterialApp(home: Scaffold(body: CashbackScreen()))));
+      await tester.enterText(find.byKey(const Key('benefit-search')), 'фаст');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Фастфуд'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('benefit-mcc-result')), findsOneWidget);
+      expect(find.text('Фастфуд'), findsOneWidget);
+    });
+    testWidgets('background revision replaces a result without clearing search',
+        (tester) async {
+      await _setViewport(tester, const Size(390, 844));
+      var calls = 0;
+      var revision = 0;
+      final updated = Completer<MccLookupModel>();
+      Future<MccLookupModel> lookup(String code) {
+        calls++;
+        return revision == 0
+            ? Future.value(_lookup(code, [
+                _bank(1, 'ВТБ', 'excluded', reason: 'Сохранённое исключение'),
+              ]))
+            : updated.future;
+      }
+
+      await tester.pumpWidget(_benefitApp(lookup: lookup));
+      await tester.enterText(find.byKey(const Key('benefit-search')), '5814');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Сохранённое исключение'), findsOneWidget);
+      revision = 1;
+      await tester.pumpWidget(_benefitApp(lookup: lookup, revision: revision));
+      await tester.pump();
+      expect(find.textContaining('Сохранённое исключение'), findsOneWidget);
+      expect(find.byKey(const Key('benefit-mcc-loading')), findsNothing);
+      updated.complete(_lookup('5814', [
+        _bank(1, 'ВТБ', 'category', categories: ['Кафе'], offerIds: [10]),
+      ]));
+      await tester.pumpAndSettle();
+      expect(find.text('Входит в «Кафе»'), findsOneWidget);
+      expect(find.textContaining('Сохранённое исключение'), findsNothing);
+      expect(calls, 2);
+      expect(find.widgetWithText(TextField, '5814'), findsOneWidget);
+    });
+
+    testWidgets('stale links do not claim that a category is unselected',
+        (tester) async {
+      await _setViewport(tester, const Size(390, 844));
+      await tester.pumpWidget(_benefitApp(
+          lookup: (code) async => MccLookupModel.fromJson({
+                'mcc': {'code': code, 'title': 'Фастфуд'},
+                '_cached': true,
+                '_offer_links_current': false,
+                'banks': [
+                  _bank(1, 'ВТБ', 'category',
+                      categories: ['Кафе'], offerIds: [10]),
+                ],
+              })));
+      await tester.enterText(find.byKey(const Key('benefit-search')), '5814');
+      await tester.pumpAndSettle();
+      expect(
+          find.textContaining('Сохранённые правила доступны.'), findsOneWidget);
+      expect(find.text('Входит в «Кафе»'), findsOneWidget);
+      expect(find.textContaining('у вас не выбрана'), findsNothing);
+      expect(find.text('Повышенный кешбэк'), findsNothing);
+    });
+
+    testWidgets('context change discards an older account result',
+        (tester) async {
+      await _setViewport(tester, const Size(390, 844));
+      final old = Completer<MccLookupModel>();
+      await tester.pumpWidget(
+          _benefitApp(contextIdentity: 'old', lookup: (_) => old.future));
+      await tester.enterText(find.byKey(const Key('benefit-search')), '5814');
+      await tester.pump();
+      await tester.pumpWidget(_benefitApp(
+          contextIdentity: 'new',
+          lookup: (code) async => _lookup(code, [
+                _bank(7, 'Новый банк', 'not_in_categories'),
+              ])));
+      old.complete(_lookup('5814', [
+        _bank(8, 'Старый банк', 'not_in_categories'),
+      ]));
+      await tester.pumpAndSettle();
+      expect(find.text('Новый банк'), findsOneWidget);
+      expect(find.text('Старый банк'), findsNothing);
+    });
     testWidgets('a typed code lists offers that earn and every bank verdict',
         (tester) async {
       await _setViewport(tester, const Size(390, 844));
@@ -193,8 +294,20 @@ Future<void> _setViewport(WidgetTester tester, Size size) async {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+class _CatalogueOnlyProvider extends DataProvider {
+  _CatalogueOnlyProvider()
+      : super(
+            mccCacheStore: MccCacheStore(storage: MemoryMccStorage()),
+            httpClient: MockClient((_) async => http.Response('{}', 503)));
+
+  @override
+  Future<MccLookupModel> lookupMcc(String code) async =>
+      _lookup(code, const []);
+}
+
 DataProvider _provider(http.Response Function(http.Request) respond) =>
     DataProvider(
+      mccCacheStore: MccCacheStore(storage: MemoryMccStorage()),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async => respond(request)),
       secureStorage: const FlutterSecureStorage(),
@@ -208,6 +321,8 @@ DataProvider _provider(http.Response Function(http.Request) respond) =>
 
 Widget _benefitApp({
   required Future<MccLookupModel> Function(String code) lookup,
+  int revision = 0,
+  String? contextIdentity,
 }) =>
     MaterialApp(
       home: Scaffold(
@@ -245,6 +360,8 @@ Widget _benefitApp({
             ),
           ],
           onLookupMcc: lookup,
+          mccDataRevision: revision,
+          mccContextIdentity: contextIdentity,
           onRefresh: () async {},
         ),
       ),

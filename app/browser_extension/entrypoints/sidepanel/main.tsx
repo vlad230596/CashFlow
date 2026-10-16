@@ -1,3 +1,4 @@
+import { parseSelectionPlan, selectionPlanPeriodLabel } from '../../adapters/selection-plan';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { strToU8, zipSync } from 'fflate';
@@ -180,7 +181,7 @@ function App() {
       setBankIds(ids);
       setAutoCollect(request?.autoCollect ?? true);
       const plan = stored.cashflowSelectionPlan as CashbackSelectionPlanDocument | undefined;
-      setSelectionPlan(plan?.kind === 'cashback_selection_plan' ? plan : null);
+      setSelectionPlan(parseSelectionPlan(plan));
     })();
   }, []);
 
@@ -188,7 +189,7 @@ function App() {
     const listener = (changes: Record<string, Browser.storage.StorageChange>) => {
       if (!changes.cashflowSelectionPlan) return;
       const plan = changes.cashflowSelectionPlan.newValue as CashbackSelectionPlanDocument | undefined;
-      setSelectionPlan(plan?.kind === 'cashback_selection_plan' ? plan : null);
+      setSelectionPlan(parseSelectionPlan(plan));
     };
     browser.storage.onChanged.addListener(listener);
     return () => browser.storage.onChanged.removeListener(listener);
@@ -433,7 +434,7 @@ function App() {
     {exportMessage && <p className="export-message">{exportMessage}</p>}
     {extendedProgress && <p className="export-message">{extendedProgress}</p>}
     {selectionPlan && <section className="selection-plan">
-      <div className="plan-heading"><div><h2>План на сегодня</h2><p>{selectionPlan.effectiveDate}</p></div><span>Только подсказка</span></div>
+      <div className="plan-heading"><div><h2>План на выбранный период</h2><p>{selectionPlanPeriodLabel(selectionPlan)}</p></div><span>Только подсказка</span></div>
       <p>После сохранения категорий в банке проверьте результат и экспортируйте новый JSON в CashFlow. До подтверждения категории не учитываются в активном кешбэке.</p>
       <button type="button" onClick={() => void collect(false)} disabled={busy}>Проверить подтверждение в банках</button>
       {selectionPlan.banks.map((planBank) => {
