@@ -5,6 +5,7 @@ import { strToU8, zipSync } from 'fflate';
 import type { BankId, CashbackCategory, CashbackImportBankResult, CashbackImportDocument, CashbackSelectionPlanCategory, CashbackSelectionPlanDocument, CollectionStatus, PageProbe } from '../../adapters/types';
 import { DEFAULT_BANK_IDS, findBank } from '../../banks/registry';
 import { collectExtendedBank } from '../../adapters/extended/collect';
+import { extendedFreshness, type ExtendedFreshness } from '../../adapters/extended/freshness';
 import type { ExtendedBankResult } from '../../adapters/extended/types';
 import './style.css';
 
@@ -33,6 +34,37 @@ function categoryMatches(
   if (normalizedCategoryName(category.name) !== normalizedCategoryName(desired.name)) return false;
   return desired.percent == null || category.percent == null ||
     Math.abs(category.percent - desired.percent) < 0.01;
+}
+
+const extendedRunLabels = {
+  running: 'идёт сбор',
+  interrupted: 'сбор прерван, данные неполные',
+  partial: 'собрано с ошибками, данные неполные',
+  complete: 'полный сбор',
+  unknown: 'полнота неизвестна',
+} as const;
+
+function ExtendedStatus({ freshness, thisSession }: { freshness: ExtendedFreshness; thisSession: boolean }) {
+  if (freshness.state === 'missing') {
+    return <p className="extended-status extended-missing">Акции: ещё не собирались</p>;
+  }
+  const date = freshness.collectedAt.toLocaleString('ru-RU');
+  if (freshness.state === 'failed') {
+    return <p className="extended-status extended-stale">
+      Акции: сбор {date} ({freshness.age}) не удался — в JSON не попадут.
+      {freshness.error && <><br />{freshness.error.replace(/^https?:\/\/\S+: /, '')}</>}
+    </p>;
+  }
+  if (freshness.state === 'stale') {
+    return <p className="extended-status extended-stale">
+      Акции: последний сбор {date} ({freshness.age}) — устарели, не показываются и не попадут в JSON
+    </p>;
+  }
+  const good = freshness.run === 'complete';
+  return <p className={`extended-status ${good ? 'extended-fresh' : 'extended-partial'}`}>
+    {good ? '✓' : '!'} Акции обновлены {freshness.age} ({date}) · {extendedRunLabels[freshness.run]}
+    {thisSession && ' · в этом сеансе'}
+  </p>;
 }
 
 const emptyBankView = (): BankView => ({ status: 'waiting', result: null, message: null });
@@ -148,6 +180,9 @@ function App() {
   const [extended, setExtended] = useState<Partial<Record<BankId, ExtendedBankResult>>>({});
   const [extendedBusy, setExtendedBusy] = useState(false);
   const [extendedProgress, setExtendedProgress] = useState<string | null>(null);
+  const [extendedCollectingBank, setExtendedCollectingBank] = useState<BankId | null>(null);
+  const [extendedUpdatedNow, setExtendedUpdatedNow] = useState<ReadonlySet<BankId>>(new Set());
+  const [now, setNow] = useState(() => new Date());
   const viewsRef = useRef(views);
   const collectingRef = useRef(false);
   const extendedCollectingRef = useRef(false);
@@ -155,6 +190,11 @@ function App() {
   useEffect(() => {
     viewsRef.current = views;
   }, [views]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const collect = useCallback(async (onlyPending = false, showBusy = true) => {
     if (collectingRef.current || extendedCollectingRef.current) return;
@@ -254,23 +294,39 @@ function App() {
       await openTabs();
       for (const id of bankIds) {
         setExtendedProgress(`${findBank(id).name}: читаю каталог`);
+        setExtendedCollectingBank(id);
         try {
           const result = await collectExtendedBank(id, (partial) => {
             setExtended((current) => ({ ...current, [id]: partial }));
             setExtendedProgress(`${findBank(id).name}: ${partial.offers.length}/${partial.previewCount}`);
           });
           setExtended((current) => ({ ...current, [id]: result }));
+          setExtendedUpdatedNow((current) => new Set(current).add(id));
         } catch (error) {
           failures.push(`${findBank(id).name}: ${String(error)}`);
           setExtendedProgress(failures.at(-1)!);
+          const key = `cashflowExtendedHistory:${id}`;
+          const stored = (await browser.storage.local.get(key))[key] as ExtendedBankResult | undefined;
+          setExtended((current) => ({ ...current, [id]: stored?.bankId === id ? stored : undefined }));
         }
       }
       setExtendedProgress(failures.length ? `Сбор завершён с ошибками: ${failures.join('; ')}` : 'Сбор расширенных предложений завершён');
     } finally {
       extendedCollectingRef.current = false;
+      setExtendedCollectingBank(null);
       setExtendedBusy(false);
     }
   }
+
+  const freshness = useMemo(() => Object.fromEntries(bankIds.map((id) => [
+    id,
+    extendedFreshness(extended[id], now, extendedCollectingBank === id),
+  ])) as Record<BankId, ExtendedFreshness>, [bankIds, extended, now, extendedCollectingBank]);
+  const freshBankCount = bankIds.filter((id) => freshness[id].state === 'fresh').length;
+  const completeBankCount = bankIds.filter((id) => {
+    const value = freshness[id];
+    return value.state === 'fresh' && value.run === 'complete';
+  }).length;
 
   const output = useMemo<CashbackImportDocument>(() => ({
     schemaVersion: 1,
@@ -299,10 +355,13 @@ function App() {
         categories: [],
         message: view.message,
       };
+      // Only collections from the last day are exported; older ones would
+      // mark long-gone offers as available again.
       const extra = extended[id];
-      return extra ? {
+      const fresh = freshness[id];
+      return extra && fresh.state === 'fresh' ? {
         ...base,
-        extendedOffers: extra.offers,
+        extendedOffers: fresh.offers,
         extendedSummary: {
           collectedAt: extra.collectedAt,
           previewCount: extra.previewCount,
@@ -310,10 +369,11 @@ function App() {
           openedCount: extra.openedCount,
           previewOnlyCount: extra.previewOnlyCount,
           errors: extra.errors,
+          runStatus: extra.runStatus,
         },
       } : base;
     }),
-  }), [bankIds, views, extended]);
+  }), [bankIds, views, extended, freshness]);
 
   const readyCount = output.banks.filter((bank) => bank.collectionStatus === 'ready').length;
 
@@ -433,6 +493,10 @@ function App() {
     </div>
     {exportMessage && <p className="export-message">{exportMessage}</p>}
     {extendedProgress && <p className="export-message">{extendedProgress}</p>}
+    <p className={`extended-overview ${completeBankCount === bankIds.length ? 'extended-fresh' : 'extended-partial'}`}>
+      Акции за последние 24 ч: {freshBankCount} из {bankIds.length} банков, полностью — {completeBankCount}.
+      {freshBankCount < bankIds.length && ' Остальные банки попадут в JSON без акций.'}
+    </p>
     {selectionPlan && <section className="selection-plan">
       <div className="plan-heading"><div><h2>План на выбранный период</h2><p>{selectionPlanPeriodLabel(selectionPlan)}</p></div><span>Только подсказка</span></div>
       <p>После сохранения категорий в банке проверьте результат и экспортируйте новый JSON в CashFlow. До подтверждения категории не учитываются в активном кешбэке.</p>
@@ -473,15 +537,18 @@ function App() {
       const bank = findBank(id);
       const view = views[id] ?? emptyBankView();
       const result = view.result;
+      const fresh = freshness[id];
+      const extra = fresh.state === 'fresh' ? extended[id] : undefined;
       return <article key={id} className={`bank bank-${view.status}`}>
         <div className="bank-heading"><div><h2>{bank.name}</h2><span className="status">
           {view.status === 'ready' && 'Готово'}{view.status === 'auth' && 'Нужен вход'}{view.status === 'collecting' && 'Сбор…'}{view.status === 'waiting' && 'Ожидание'}{view.status === 'error' && 'Ошибка'}
         </span></div><button type="button" className="link-button" onClick={() => void openBank(id)}>Открыть</button></div>
         {view.message && <p className="message">{view.message}</p>}
-        {extended[id] && <details><summary>Расширенные предложения ({extended[id]!.offers.length})</summary>
-          <p className="summary">Собрано: {new Date(extended[id]!.collectedAt).toLocaleString('ru-RU')} · Из истории: {extended[id]!.reusedCount} · Открыто: {extended[id]!.openedCount} · Только превью: {extended[id]!.previewOnlyCount}</p>
-          {extended[id]!.errors.length > 0 && <p className="message">Ошибок: {extended[id]!.errors.length}</p>}
-          <ul className="categories">{extended[id]!.offers.map((offer) => <li key={offer.id}>
+        <ExtendedStatus freshness={fresh} thisSession={extendedUpdatedNow.has(id)} />
+        {extra && fresh.state === 'fresh' && <details><summary>Расширенные предложения ({fresh.offers.length})</summary>
+          <p className="summary">В каталоге банка: {extra.previewCount} · Из истории: {extra.reusedCount} · Открыто: {extra.openedCount} · Только превью: {extra.previewOnlyCount}</p>
+          {extra.errors.length > 0 && <p className="message">Ошибок: {extra.errors.length}</p>}
+          <ul className="categories">{fresh.offers.map((offer) => <li key={offer.id}>
             <CategoryIcon name={offer.name} url={offer.iconUrl} backgroundColor={null} />
             <span><strong>{offer.rateLabel} {offer.name}</strong>
               {offer.offerKind !== 'cashback' && <small>{offer.offerKind === 'discount' ? 'Скидка' : 'Другое предложение'}</small>}

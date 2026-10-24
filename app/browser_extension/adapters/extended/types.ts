@@ -48,4 +48,10 @@ export type ExtendedBankResult = {
   openedCount: number;
   previewOnlyCount: number;
   errors: string[];
+  /** Absent in records saved before 21 October 2026. */
+  runStatus?: ExtendedRunStatus;
+  /** Preview IDs seen in the bank catalogue during this run. */
+  catalogIds?: string[];
 };
+
+export type ExtendedRunStatus = 'running' | 'partial' | 'failed' | 'complete';

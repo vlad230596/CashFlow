@@ -58,7 +58,7 @@ export type CashbackImportBankResult = {
   categories: CashbackCategory[];
   extendedOffers?: import('./extended/types').ExtendedOffer[];
   extendedSummary?: Pick<import('./extended/types').ExtendedBankResult,
-    'collectedAt' | 'previewCount' | 'reusedCount' | 'openedCount' | 'previewOnlyCount' | 'errors'>;
+    'collectedAt' | 'previewCount' | 'reusedCount' | 'openedCount' | 'previewOnlyCount' | 'errors' | 'runStatus'>;
   message: string | null;
 };
 

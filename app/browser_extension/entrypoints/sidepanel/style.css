@@ -57,3 +57,9 @@ details > summary { color: #344054; cursor: pointer; font-size: 12px; }
 .categories .selection-selected { color: #08733d; background: #dcfce7; }
 .categories .selection-unselected { color: #667085; background: #edf1f6; }
 .details-copy { margin-top: 2px; }
+.extended-status, .extended-overview { margin: 9px 0 0; padding: 6px 8px; border-radius: 6px; font-size: 12px; }
+.extended-overview { margin: 10px 0 0; }
+.extended-fresh { background: #ecfdf3; color: #067647; }
+.extended-partial { background: #fffaeb; color: #b54708; }
+.extended-stale { background: #fef3f2; color: #b42318; }
+.extended-missing { background: #f2f4f7; color: #475467; }

@@ -15,6 +15,7 @@ export async function navigateSberOfferPage(url: string): Promise<boolean> {
   }
   const list = target.pathname.endsWith('/partner') ? 'partners'
     : target.pathname.endsWith('/offer') ? 'offers' : target.pathname.split('/').at(-1)!;
+  let clickedBackFrom: string | null = null;
   for (let attempt = 0; attempt < 40; attempt++) {
     const current = new URL(location.href);
     if (current.pathname === target.pathname && current.search === target.search) return true;
@@ -37,7 +38,16 @@ export async function navigateSberOfferPage(url: string): Promise<boolean> {
         .find(a => text(a) === 'Назад' && new URL(a.href).pathname.startsWith('/app/loyalty/main'));
       const home = [...document.querySelectorAll<HTMLAnchorElement>('a[href]')]
         .find(a => a.getAttribute('href') === '/app/loyalty/main');
-      (back ?? backLink ?? home)?.click();
+      const control = back ?? backLink ?? home;
+      if (control && clickedBackFrom !== current.href) {
+        clickedBackFrom = current.href;
+        control.click();
+      } else if (current.pathname.startsWith('/app/loyalty/main/')) {
+        // «Назад» calls history.back(), which goes nowhere when the tab was opened
+        // directly on a loyalty sub-page; the router also follows popstate.
+        history.pushState(history.state, '', '/app/loyalty/main');
+        window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+      }
     }
     await new Promise(resolve => setTimeout(resolve, 350));
   }

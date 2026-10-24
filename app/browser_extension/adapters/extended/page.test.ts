@@ -56,6 +56,31 @@ it('leaves the October category screens through their back links before opening 
   expect(partners.click).toHaveBeenCalledOnce();
 });
 
+it('leaves a Sber category screen through history when its back link does nothing', async () => {
+  vi.useFakeTimers();
+  const origin = 'https://online.sberbank.ru';
+  const state = { href: `${origin}/app/loyalty/main/categories`, origin };
+  vi.stubGlobal('location', state);
+  const back = { innerText: 'Назад', href: `${origin}/app/loyalty/main`, getAttribute: () => '/app/loyalty/main', click: vi.fn() };
+  const offers = { getAttribute: (name: string) => name === 'aria-label' ? 'Акции' : null, innerText: 'Акции', click: vi.fn(() => { state.href = `${origin}/app/loyalty/main/offers`; }) };
+  const pushState = vi.fn((_state: unknown, _title: string, path: string) => { state.href = `${origin}${path}`; });
+  vi.stubGlobal('history', { state: null, pushState });
+  vi.stubGlobal('PopStateEvent', class { constructor(public type: string) {} });
+  vi.stubGlobal('window', { dispatchEvent: vi.fn() });
+  vi.stubGlobal('document', {
+    querySelector: () => null,
+    querySelectorAll: (selector: string) => selector === 'main a[href]' || selector === 'a[href]'
+      ? state.href.endsWith('/categories') ? [back] : []
+      : selector === 'main button' && state.href.endsWith('/main') ? [offers] : [],
+  });
+  const navigation = navigateSberOfferPage(`${origin}/app/loyalty/main/offers`);
+  await vi.runAllTimersAsync();
+  await expect(navigation).resolves.toBe(true);
+  expect(back.click).toHaveBeenCalledOnce();
+  expect(pushState).toHaveBeenCalledWith(null, '', '/app/loyalty/main');
+  expect(offers.click).toHaveBeenCalledOnce();
+});
+
 it('expands the Sber partner list before opening an offer outside the first page', async () => {
   vi.useFakeTimers();
   const origin = 'https://online.sberbank.ru';

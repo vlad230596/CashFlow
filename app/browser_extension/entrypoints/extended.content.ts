@@ -4,6 +4,7 @@ import type { OfferDetail, OfferPreview } from '../adapters/extended/types';
 import { percentFrom } from '../adapters/extended/core';
 
 type Request =
+  | { type: 'cashflow:extended-ping' }
   | { type: 'cashflow:extended-sber-navigate'; url: string }
   | { type: 'cashflow:extended-scan'; bankId: BankId; expectedCount?: number | null }
   | { type: 'cashflow:extended-detail'; bankId: BankId; offer: OfferPreview; inline?: boolean }
@@ -81,6 +82,7 @@ export default defineContentScript({
   main() {
     browser.runtime.onMessage.addListener((request: Request) => {
       if (!request.type?.startsWith('cashflow:extended-')) return undefined;
+      if (request.type === 'cashflow:extended-ping') return Promise.resolve(true);
       if (request.type === 'cashflow:extended-sber-navigate') return navigateSberOfferPage(request.url);
       return (async () => {
       if (request.type === 'cashflow:extended-scan') {

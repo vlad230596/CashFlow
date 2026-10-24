@@ -1,7 +1,7 @@
 import type { BankId } from '../types';
 import { findBank } from '../../banks/registry';
 import { createOffer, reuseOffer, uniquePreviews } from './core';
-import type { ExtendedBankResult, ExtendedOffer, OfferDetail, OfferPreview } from './types';
+import type { ExtendedBankResult, ExtendedOffer, ExtendedRunStatus, OfferDetail, OfferPreview } from './types';
 
 const routes: Record<BankId, string[]> = {
   tbank: ['https://www.tbank.ru/mybank/bonuses/category/all/'],
@@ -21,6 +21,8 @@ const routes: Record<BankId, string[]> = {
 type Message = Record<string, unknown> & { type: string };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const historyKey = (bankId: BankId) => `cashflowExtendedHistory:${bankId}`;
+const isSignInUrl = (url: string) =>
+  /\/login|\/signin|\/auth\/|\/passport\/|private\.auth\.alfabank|passport\.yandex|\/csafront\/index\.do(?:#\/?)?$/i.test(url);
 
 async function send<T>(tabId: number, message: Message, attempts = 20): Promise<T> {
   let lastError: unknown;
@@ -37,6 +39,22 @@ async function send<T>(tabId: number, message: Message, attempts = 20): Promise<
   throw lastError;
 }
 
+// Tabs opened before the extension was (re)loaded have no content scripts;
+// reloading the page injects them.
+async function ensureContentScript(tabId: number) {
+  try {
+    await browser.tabs.sendMessage(tabId, { type: 'cashflow:extended-ping' });
+    return;
+  } catch { /* No receiver in this tab yet. */ }
+  await browser.tabs.reload(tabId);
+  await sleep(500);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if ((await browser.tabs.get(tabId)).status === 'complete') break;
+    await sleep(150);
+  }
+  await send(tabId, { type: 'cashflow:extended-ping' });
+}
+
 async function navigate(tabId: number, url: string) {
   const tab = await browser.tabs.get(tabId);
   if (url.startsWith('https://online.sberbank.ru/app/loyalty/main/')) {
@@ -49,8 +67,11 @@ async function navigate(tabId: number, url: string) {
   const target = new URL(url);
   const routePath = (value: URL) => (value.hash.startsWith('#/app/') ? value.hash.slice(1).split('?')[0]! : value.pathname)
     .replace(/\/$/, '');
-  for (let attempt = 0; attempt < 80; attempt++) {
+  for (let attempt = 0; attempt < 200; attempt++) {
     const current = await browser.tabs.get(tabId);
+    if (attempt > 10 && current.status === 'complete' && isSignInUrl(current.url || '')) {
+      throw new Error('Банк открыл страницу входа — авторизуйтесь и повторите сбор');
+    }
     const actual = current.url ? new URL(current.url) : null;
     if (current.status === 'complete' && actual?.origin === target.origin && routePath(actual) === routePath(target)) {
       await sleep(350);
@@ -86,13 +107,15 @@ export async function collectExtendedBank(
   const result: ExtendedBankResult = {
     bankId, collectedAt: new Date().toISOString(), sourceUrls: [], offers: [],
     previewCount: 0, reusedCount: 0, openedCount: 0, previewOnlyCount: 0, errors: [],
+    runStatus: 'running', catalogIds: [],
   };
   const tabs = await browser.tabs.query({ url: findBank(bankId).tabPatterns });
   const preferredOrigin = new URL(routes[bankId][0]!).origin;
-  const usable = tabs.filter((item) => item.id != null && !/\/login|\/signin|\/auth\//i.test(item.url || ''));
+  const usable = tabs.filter((item) => item.id != null && !isSignInUrl(item.url || ''));
   const tab = usable.find((item) => item.url?.startsWith(preferredOrigin)) ?? usable[0];
   if (!tab?.id) throw new Error(`Откройте и авторизуйте вкладку: ${findBank(bankId).name}`);
   const tabId = tab.id;
+  await ensureContentScript(tabId);
   const previewMap = new Map<string, OfferPreview>();
   const embeddedDetails = new Map<string, OfferDetail>();
 
@@ -105,8 +128,12 @@ export async function collectExtendedBank(
       previewMap.set(item.id, item);
     }
   };
-  const save = async () => {
+  // The stored record keeps earlier offers for detail reuse; catalogIds tells
+  // the panel which of them the bank actually listed during this run.
+  const save = async (runStatus: ExtendedRunStatus = 'running') => {
     result.collectedAt = new Date().toISOString();
+    result.runStatus = runStatus;
+    result.catalogIds = [...previewMap.keys()];
     result.previewCount = previewMap.size;
     result.previewOnlyCount = result.offers.filter((offer) => offer.detailsStatus === 'preview_only').length;
     const merged = new Map(previous?.offers.map((offer) => [offer.id, offer]) || []);
@@ -162,7 +189,10 @@ export async function collectExtendedBank(
   // Details are visited only after the complete preview catalogue has been read.
   // This allows the previous snapshot to be compared before any card is opened.
   const previews = uniquePreviews([...previewMap.values()]);
-  if (!previews.length) throw new Error(result.errors.join('; ') || `Каталог ${findBank(bankId).name} пуст или недоступен`);
+  if (!previews.length) {
+    await save('failed');
+    throw new Error(result.errors.join('; ') || `Каталог ${findBank(bankId).name} пуст или недоступен`);
+  }
   for (const item of previews) {
     const reused = reuseOffer(item, old.get(item.id));
     if (reused) {
@@ -180,6 +210,7 @@ export async function collectExtendedBank(
     if (bankId === 'yandex') {
       try {
         const programTab = (await browser.tabs.query({ url: 'https://sp.yandex.ru/cashback*' }))[0];
+        if (programTab?.id != null) await ensureContentScript(programTab.id);
         const detail = programTab?.id != null
           ? await send<OfferDetail>(programTab.id, { type: 'cashflow:extended-detail', bankId, offer: item })
           : null;
@@ -240,6 +271,11 @@ export async function collectExtendedBank(
     }
     await save();
   }
-  if (!result.errors.length) await browser.storage.local.set({ [historyKey(bankId)]: result });
+  if (result.errors.length) {
+    await save('partial');
+  } else {
+    result.runStatus = 'complete';
+    await browser.storage.local.set({ [historyKey(bankId)]: result });
+  }
   return result;
 }
