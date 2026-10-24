@@ -7,6 +7,7 @@ import '../services/app_session_type.dart';
 import '../services/cashback_import_launcher.dart';
 import 'admin/admin_hub_screen.dart';
 import 'cards_screen.dart';
+import 'settings/canonical_categories_screen.dart';
 import 'settings/banks_settings.dart';
 import 'settings/cards_settings.dart';
 import 'settings/mcc_rules_settings_screen.dart';
@@ -390,6 +391,14 @@ class _MoreScreenState extends State<MoreScreen> {
                     value: '${provider.cards.length}',
                     onTap: () => _openCards(),
                   ),
+                  _HubRow(
+                    compact: true,
+                    icon: Icons.category_outlined,
+                    title: 'Категории и синонимы',
+                    subtitle: 'По каким словам находится категория',
+                    value: '${provider.canonicalCategories.length}',
+                    onTap: () => _open(const CanonicalCategoriesScreen()),
+                  ),
                 ],
               ),
               const _SectionLabel('Параметры'),
@@ -540,6 +549,13 @@ class _MoreScreenState extends State<MoreScreen> {
           subtitle: 'Что выбрано по каждой карте',
           value: '${provider.cards.length}',
           onTap: () => _openCards(),
+        ),
+        _HubRow(
+          icon: Icons.category_outlined,
+          title: 'Категории и синонимы',
+          subtitle: 'По каким словам находится категория',
+          value: '${provider.canonicalCategories.length}',
+          onTap: () => _open(const CanonicalCategoriesScreen()),
         ),
         _HubRow(
           icon: Icons.event_outlined,

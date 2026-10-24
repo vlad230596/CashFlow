@@ -3206,6 +3206,51 @@ def get_canonical_bank_categories(key):
     })
 
 
+CANONICAL_ALIAS_MAX_LENGTH = 64
+CANONICAL_ALIAS_MAX_COUNT = 40
+
+
+def _validated_canonical_aliases(value):
+    """Trimmed search synonyms in the given order, without case-insensitive repeats."""
+    if not isinstance(value, list):
+        raise ValueError('aliases must be a list of strings')
+    aliases, seen = [], set()
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError('aliases must be a list of strings')
+        alias = ' '.join(item.split())
+        if not alias:
+            continue
+        if len(alias) > CANONICAL_ALIAS_MAX_LENGTH:
+            raise ValueError(f'alias is longer than {CANONICAL_ALIAS_MAX_LENGTH} characters')
+        folded = alias.lower().replace('ё', 'е')
+        if folded not in seen:
+            seen.add(folded)
+            aliases.append(alias)
+    if len(aliases) > CANONICAL_ALIAS_MAX_COUNT:
+        raise ValueError(f'at most {CANONICAL_ALIAS_MAX_COUNT} aliases are allowed')
+    return aliases
+
+
+@app.put('/api/canonical-categories/<string:key>')
+def update_canonical_category(key):
+    """Replace the search synonyms of a unified category; MCC links stay untouched."""
+    category = db.session.get(CanonicalCategory, key)
+    if category is None:
+        return jsonify({'error': 'Canonical category not found'}), 404
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or 'aliases' not in payload:
+        return jsonify({'error': 'aliases are required'}), 400
+    try:
+        category.aliases = _validated_canonical_aliases(payload['aliases'])
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    db.session.commit()
+    cores = [row.mcc_code for row in CanonicalCategoryMcc.query
+             .filter_by(canonical_key=key).order_by(CanonicalCategoryMcc.mcc_code)]
+    return jsonify(_canonical_category_to_dict(category, cores))
+
+
 RUSSIAN_MONTHS = {
     'января': 1,
     'февраля': 2,

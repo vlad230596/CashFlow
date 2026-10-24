@@ -487,10 +487,13 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
         children: [
           SizedBox(
             width: 380,
-            child: _BenefitList(
-              items: filtered,
-              selectedId: _selectedId,
-              onSelected: _selectItem,
+            child: _withUncovered(
+              groups,
+              _BenefitList(
+                items: filtered,
+                selectedId: _selectedId,
+                onSelected: _selectItem,
+              ),
             ),
           ),
           const VerticalDivider(width: 1),
@@ -546,17 +549,45 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
         onSelected: _selectItem,
       );
     }
-    return _BenefitList(
-      key: const Key('benefit-compact-list'),
-      items: filtered,
-      columns: width >= 600 ? 2 : 1,
-      onSelected: _selectItem,
+    return _withUncovered(
+      groups,
+      _BenefitList(
+        key: const Key('benefit-compact-list'),
+        items: filtered,
+        columns: width >= 600 ? 2 : 1,
+        onSelected: _selectItem,
+      ),
+    );
+  }
+
+  /// Offer lists without need groups still name searched categories that no
+  /// card covers, above the matching offers.
+  Widget _withUncovered(List<_NeedGroup> groups, Widget list) {
+    final uncovered = groups.where((group) => group.items.isEmpty).toList();
+    if (uncovered.isEmpty) return list;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final group in uncovered)
+                _ExpandedNeedGroup(group: group, onSelected: _selectItem),
+            ],
+          ),
+        ),
+        Expanded(child: list),
+      ],
     );
   }
 
   /// Offers grouped by unified category. A broad offer belongs to every
   /// category it covers. With a query, a group is kept when the query names
-  /// the category, one of its synonyms, or one of its offers.
+  /// the category, one of its synonyms, or one of its offers. A unified
+  /// category the query names but no card covers is kept as an empty group,
+  /// so «nothing found» never hides a category that merely has no offers.
   List<_NeedGroup> _needGroups(String query) {
     final needs = _needs;
     final grouped = <String, List<BenefitItemData>>{};
@@ -582,7 +613,17 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
           b.category.cashbackPercent.compareTo(a.category.cashbackPercent));
       groups.add(_NeedGroup(title: entry.key, items: offers, match: match));
     }
+    if (normalized.isNotEmpty) {
+      for (final category in widget.canonicalCategories) {
+        if (grouped.containsKey(category.title)) continue;
+        final match = needs.match(category.title, query);
+        if (match == NeedMatch.none) continue;
+        groups.add(
+            _NeedGroup(title: category.title, items: const [], match: match));
+      }
+    }
     groups.sort((a, b) {
+      if (a.items.isEmpty != b.items.isEmpty) return a.items.isEmpty ? 1 : -1;
       if (a.match != b.match) return a.match == NeedMatch.title ? -1 : 1;
       final byRate = b.bestPercent.compareTo(a.bestPercent);
       return byRate != 0 ? byRate : a.title.compareTo(b.title);
@@ -1883,7 +1924,9 @@ class _ExpandedNeedGroup extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${group.items.length} ${_cardsWord(group.items.length)}',
+                  group.items.isEmpty
+                      ? 'нет карт'
+                      : '${group.items.length} ${_cardsWord(group.items.length)}',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: colors.onSurfaceVariant,
                       ),
@@ -1891,6 +1934,18 @@ class _ExpandedNeedGroup extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
+            if (group.items.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  'Ни на одной карте нет повышенного кешбэка в этой '
+                  'категории за выбранный период.',
+                  key: Key('benefit-need-no-cards-${group.title}'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                ),
+              ),
             for (final item in group.items)
               _OfferRow(
                 item: item,

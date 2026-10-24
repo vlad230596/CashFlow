@@ -819,6 +819,32 @@ class DataProvider with ChangeNotifier {
     }
   }
 
+  /// Replaces the search synonyms of a unified category on the server.
+  Future<CanonicalCategoryModel> updateCanonicalCategoryAliases(
+      String key, List<String> aliases) async {
+    final session = _sessionGeneration;
+    final endpoint = 'canonical-categories/${Uri.encodeComponent(key)}';
+    final response = await _client.put(
+      _apiUri(endpoint),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'aliases': aliases}),
+    );
+    if (response.statusCode != 200) {
+      throw ApiException(endpoint, response.statusCode,
+          _responseError(response, 'Не удалось сохранить синонимы'));
+    }
+    final updated = CanonicalCategoryModel.fromJson(
+        json.decode(response.body) as Map<String, dynamic>);
+    if (_isCurrentSession(session)) {
+      canonicalCategories = [
+        for (final item in canonicalCategories) item.key == key ? updated : item
+      ];
+      await _saveDataLocally();
+      notifyListeners();
+    }
+    return updated;
+  }
+
   Future<void> fetchCashbackCategories() async {
     final session = _sessionGeneration;
     try {

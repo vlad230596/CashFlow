@@ -309,6 +309,31 @@ def test_canonical_search_returns_broader_bank_categories(client_and_headers):
     assert missing.status_code == 404
 
 
+def test_canonical_aliases_can_be_edited(client_and_headers):
+    client, headers, _ = client_and_headers
+    response = client.put(
+        '/api/canonical-categories/fuel',
+        json={'aliases': [' бензин ', 'Заправки', 'заправки', '', 'дизель  топливо']},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.get_json()
+    body = response.get_json()
+    assert body['aliases'] == ['бензин', 'Заправки', 'дизель топливо']
+    assert body['core_mcc'][:2] == ['5172', '5541']
+    listing = client.get('/api/canonical-categories', headers=headers).get_json()
+    fuel = next(item for item in listing if item['key'] == 'fuel')
+    assert fuel['aliases'] == ['бензин', 'Заправки', 'дизель топливо']
+
+    assert client.put('/api/canonical-categories/unknown', json={'aliases': []},
+                      headers=headers).status_code == 404
+    assert client.put('/api/canonical-categories/fuel', json={'aliases': 'бензин'},
+                      headers=headers).status_code == 400
+    assert client.put('/api/canonical-categories/fuel', json={},
+                      headers=headers).status_code == 400
+    assert client.put('/api/canonical-categories/fuel', json={'aliases': ['x' * 65]},
+                      headers=headers).status_code == 400
+
+
 def test_bundled_bank_rules_import_is_idempotent(client_and_headers):
     client, headers, _ = client_and_headers
     runner = app.test_cli_runner()

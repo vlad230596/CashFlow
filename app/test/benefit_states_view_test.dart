@@ -131,6 +131,45 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('search names a category that no card covers', (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(_app(
+      items: [_canonicalItem],
+      canonicalCategories: [..._catalogue, _fuel],
+    ));
+
+    await tester.enterText(find.byKey(const Key('benefit-search')), 'заправки');
+    await tester.pump();
+
+    expect(find.byKey(const Key('benefit-compact-search-results')),
+        findsOneWidget);
+    expect(find.text('АЗС'), findsOneWidget);
+    expect(find.text('нет карт'), findsOneWidget);
+    expect(find.byKey(const Key('benefit-need-no-cards-АЗС')), findsOneWidget);
+    expect(find.text('Ничего не нашли'), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('benefit-search')), 'бензин');
+    await tester.pump();
+    expect(find.text('Ничего не нашли'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide search lists uncovered categories above offers',
+      (tester) async {
+    await _setViewport(tester, const Size(1100, 800));
+    await tester.pumpWidget(_app(
+      items: [_canonicalItem],
+      canonicalCategories: [..._catalogue, _fuel],
+    ));
+
+    await tester.enterText(find.byKey(const Key('benefit-search')), 'топливо');
+    await tester.pump();
+
+    expect(find.byKey(const Key('benefit-need-no-cards-АЗС')), findsOneWidget);
+    expect(find.text('Ничего не нашли'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('expanded layout keeps master and detail visible',
       (tester) async {
     await _setViewport(tester, const Size(1100, 800));
@@ -213,11 +252,13 @@ void main() {
     expect(find.byIcon(personMarkerPalette[0].icon), findsOneWidget);
     expect(find.byIcon(personMarkerPalette[1].icon), findsOneWidget);
     expect(
-      find.bySemanticsLabel('Т-Банк, владелец Тест, карта •1002, 5%. Что выбрано по карте'),
+      find.bySemanticsLabel(
+          'Т-Банк, владелец Тест, карта •1002, 5%. Что выбрано по карте'),
       findsOneWidget,
     );
     expect(
-      find.bySemanticsLabel('Альфа-Банк, владелец Анна, карта •2003, 5%. Что выбрано по карте'),
+      find.bySemanticsLabel(
+          'Альфа-Банк, владелец Анна, карта •2003, 5%. Что выбрано по карте'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -579,6 +620,15 @@ const _catalogue = [
     defaultPriority: 25,
   ),
 ];
+
+const _fuel = CanonicalCategoryModel(
+  key: 'fuel',
+  title: 'АЗС',
+  groupKey: 'auto',
+  groupTitle: 'Авто',
+  aliases: ['заправки', 'топливо'],
+  defaultPriority: 50,
+);
 
 final _canonicalItem = BenefitItemData(
   category: CashbackCategoryModel(

@@ -156,6 +156,9 @@ Known endpoints:
   when the bank has no rules for it)
 - `GET /api/canonical-categories` (cached as `canonicalCategories`; cashback offers carry
   `canonical_keys`, and the plan groups offers by these unified categories)
+- `PUT /api/canonical-categories/{key}` (editor+; replaces only `aliases`, the search
+  synonyms edited in More → «Категории и синонимы»; the database copy is authoritative,
+  `backend/data/canonical_categories.json` only seeds it)
 - `GET /api/canonical-categories/{key}/bank-categories?as_of=`
 - `GET /api/admin/mcc-rule-revisions`
 - `POST /api/admin/mcc-rule-snapshots`
