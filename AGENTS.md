@@ -81,6 +81,18 @@ Other SSH keys have narrower roles and are not the default for data questions:
   `import-bank-mcc-rules`. No logs and no shell. `import-bank-mcc-rules` changes
   production data, so run it only when the user explicitly asks for it.
 
+## Releases: the version number
+
+Never pick the release number by hand. `Release CashFlow` computes it from the
+highest SemVer tag on `origin`:
+
+- Run `gh workflow run release.yml --ref main -f bump=minor` (`patch` for fixes
+  only, `minor` for new features and the default, `major` for incompatible API
+  or data changes). Do not pass `version` unless the owner named an exact one.
+- Report the number from the run summary or the `Validate release input` log.
+- Tags are created only by CI, so local `git tag` can be stale. Check the
+  current version with `git ls-remote --tags --refs origin` or `gh release list`.
+
 ## Legacy and generated local data
 
 `backend/instance/cards.db` and `backend/*.db` are ignored local artifacts from

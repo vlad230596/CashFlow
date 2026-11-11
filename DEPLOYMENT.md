@@ -216,7 +216,14 @@ third-party CDN hosts to CSP to work around a missing build resource.
 
 ## Releases
 
-Start `Release CashFlow` manually from `main` and enter a new `X.Y.Z` version. The workflow reruns
+Start `Release CashFlow` manually from `main` with the size of the change, not a number:
+`gh workflow run release.yml --ref main -f bump=minor` (`patch` for fixes only, `minor` for new
+features and the default, `major` for incompatible API or data changes). The workflow computes the
+next `X.Y.Z` from the highest SemVer tag on `origin` and writes it to the run summary and the
+`Validate release input` log; report that number. Tags are created only by CI, so never derive the
+current version from local `git tag`; use `git ls-remote --tags --refs origin` or
+`gh release list`. The optional `version` input is for an exact number the owner named and is
+rejected unless it is newer than the latest tag. The workflow reruns
 all component and integration checks for the exact `main` commit, then waits in the protected
 `release-approval` Environment. Only approval creates the annotated Git tag. The workflow then
 publishes and attests the backend and frontend images, builds a signed production APK, attaches
