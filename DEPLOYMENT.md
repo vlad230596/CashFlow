@@ -128,6 +128,38 @@ has no end date that `repair-partner-deadlines` could still recover. `--apply` d
 their snapshots, limits and personal ratings. Run it only on an explicit request and after a
 fresh backup; a later import without a deadline brings such an offer back.
 
+## Card balances from ZenMoney
+
+The backend can show card balances read from ZenMoney. It is off until two things exist:
+
+1. `CASHFLOW_SECRETS_KEY` in the root-only `.env` of the environment (production
+   `/opt/cashflow/.env`, development `/opt/cashflow-dev/.env`, each with its own key).
+   It is a Fernet key that encrypts the ZenMoney token at rest:
+
+   ```bash
+   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+
+   `compose.prod.yaml` and `deploy/compose.dev.yaml` pass it to the backend as
+   `${CASHFLOW_SECRETS_KEY:-}`; restarting the backend picks it up. Without it every
+   balance endpoint reports `not_configured` and the app shows nothing. Never commit the
+   key, never reuse the production key elsewhere, and keep it with the `.env` backup:
+   a lost or changed key makes the stored token unreadable (the app then asks to re-enter
+   it). Database dumps contain only the ciphertext.
+2. A ZenMoney token entered by an administrator in the app («Ещё → Управление →
+   ZenMoney» or «Ещё → Балансы из ZenMoney»). One token serves the whole installation,
+   because cards are shared between accounts. The API accepts it write-only and never
+   returns or logs it.
+
+The backend calls `POST https://api.zenmoney.ru/v8/diff/` with `forceFetch: ["account"]`
+(incremental after the first full read) and stores only accounts, balances, credit limits,
+currencies and the fetch time — no transactions. A read of `GET /api/card-balances`
+refreshes a snapshot older than 15 minutes; a database lease (`refresh_started_at`) lets
+one worker call ZenMoney at a time, calls are at least 30 seconds apart, failures are
+retried by reads after 5 minutes, and a rejected token is not retried until it is
+replaced or an editor refreshes explicitly. No scheduler is involved. The backend needs
+outbound HTTPS to `api.zenmoney.ru`.
+
 ## Development agent access
 
 `deploy/cashflow-dev-agent` gives an automation key a fixed set of development operations

@@ -58,3 +58,49 @@ class CashFlowFormatters {
     'Декабрь'
   ];
 }
+
+/// «обновлено 12 мин назад», «обновлено вчера в 18:40» in device-local time.
+String freshnessLabel(DateTime fetchedAt, DateTime now) {
+  final local = fetchedAt.toLocal();
+  final current = now.toLocal();
+  final age = current.difference(local);
+  if (age < const Duration(minutes: 1)) return 'обновлено только что';
+  if (age < const Duration(hours: 1)) {
+    return 'обновлено ${age.inMinutes} мин назад';
+  }
+  final day = DateTime(local.year, local.month, local.day);
+  final today = DateTime(current.year, current.month, current.day);
+  final time = CashFlowFormatters.time(local);
+  final days = today.difference(day).inDays;
+  if (days == 0) return 'обновлено сегодня в $time';
+  if (days == 1) return 'обновлено вчера в $time';
+  final date = local.year == current.year
+      ? '${local.day.toString().padLeft(2, '0')}.'
+          '${local.month.toString().padLeft(2, '0')}'
+      : calendarDateLabel(local);
+  return 'обновлено $date в $time';
+}
+
+/// «15 234,50 ₽»; whole amounts drop the kopecks («80 000 ₽»).
+String moneyLabel(double amount, String? currency) {
+  final negative = amount < 0;
+  final cents = (amount.abs() * 100).round();
+  final whole = cents ~/ 100;
+  final fraction = cents % 100;
+  final digits = whole.toString();
+  final grouped = StringBuffer();
+  for (var index = 0; index < digits.length; index++) {
+    if (index > 0 && (digits.length - index) % 3 == 0) grouped.write(' ');
+    grouped.write(digits[index]);
+  }
+  final number = fraction == 0
+      ? grouped.toString()
+      : '$grouped,${fraction.toString().padLeft(2, '0')}';
+  final symbol = switch (currency?.toUpperCase()) {
+    null || '' || 'RUB' => '₽',
+    'USD' => r'$',
+    'EUR' => '€',
+    final String code => code,
+  };
+  return '${negative ? '−' : ''}$number $symbol';
+}

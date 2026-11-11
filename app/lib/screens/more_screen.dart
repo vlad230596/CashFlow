@@ -10,6 +10,7 @@ import 'admin/admin_hub_screen.dart';
 import 'cards_screen.dart';
 import 'promos_screen.dart';
 import 'settings/canonical_categories_screen.dart';
+import 'settings/card_balances_settings_screen.dart';
 import 'settings/banks_settings.dart';
 import 'settings/cards_settings.dart';
 import 'settings/mcc_rules_settings_screen.dart';
@@ -409,6 +410,7 @@ class _MoreScreenState extends State<MoreScreen> {
                     value: '${provider.canonicalCategories.length}',
                     onTap: () => _open(const CanonicalCategoriesScreen()),
                   ),
+                  if (provider.canEdit) _balancesRow(compact: true),
                 ],
               ),
               const _SectionLabel('Параметры'),
@@ -487,6 +489,7 @@ class _MoreScreenState extends State<MoreScreen> {
             onRefresh: () => _refresh(provider),
           ),
         ),
+        if (provider.canEdit) _balancesRow(),
         if (showWindowsTools) ...[
           _HubRow(
             icon: Icons.download_for_offline_outlined,
@@ -506,6 +509,15 @@ class _MoreScreenState extends State<MoreScreen> {
       ],
     );
   }
+
+  Widget _balancesRow({bool compact = false}) => _HubRow(
+        key: const ValueKey('more-card-balances'),
+        compact: compact,
+        icon: Icons.account_balance_wallet_outlined,
+        title: 'Балансы из ZenMoney',
+        subtitle: 'Подключение и счета для карт',
+        onTap: () => _open(const CardBalancesSettingsScreen()),
+      );
 
   Widget _promosRow(DataProvider provider, {bool compact = false}) {
     final today = provider.businessToday;

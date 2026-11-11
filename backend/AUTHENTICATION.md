@@ -21,6 +21,11 @@ Accounts are separate from card owners. Registration is closed. Roles are hierar
 - `editor` can also change cashback categories and run imports;
 - `admin` can also manage banks, card owners, cards, and authentication accounts.
 
+Card balances: every role reads `GET /api/card-balances`; editors also map cards to
+ZenMoney accounts and force a refresh; only admins set or remove the integration-wide
+ZenMoney token (`/api/admin/zenmoney/token`). The token is encrypted with
+`CASHFLOW_SECRETS_KEY` and is never returned by the API.
+
 Public routes are limited to `/health`, `/ready`, `/version`, and `/api/auth/login`.
 Login throttling is stored in PostgreSQL and blocks a username/address pair for 15 minutes
 after five failed attempts.

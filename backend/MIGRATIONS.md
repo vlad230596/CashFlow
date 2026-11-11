@@ -2,7 +2,14 @@
 
 Schema changes are managed by Alembic. Runtime startup never creates or alters tables.
 
-Current repository head: `0013_promo_items` (2026-11-11). It adds the personal
+Current repository head: `0014_zenmoney_balances` (2026-11-11). It adds the ZenMoney
+balance integration: the single-row `zenmoney_integration` (Fernet-encrypted token,
+refresh lease, last attempt/success/error), `zenmoney_account` (latest balance, credit
+limit, currency and `fetched_at` per account; no transactions) and `card_zenmoney_link`
+(card → account, `auto` or `manual`; a NULL account records "no account"; cascades
+with the card). Downgrade drops all three tables, including the stored token.
+
+Previous head `0013_promo_items` (2026-11-11) adds the personal
 `promo_item` table (promo codes/offers and expiring points: optional `expires_at`, verbatim
 `source_text`, `used_at`/`archived_at`; "expired" is derived, never stored) with a unique
 `(auth_user_id, client_id)` so an item created offline can be retried idempotently.

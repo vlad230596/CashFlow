@@ -34,6 +34,8 @@ services:
       CASHFLOW_ENVIRONMENT: production
       CASHFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cashflow_dev}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-cashflow_dev}
       CASHFLOW_SESSION_TTL_HOURS: ${CASHFLOW_SESSION_TTL_HOURS:-8760}
+      # Fernet key for secrets at rest (ZenMoney token); empty = integration off.
+      CASHFLOW_SECRETS_KEY: ${CASHFLOW_SECRETS_KEY:-}
       CASHFLOW_CORS_ORIGINS: ''
       CASHFLOW_TRUSTED_HOSTS: ${APP_DOMAIN},localhost,cashflow-dev-backend
       APP_VERSION: ${APP_VERSION:?set APP_VERSION in .release.env}

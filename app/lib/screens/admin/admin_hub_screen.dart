@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../providers/data_provider.dart';
 import '../settings/banks_settings.dart';
+import '../settings/card_balances_settings_screen.dart';
 import '../settings/cards_settings.dart';
 import '../settings/mcc_rules_settings_screen.dart';
 import '../settings/users_settings.dart';
@@ -72,6 +73,13 @@ class AdminHubScreen extends StatelessWidget {
         icon: Icons.rule_outlined,
         screen: MccRulesSettingsScreen(),
       ),
+      const _AdminDestination(
+        label: 'ZenMoney',
+        description: 'Токен и счета для балансов карт',
+        meta: 'Балансы',
+        icon: Icons.account_balance_wallet_outlined,
+        screen: CardBalancesSettingsScreen(),
+      ),
     ];
 
     return Scaffold(
@@ -123,6 +131,10 @@ class AdminHubScreen extends StatelessWidget {
                   NavigationRailDestination(
                     icon: Icon(Icons.rule_outlined),
                     label: Text('Правила MCC'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.account_balance_wallet_outlined),
+                    label: Text('ZenMoney'),
                   ),
                 ],
               ),

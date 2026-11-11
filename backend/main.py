@@ -18,12 +18,13 @@ import click
 from flask import Flask, Response, g, has_request_context, jsonify, request, url_for
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_, select, text
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import payment_schedule
 import promo_parser
+import zenmoney
 from bank_identity import BANK_IMPORT_NAMES, bank_key_for_name, validated_bank_key
 from business_time import MOSCOW, utc_naive_now
 from business_time import as_utc as _as_utc
@@ -52,6 +53,9 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['CASHFLOW_ENVIRONMENT'] = os.environ.get('CASHFLOW_ENVIRONMENT', 'development')
+# Fernet key for secrets stored at rest (the ZenMoney token). Without it the
+# balance integration reports "not configured"; nothing else depends on it.
+app.config['CASHFLOW_SECRETS_KEY'] = os.environ.get('CASHFLOW_SECRETS_KEY')
 app.config['CASHFLOW_SESSION_TTL_HOURS'] = min(
     max(int(os.environ.get('CASHFLOW_SESSION_TTL_HOURS', '8760')), 1),
     8760,
@@ -680,6 +684,79 @@ class PromoItem(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False)
 
 
+class ZenmoneyIntegration(db.Model):
+    """The single integration-wide ZenMoney connection (row id 1).
+
+    `token_ciphertext` is Fernet-encrypted with CASHFLOW_SECRETS_KEY and is never
+    returned by the API. `refresh_started_at` is a lease that serializes refreshes
+    across threads and processes.
+    """
+
+    __tablename__ = 'zenmoney_integration'
+
+    id = db.Column(db.Integer, primary_key=True)
+    token_ciphertext = db.Column(db.Text)
+    token_set_at = db.Column(db.DateTime(timezone=True))
+    token_set_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey('auth_user.id', ondelete='SET NULL'),
+    )
+    server_timestamp = db.Column(db.BigInteger)
+    last_attempt_at = db.Column(db.DateTime(timezone=True))
+    last_success_at = db.Column(db.DateTime(timezone=True))
+    last_error_at = db.Column(db.DateTime(timezone=True))
+    last_error_kind = db.Column(db.String(32))
+    last_error_message = db.Column(db.String(200))
+    refresh_started_at = db.Column(db.DateTime(timezone=True))
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class ZenmoneyAccount(db.Model):
+    """Latest known balance of one ZenMoney account (no transaction data)."""
+
+    __tablename__ = 'zenmoney_account'
+
+    id = db.Column(db.String(64), primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    account_type = db.Column(db.String(16), nullable=False)
+    company_id = db.Column(db.Integer)
+    company_title = db.Column(db.String(200))
+    instrument_id = db.Column(db.Integer)
+    currency = db.Column(db.String(8))
+    sync_ids_json = db.Column(db.Text, nullable=False, default='[]')
+    balance = db.Column(db.Numeric(18, 2), nullable=False)
+    credit_limit = db.Column(db.Numeric(18, 2), nullable=False, default=0)
+    archived = db.Column(db.Boolean, nullable=False, default=False)
+    fetched_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    missing_since = db.Column(db.DateTime(timezone=True))
+
+
+class CardZenmoneyLink(db.Model):
+    """Confirmed (or automatically applied) card → ZenMoney account mapping.
+
+    A NULL account id records an explicit "no account" choice so automatic
+    matching never relinks a card the editor deliberately unlinked.
+    """
+
+    __tablename__ = 'card_zenmoney_link'
+    __table_args__ = (
+        db.CheckConstraint("source IN ('auto', 'manual')", name='ck_card_zenmoney_link_source'),
+    )
+
+    card_id = db.Column(
+        db.Integer,
+        db.ForeignKey('bank_card.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    account_id = db.Column(db.String(64))
+    source = db.Column(db.String(8), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    updated_by_id = db.Column(
+        db.Integer,
+        db.ForeignKey('auth_user.id', ondelete='SET NULL'),
+    )
+
+
 class AuthLoginAttempt(db.Model):
     __tablename__ = 'auth_login_attempt'
 
@@ -1017,6 +1094,10 @@ def _required_role():
         # resources and every query below is scoped to the authenticated
         # user, so viewers may manage their own records.
         return 'viewer'
+    if request.path.startswith('/api/card-balances/'):
+        # Mapping lists every ZenMoney account and changes links; refresh calls
+        # ZenMoney on demand. Plain GET /api/card-balances stays viewer.
+        return 'editor'
     if request.method in ('GET', 'HEAD'):
         return 'viewer'
     if request.path.startswith(('/api/banks', '/api/users', '/api/cards')):
@@ -1521,6 +1602,7 @@ def card_detail(card_id):
         return jsonify(card.to_dict())
 
     elif request.method == 'DELETE':
+        CardZenmoneyLink.query.filter_by(card_id=card.id).delete()
         db.session.delete(card)
         db.session.commit()
         return '', 204
@@ -2826,6 +2908,505 @@ def restore_promo(promo_id):
     return _promo_transition(
         promo_id, 'archived_at', set_value=False, conflict='Promo is not archived',
     )
+
+
+# ---------------------------------------------------------------------------
+# Card balances from ZenMoney
+# ---------------------------------------------------------------------------
+
+ZENMONEY_ROW_ID = 1
+# A snapshot older than this is refreshed automatically when a client reads it.
+ZENMONEY_AUTO_REFRESH_AFTER = timedelta(minutes=15)
+# After a failed attempt, automatic reads wait this long before calling again.
+ZENMONEY_ERROR_RETRY_AFTER = timedelta(minutes=5)
+# No two calls to ZenMoney closer than this, whoever asks.
+ZENMONEY_MIN_INTERVAL = timedelta(seconds=30)
+# A refresh lease older than this belongs to a crashed worker and may be taken over.
+ZENMONEY_LEASE = timedelta(minutes=2)
+ZENMONEY_TOKEN_ERRORS = {'token_invalid', 'token_unreadable'}
+
+# Indirection so tests replace the network call; production uses urllib.
+_zenmoney_fetch_diff = zenmoney.fetch_diff
+
+
+def _zenmoney_secrets_key():
+    return app.config.get('CASHFLOW_SECRETS_KEY')
+
+
+def _zenmoney_configured():
+    try:
+        zenmoney.secret_box(_zenmoney_secrets_key())
+    except zenmoney.SecretsUnavailable:
+        return False
+    return True
+
+
+def _zenmoney_integration(create=False):
+    integration = db.session.get(ZenmoneyIntegration, ZENMONEY_ROW_ID)
+    if integration is None and create:
+        integration = ZenmoneyIntegration(id=ZENMONEY_ROW_ID, updated_at=_utc_now())
+        db.session.add(integration)
+        db.session.flush()
+    return integration
+
+
+def _zenmoney_status(integration):
+    if not _zenmoney_configured():
+        return 'not_configured'
+    if integration is None or not integration.token_ciphertext:
+        return 'no_token'
+    if integration.last_error_kind in ZENMONEY_TOKEN_ERRORS:
+        return 'token_invalid'
+    if integration.last_success_at is None:
+        return 'error' if integration.last_error_at is not None else 'pending'
+    if integration.last_error_at is not None and (
+        _as_utc(integration.last_error_at) >= _as_utc(integration.last_success_at)
+    ):
+        return 'error'
+    return 'ok'
+
+
+def _zenmoney_status_dict(integration):
+    now = _utc_now()
+    lease = integration.refresh_started_at if integration is not None else None
+    last_error = None
+    if integration is not None and integration.last_error_kind:
+        last_error = {
+            'kind': integration.last_error_kind,
+            'message': integration.last_error_message,
+            'at': _iso_datetime(integration.last_error_at),
+        }
+    return {
+        'status': _zenmoney_status(integration),
+        'configured': _zenmoney_configured(),
+        'token_set': bool(integration is not None and integration.token_ciphertext),
+        'token_set_at': _iso_datetime(integration.token_set_at) if integration else None,
+        'last_attempt_at': _iso_datetime(integration.last_attempt_at) if integration else None,
+        'last_success_at': _iso_datetime(integration.last_success_at) if integration else None,
+        'last_error': last_error,
+        'refreshing': bool(lease is not None and _as_utc(lease) > now - ZENMONEY_LEASE),
+        'auto_refresh_after_seconds': int(ZENMONEY_AUTO_REFRESH_AFTER.total_seconds()),
+        'server_time': now.isoformat(),
+    }
+
+
+def _zenmoney_refresh_due(integration, now, *, force):
+    """Whether this read/request should call ZenMoney (the lease is checked separately)."""
+    last_attempt = integration.last_attempt_at
+    if last_attempt is not None and now - _as_utc(last_attempt) < ZENMONEY_MIN_INTERVAL:
+        return False
+    if force:
+        return True
+    if integration.last_error_kind in ZENMONEY_TOKEN_ERRORS:
+        # Only a new token (or an explicit refresh) retries a rejected token.
+        return False
+    last_success = integration.last_success_at
+    if last_success is not None and now - _as_utc(last_success) < ZENMONEY_AUTO_REFRESH_AFTER:
+        return False
+    failed_last = integration.last_error_at is not None and (
+        last_success is None or _as_utc(integration.last_error_at) >= _as_utc(last_success)
+    )
+    if failed_last and last_attempt is not None and (
+        now - _as_utc(last_attempt) < ZENMONEY_ERROR_RETRY_AFTER
+    ):
+        return False
+    return True
+
+
+def _zenmoney_fetch_accounts(token, server_timestamp, known_accounts):
+    payload = _zenmoney_fetch_diff(
+        token,
+        server_timestamp=server_timestamp or 0,
+        force_fetch=('account',),
+    )
+    parsed = zenmoney.parse_diff(payload)
+    companies = {
+        account.company_id: account.company_title
+        for account in known_accounts.values()
+        if account.company_id is not None and account.company_title
+    }
+    instruments = {
+        account.instrument_id: account.currency
+        for account in known_accounts.values()
+        if account.instrument_id is not None and account.currency
+    }
+    companies.update(parsed['companies'])
+    instruments.update(parsed['instruments'])
+    unresolved = any(
+        (item['company_id'] is not None and item['company_id'] not in companies)
+        or (item['instrument_id'] is not None and item['instrument_id'] not in instruments)
+        for item in parsed['accounts']
+    )
+    if unresolved:
+        # An incremental diff only carries changed reference rows; force them once.
+        references = zenmoney.parse_diff(_zenmoney_fetch_diff(
+            token,
+            server_timestamp=parsed['server_timestamp'] or server_timestamp or 0,
+            force_fetch=('instrument', 'company'),
+        ))
+        companies.update(references['companies'])
+        instruments.update(references['instruments'])
+    parsed['companies'] = companies
+    parsed['instruments'] = instruments
+    return parsed
+
+
+def _apply_zenmoney_snapshot(parsed, fetched_at):
+    known = {account.id: account for account in ZenmoneyAccount.query.all()}
+    seen = set()
+    for item in parsed['accounts']:
+        seen.add(item['id'])
+        account = known.get(item['id'])
+        if account is None:
+            account = ZenmoneyAccount(id=item['id'])
+            db.session.add(account)
+        account.title = item['title']
+        account.account_type = item['type']
+        account.company_id = item['company_id']
+        account.company_title = parsed['companies'].get(item['company_id'])
+        account.instrument_id = item['instrument_id']
+        account.currency = parsed['instruments'].get(item['instrument_id'])
+        account.sync_ids_json = json.dumps(item['sync_ids'])
+        account.balance = item['balance']
+        account.credit_limit = item['credit_limit']
+        account.archived = item['archived']
+        account.fetched_at = fetched_at
+        account.missing_since = None
+    # forceFetch returns every account, so an absent one was deleted in ZenMoney.
+    for account_id, account in known.items():
+        if account_id not in seen and account.missing_since is None:
+            account.missing_since = fetched_at
+    db.session.flush()
+
+
+def _card_bank_keys():
+    keys = {}
+    for bank in Bank.query.all():
+        keys[bank.id] = bank.bank_key or bank_key_for_name(bank.name)
+    return keys
+
+
+def _zenmoney_match_accounts():
+    return [
+        {
+            'id': account.id,
+            'sync_ids': json.loads(account.sync_ids_json or '[]'),
+            'company_bank_key': zenmoney.bank_key_for_company(account.company_title),
+            'archived': bool(account.archived),
+            'missing': account.missing_since is not None,
+        }
+        for account in ZenmoneyAccount.query.order_by(ZenmoneyAccount.id).all()
+    ]
+
+
+def _card_suggestions(card, bank_keys, accounts):
+    return zenmoney.suggest_accounts(
+        {'last_four_digits': card.last_four_digits, 'bank_key': bank_keys.get(card.bank_id)},
+        accounts,
+    )
+
+
+def _auto_link_cards(now):
+    linked = {link.card_id for link in CardZenmoneyLink.query.all()}
+    bank_keys = _card_bank_keys()
+    accounts = _zenmoney_match_accounts()
+    for card in BankCard.query.order_by(BankCard.id).all():
+        if card.id in linked:
+            continue
+        account_id = zenmoney.unambiguous_match(_card_suggestions(card, bank_keys, accounts))
+        if account_id is not None:
+            db.session.add(CardZenmoneyLink(
+                card_id=card.id,
+                account_id=account_id,
+                source='auto',
+                updated_at=now,
+            ))
+    db.session.flush()
+
+
+def _record_zenmoney_failure(kind, message):
+    integration = _zenmoney_integration()
+    now = _utc_now()
+    integration.last_error_kind = kind
+    integration.last_error_message = (message or '')[:200]
+    integration.last_error_at = now
+    integration.refresh_started_at = None
+    integration.updated_at = now
+    db.session.commit()
+    app.logger.warning('ZenMoney refresh failed: %s', kind)
+
+
+def _refresh_zenmoney(*, force=False):
+    """Refresh the ZenMoney snapshot when due.
+
+    Returns one of: 'refreshed', 'failed', 'not_due', 'busy', 'unavailable'.
+    The conditional UPDATE is the lock: only one caller (thread or process) wins
+    the lease, and its WHERE clause repeats the minimum interval so a caller that
+    checked "due" before another refresh finished cannot call ZenMoney again.
+    """
+    key = _zenmoney_secrets_key()
+    if not _zenmoney_configured():
+        return 'unavailable'
+    integration = _zenmoney_integration()
+    if integration is None or not integration.token_ciphertext:
+        return 'unavailable'
+    now = _utc_now()
+    if not _zenmoney_refresh_due(integration, now, force=force):
+        return 'not_due'
+    claimed = db.session.execute(
+        update(ZenmoneyIntegration)
+        .where(
+            ZenmoneyIntegration.id == ZENMONEY_ROW_ID,
+            ZenmoneyIntegration.token_ciphertext.is_not(None),
+            or_(
+                ZenmoneyIntegration.refresh_started_at.is_(None),
+                ZenmoneyIntegration.refresh_started_at < now - ZENMONEY_LEASE,
+            ),
+            or_(
+                ZenmoneyIntegration.last_attempt_at.is_(None),
+                ZenmoneyIntegration.last_attempt_at < now - ZENMONEY_MIN_INTERVAL,
+            ),
+        )
+        .values(refresh_started_at=now, last_attempt_at=now, updated_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    db.session.commit()
+    if claimed.rowcount != 1:
+        return 'busy'
+
+    integration = _zenmoney_integration()
+    db.session.refresh(integration)
+    try:
+        token = zenmoney.decrypt_secret(key, integration.token_ciphertext)
+    except zenmoney.SecretUnreadable:
+        _record_zenmoney_failure(
+            'token_unreadable',
+            'The stored token cannot be decrypted with CASHFLOW_SECRETS_KEY; re-enter it',
+        )
+        return 'failed'
+    known = {account.id: account for account in ZenmoneyAccount.query.all()}
+    try:
+        parsed = _zenmoney_fetch_accounts(token, integration.server_timestamp, known)
+    except zenmoney.ZenMoneyError as error:
+        db.session.rollback()
+        _record_zenmoney_failure(error.kind, str(error))
+        return 'failed'
+    except Exception:
+        db.session.rollback()
+        _record_zenmoney_failure('internal', 'Unexpected error while reading ZenMoney')
+        raise
+    finally:
+        del token
+    fetched_at = _utc_now()
+    try:
+        _apply_zenmoney_snapshot(parsed, fetched_at)
+        _auto_link_cards(fetched_at)
+        integration = _zenmoney_integration()
+        if parsed['server_timestamp']:
+            integration.server_timestamp = parsed['server_timestamp']
+        integration.last_success_at = fetched_at
+        integration.last_error_kind = None
+        integration.last_error_message = None
+        integration.last_error_at = None
+        integration.refresh_started_at = None
+        integration.updated_at = fetched_at
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        _record_zenmoney_failure('internal', 'Unexpected error while saving balances')
+        raise
+    return 'refreshed'
+
+
+def _money_or_none(value):
+    return _money_json(value) if value is not None else None
+
+
+def _zenmoney_account_dict(account):
+    return {
+        'id': account.id,
+        'title': account.title,
+        'type': account.account_type,
+        'company_title': account.company_title,
+        'currency': account.currency,
+        'sync_ids': json.loads(account.sync_ids_json or '[]'),
+        'balance': _money_json(account.balance),
+        'credit_limit': _money_json(account.credit_limit or 0),
+        'available': _money_json(zenmoney.available_amount(
+            account.account_type, Decimal(account.balance), Decimal(account.credit_limit or 0),
+        )),
+        'archived': bool(account.archived),
+        'missing': account.missing_since is not None,
+        'fetched_at': _iso_datetime(account.fetched_at),
+    }
+
+
+def _card_balances_payload(outcome=None):
+    integration = _zenmoney_integration()
+    status = _zenmoney_status_dict(integration)
+    if outcome is not None:
+        status['refresh_outcome'] = outcome
+    balances = []
+    if status['status'] not in ('not_configured', 'no_token'):
+        rows = db.session.execute(
+            select(CardZenmoneyLink, ZenmoneyAccount)
+            .join(ZenmoneyAccount, ZenmoneyAccount.id == CardZenmoneyLink.account_id)
+            .where(ZenmoneyAccount.missing_since.is_(None))
+            .order_by(CardZenmoneyLink.card_id)
+        ).all()
+        for link, account in rows:
+            balance = Decimal(account.balance)
+            credit_limit = Decimal(account.credit_limit or 0)
+            balances.append({
+                'card_id': link.card_id,
+                'account_id': account.id,
+                'account_title': account.title,
+                'account_type': account.account_type,
+                'balance': _money_json(balance),
+                'credit_limit': _money_json(credit_limit),
+                'available': _money_json(
+                    zenmoney.available_amount(account.account_type, balance, credit_limit)
+                ),
+                'currency': account.currency,
+                'fetched_at': _iso_datetime(account.fetched_at),
+                'link_source': link.source,
+            })
+    return {'integration': status, 'balances': balances}
+
+
+@app.get('/api/card-balances')
+def card_balances():
+    """Card balances with their ZenMoney fetch time; stale snapshots refresh first."""
+    outcome = None
+    if request.args.get('refresh', 'auto') != 'never':
+        outcome = _refresh_zenmoney(force=False)
+    return jsonify(_card_balances_payload(outcome))
+
+
+@app.post('/api/card-balances/refresh')
+def refresh_card_balances():
+    outcome = _refresh_zenmoney(force=True)
+    return jsonify(_card_balances_payload(outcome))
+
+
+def _card_mapping_entry(card, link, bank_keys, accounts):
+    suggestions = _card_suggestions(card, bank_keys, accounts)
+    return {
+        'card_id': card.id,
+        'link': None if link is None else {
+            'account_id': link.account_id,
+            'source': link.source,
+            'updated_at': _iso_datetime(link.updated_at),
+        },
+        'suggestions': suggestions,
+        'ambiguous': len(suggestions) > 1 and zenmoney.unambiguous_match(suggestions) is None,
+    }
+
+
+@app.get('/api/card-balances/mapping')
+def card_balance_mapping():
+    links = {link.card_id: link for link in CardZenmoneyLink.query.all()}
+    bank_keys = _card_bank_keys()
+    match_accounts = _zenmoney_match_accounts()
+    accounts = ZenmoneyAccount.query.order_by(
+        ZenmoneyAccount.archived, ZenmoneyAccount.title, ZenmoneyAccount.id,
+    ).all()
+    cards = BankCard.query.order_by(BankCard.id).all()
+    return jsonify({
+        'integration': _zenmoney_status_dict(_zenmoney_integration()),
+        'accounts': [_zenmoney_account_dict(account) for account in accounts],
+        'cards': [
+            _card_mapping_entry(card, links.get(card.id), bank_keys, match_accounts)
+            for card in cards
+        ],
+    })
+
+
+@app.route('/api/card-balances/mapping/<int:card_id>', methods=['PUT', 'DELETE'])
+def card_balance_mapping_detail(card_id):
+    card = db.session.get(BankCard, card_id)
+    if card is None:
+        return jsonify({'error': 'Card not found'}), 404
+    link = db.session.get(CardZenmoneyLink, card_id)
+    if request.method == 'DELETE':
+        # Back to automatic matching on the next refresh.
+        if link is not None:
+            db.session.delete(link)
+            db.session.commit()
+        return '', 204
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or 'account_id' not in payload:
+        return jsonify({'error': 'account_id is required (null means no account)'}), 400
+    account_id = payload['account_id']
+    if account_id is not None:
+        if not isinstance(account_id, str) or db.session.get(ZenmoneyAccount, account_id) is None:
+            return jsonify({'error': 'ZenMoney account not found'}), 404
+    now = _utc_now()
+    if link is None:
+        link = CardZenmoneyLink(card_id=card_id)
+        db.session.add(link)
+    link.account_id = account_id
+    link.source = 'manual'
+    link.updated_at = now
+    link.updated_by_id = g.auth_user.id
+    db.session.commit()
+    return jsonify(_card_mapping_entry(
+        card, link, _card_bank_keys(), _zenmoney_match_accounts(),
+    ))
+
+
+@app.get('/api/admin/zenmoney')
+def zenmoney_settings():
+    return jsonify(_zenmoney_status_dict(_zenmoney_integration()))
+
+
+@app.route('/api/admin/zenmoney/token', methods=['PUT', 'DELETE'])
+def zenmoney_token():
+    if request.method == 'DELETE':
+        integration = _zenmoney_integration()
+        if integration is not None:
+            integration.token_ciphertext = None
+            integration.token_set_at = None
+            integration.token_set_by_id = None
+            integration.server_timestamp = None
+            integration.last_error_kind = None
+            integration.last_error_message = None
+            integration.last_error_at = None
+            integration.last_success_at = None
+            integration.updated_at = _utc_now()
+            # Balances without a connection would only age; links stay for a new token.
+            ZenmoneyAccount.query.delete()
+            db.session.commit()
+        return jsonify(_zenmoney_status_dict(_zenmoney_integration()))
+
+    if not _zenmoney_configured():
+        return jsonify({
+            'error': 'secrets_not_configured',
+            'message': 'CASHFLOW_SECRETS_KEY is not configured on the server',
+        }), 503
+    payload = request.get_json(silent=True) or {}
+    try:
+        token = zenmoney.validated_token(payload.get('token'))
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    now = _utc_now()
+    integration = _zenmoney_integration(create=True)
+    integration.token_ciphertext = zenmoney.encrypt_secret(_zenmoney_secrets_key(), token)
+    del token
+    integration.token_set_at = now
+    integration.token_set_by_id = g.auth_user.id
+    # A full diff re-reads every account, also when the token belongs to someone else.
+    integration.server_timestamp = None
+    integration.last_attempt_at = None
+    integration.last_error_kind = None
+    integration.last_error_message = None
+    integration.last_error_at = None
+    integration.updated_at = now
+    db.session.commit()
+    outcome = _refresh_zenmoney(force=True)
+    status = _zenmoney_status_dict(_zenmoney_integration())
+    status['refresh_outcome'] = outcome
+    return jsonify(status)
 
 
 MCC_PATTERN = re.compile(r'^\d{4}$')

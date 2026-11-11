@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/mcc_lookup_model.dart';
 import '../../utils/identity_icons.dart';
 import 'benefit_states_view.dart';
+import 'card_balance_label.dart';
 import 'offer_mcc_rules_section.dart';
 
 /// Where a purchase with one MCC earns: the active offers whose bank category
@@ -229,6 +230,8 @@ class _EarningOfferRow extends StatelessWidget {
                       ].join(' · '),
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    if (item.balance != null)
+                      CardBalanceLabel(view: item.balance!, fontSize: 10),
                   ],
                 ),
               ),

@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/card_balance_model.dart';
 import '../models/card_model.dart';
 import '../models/bank_model.dart';
 import '../models/user_model.dart';
@@ -17,6 +18,7 @@ import '../models/partner_offer_model.dart';
 import '../models/planned_payment_model.dart';
 import '../models/promo_model.dart';
 import '../models/subscription_model.dart';
+import '../services/card_balance_api.dart';
 import '../services/planned_payment_api.dart';
 import '../services/promo_api.dart';
 import '../services/promo_text_fallback.dart';
@@ -98,6 +100,7 @@ class DataProvider with ChangeNotifier {
     );
     _paymentsApi = PlannedPaymentApi(_client, _apiUri);
     _promoApi = PromoApi(_client, _apiUri);
+    _cardBalanceApi = CardBalanceApi(_client, _apiUri);
     _notificationTapSubscription = _reminders.notificationTaps.listen((target) {
       pendingReminderTarget = target;
       notifyListeners();
@@ -123,6 +126,7 @@ class DataProvider with ChangeNotifier {
   final ReminderNotificationService _reminders;
   late final PlannedPaymentApi _paymentsApi;
   late final PromoApi _promoApi;
+  late final CardBalanceApi _cardBalanceApi;
   late final StreamSubscription<ReminderTarget> _notificationTapSubscription;
   String? _accessToken;
   DateTime? _sessionExpiresAt;
@@ -134,6 +138,7 @@ class DataProvider with ChangeNotifier {
   int _subscriptionLoadVersion = 0;
   int _paymentLoadVersion = 0;
   int _promoLoadVersion = 0;
+  int _cardBalanceLoadVersion = 0;
   bool _isCurrentSession(int generation) => generation == _sessionGeneration;
 
   AuthIdentity? currentAuthUser;
@@ -183,6 +188,14 @@ class DataProvider with ChangeNotifier {
   String? plannedPaymentsError;
   bool promosLoading = false;
   String? promosError;
+
+  /// Card balances from ZenMoney (via the server), cached with `fetched_at`.
+  CardBalancesSnapshot? cardBalances;
+
+  /// The last attempt to reach the server failed; [cardBalances] is the
+  /// cached copy and is shown as possibly outdated.
+  bool cardBalancesFromCache = false;
+  bool cardBalancesLoading = false;
 
   /// The item a tapped reminder points at, until the shell consumes it.
   ReminderTarget? pendingReminderTarget;
@@ -249,6 +262,7 @@ class DataProvider with ChangeNotifier {
     // of this account instead of deleting the account-scoped cache.
     final promosCacheKey =
         promos.any((item) => item.isPending) ? null : _promosCacheKey;
+    final cardBalancesCacheKey = _cardBalancesCacheKey;
     _sessionGeneration++;
     _accessToken = null;
     _sessionExpiresAt = null;
@@ -270,6 +284,8 @@ class DataProvider with ChangeNotifier {
     plannedPaymentsError = null;
     promos = [];
     promosError = null;
+    cardBalances = null;
+    cardBalancesFromCache = false;
     pendingReminderTarget = null;
     try {
       await Future.wait([
@@ -281,6 +297,8 @@ class DataProvider with ChangeNotifier {
         if (paymentsCacheKey != null)
           _removeSubscriptionsCache(paymentsCacheKey),
         if (promosCacheKey != null) _removeSubscriptionsCache(promosCacheKey),
+        if (cardBalancesCacheKey != null)
+          _removeSubscriptionsCache(cardBalancesCacheKey),
         _synchronizeReminders(),
       ]);
     } finally {
@@ -417,6 +435,7 @@ class DataProvider with ChangeNotifier {
       await _loadSubscriptionsCache();
       await _loadPlannedPaymentsCache();
       await _loadPromosCache();
+      await loadCardBalancesCache();
       await _loadPartnerOffersCache();
       await _loadMccCache();
       notifyListeners();
@@ -686,6 +705,7 @@ class DataProvider with ChangeNotifier {
       await _loadSubscriptionsCache();
       await _loadPlannedPaymentsCache();
       await _loadPromosCache();
+      await loadCardBalancesCache();
       await _loadPartnerOffersCache();
       await _synchronizeReminders();
       log.event('startup: account caches loaded '
@@ -848,6 +868,8 @@ class DataProvider with ChangeNotifier {
       if (!current()) return false;
       await fetchPromos();
       if (!current()) return false;
+      await fetchCardBalances();
+      if (!current()) return false;
       await fetchPartnerOffers();
       if (!current()) return false;
       notifyListeners();
@@ -857,6 +879,7 @@ class DataProvider with ChangeNotifier {
       debugPrint('Error fetching data: $e');
       if (!current()) return false;
       primaryDataPhase = PrimaryDataPhase.failed;
+      if (cardBalances != null) cardBalancesFromCache = true;
       primaryDataError = 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ð±Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ Ð´Ð°Ð½Ð½Ñ‹Ðµ';
       notifyListeners();
       return false;
@@ -1376,6 +1399,91 @@ class DataProvider with ChangeNotifier {
 
   Future<void> _removeSubscriptionsCache(String key) async {
     await (await SharedPreferences.getInstance()).remove(key);
+  }
+
+  // Card balances from ZenMoney. The server owns the token and the refresh;
+  // the app caches the last answer with each balance's `fetched_at`.
+
+  /// The balance to show for [cardId], or null when the integration is off or
+  /// the card has no linked ZenMoney account (nothing is shown then).
+  CardBalanceView? cardBalanceView(int? cardId) {
+    final snapshot = cardBalances;
+    final balance = snapshot?.forCard(cardId);
+    if (snapshot == null || balance == null) return null;
+    return CardBalanceView(
+      balance: balance,
+      offline: cardBalancesFromCache,
+      notUpdating: snapshot.status == CardBalanceStatus.error ||
+          snapshot.status == CardBalanceStatus.tokenInvalid,
+    );
+  }
+
+  /// Loads balances. The server refreshes from ZenMoney when its snapshot is
+  /// stale; [force] asks it to refresh now (editor+, throttled server-side).
+  /// A failure keeps the cached balances and marks them as cached.
+  Future<bool> fetchCardBalances({bool force = false}) async {
+    final session = _sessionGeneration;
+    final version = ++_cardBalanceLoadVersion;
+    bool current() =>
+        _isCurrentSession(session) && version == _cardBalanceLoadVersion;
+    cardBalancesLoading = true;
+    notifyListeners();
+    try {
+      final snapshot = force && canEdit
+          ? await _cardBalanceApi.refresh()
+          : await _cardBalanceApi.balances();
+      if (!current()) return false;
+      cardBalances = snapshot;
+      cardBalancesFromCache = false;
+      await _saveCardBalancesCache();
+      return true;
+    } catch (error) {
+      if (!current()) return false;
+      debugPrint('Card balances unavailable: $error');
+      if (error is ApiException && error.statusCode == 404) {
+        // An older server without the integration: show nothing.
+        cardBalances = null;
+        cardBalancesFromCache = false;
+      } else if (cardBalances != null) {
+        cardBalancesFromCache = true;
+      }
+      return false;
+    } finally {
+      if (current()) {
+        cardBalancesLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  CardBalanceApi get cardBalanceApi => _cardBalanceApi;
+
+  String? get _cardBalancesCacheKey {
+    final authUserId = currentAuthUser?.id;
+    return authUserId == null ? null : _dataCacheKey('cardBalances');
+  }
+
+  Future<void> _saveCardBalancesCache() async {
+    final key = _cardBalancesCacheKey;
+    final snapshot = cardBalances;
+    if (key == null || snapshot == null) return;
+    final value = json.encode(snapshot.toJson());
+    await (await SharedPreferences.getInstance()).setString(key, value);
+  }
+
+  Future<void> loadCardBalancesCache() async {
+    final key = _cardBalancesCacheKey;
+    if (key == null) return;
+    final cached = (await SharedPreferences.getInstance()).getString(key);
+    if (cached == null || key != _cardBalancesCacheKey) return;
+    try {
+      cardBalances = CardBalancesSnapshot.fromJson(
+          json.decode(cached) as Map<String, dynamic>);
+      // Until the server answers, the copy may be outdated.
+      cardBalancesFromCache = true;
+    } catch (error) {
+      debugPrint('Could not load card balances cache: $error');
+    }
   }
 
   // Planned payments ("Платежи": recurring and one-off obligations).

@@ -33,7 +33,8 @@ class CashbackScreen extends StatelessWidget {
                   bankIconKey: context.bankIconKey,
                   userName: context.ownerName,
                   userIconKey: context.ownerIconKey,
-                  lastFourDigits: context.card.lastFourDigits);
+                  lastFourDigits: context.card.lastFourDigits,
+                  balance: provider.cardBalanceView(context.card.id));
             },
           ).toList();
           return BenefitStatesView(

@@ -60,6 +60,15 @@ Main user flows:
   An item created without network is cached with `pending` and a `client_id`
   and uploaded idempotently by `fetchPromos()`.
 - `lib/screens/cashback_screen.dart` shows searchable active cashback categories and benefit states.
+- Card balances (ZenMoney via the server): `models/card_balance_model.dart`,
+  `services/card_balance_api.dart`, `DataProvider.fetchCardBalances()` /
+  `cardBalanceView(cardId)` (account-scoped cache `cardBalances`; a cached copy is
+  flagged until the server answers). Render only through
+  `screens/widgets/card_balance_label.dart`, which always pairs the amount with its
+  `fetched_at` freshness and mutes data older than 6 h, cached or not updating.
+  `cardBalanceView` returns null when the integration is off or the card is
+  unmapped — show nothing then. Mapping and the admin token live in
+  `screens/settings/card_balances_settings_screen.dart`.
 - `lib/screens/monthly_cashback_screen.dart` handles monthly category selection and bulk category entry.
 - `lib/screens/partner_offers_screen.dart` shows the account-scoped partner offer catalogue;
   filtering, sorting and the category breakdown live in `lib/services/partner_offer_catalog.dart`.
@@ -172,6 +181,13 @@ Known endpoints:
   `GET|PUT|DELETE /api/promos/{id}`, `POST /api/promos/{id}/use|unuse|archive|restore`
 - `POST /api/promos/parse` (`{text}` → pre-filled fields incl. `expires_at`,
   `expiry_phrase`, `expires_at_confidence`; stores nothing)
+- `GET /api/card-balances` (integration status and, per mapped card, `balance`,
+  `credit_limit`, `available`, `currency`, `fetched_at`; the server first refreshes a
+  ZenMoney snapshot older than 15 min), `POST /api/card-balances/refresh` (editor+,
+  throttled), `GET /api/card-balances/mapping` and `PUT|DELETE
+  /api/card-balances/mapping/{card_id}` (editor+; `{"account_id": null}` = no account,
+  DELETE = automatic again), `GET /api/admin/zenmoney`, `PUT|DELETE
+  /api/admin/zenmoney/token` (admin; the token is write-only)
 - `GET /api/mcc` (code and title of every reference MCC; loaded once into
   `DataProvider.mccCatalog` for search)
 - `GET /api/mcc/offline-snapshot?schema=3&as_of=` (authenticated catalogue, normalized

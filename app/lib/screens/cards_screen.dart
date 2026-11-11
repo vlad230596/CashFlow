@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/card_balance_model.dart';
 import '../models/card_model.dart';
 import '../providers/data_provider.dart';
 import '../services/card_cashback_overview.dart';
@@ -8,6 +9,7 @@ import '../services/card_context.dart';
 import '../utils/cashback_period.dart';
 import '../utils/cashflow_formatters.dart';
 import '../utils/identity_icons.dart';
+import 'widgets/card_balance_label.dart';
 import 'widgets/keyboard_first_back.dart';
 import 'card_cashback_screen.dart';
 
@@ -70,7 +72,14 @@ class _CardsScreenState extends State<CardsScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720),
             child: RefreshIndicator(
-              onRefresh: provider.fetchAllData,
+              onRefresh: () async {
+                await provider.fetchAllData();
+                // Pulling asks the server to read ZenMoney now (editors);
+                // viewers get the server's automatic refresh when stale.
+                if (provider.canEdit) {
+                  await provider.fetchCardBalances(force: true);
+                }
+              },
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                 children: [
@@ -103,6 +112,7 @@ class _CardsScreenState extends State<CardsScreen> {
                       cardContext: row.card,
                       overview: row.overview,
                       marker: personMarker(row.card.card.userId, owners),
+                      balance: provider.cardBalanceView(row.card.card.id),
                       onTap: () => _open(row.card.card),
                     ),
                 ],
@@ -131,12 +141,14 @@ class _CardTile extends StatelessWidget {
     required this.overview,
     required this.marker,
     required this.onTap,
+    this.balance,
   });
 
   final CardContext cardContext;
   final CardCashbackOverview overview;
   final PersonMarker marker;
   final VoidCallback onTap;
+  final CardBalanceView? balance;
 
   @override
   Widget build(BuildContext context) {
@@ -188,6 +200,10 @@ class _CardTile extends StatelessWidget {
                   const Icon(Icons.chevron_right),
                 ],
               ),
+              if (balance != null) ...[
+                const SizedBox(height: 6),
+                CardBalanceLabel(view: balance!, fontSize: 12),
+              ],
               const SizedBox(height: 8),
               if (selected.isEmpty)
                 Text(

@@ -2,6 +2,7 @@ import '../../utils/cashflow_formatters.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/canonical_category_model.dart';
+import '../../models/card_balance_model.dart';
 import '../../models/cashback_category_model.dart';
 import '../../models/mcc_lookup_model.dart';
 import '../../providers/data_provider.dart';
@@ -10,6 +11,7 @@ import '../../utils/category_info.dart';
 import '../../utils/identity_icons.dart';
 import '../card_cashback_screen.dart';
 import '../cashback_category_detail_screen.dart';
+import 'card_balance_label.dart';
 import 'cashback_limits_label.dart';
 import 'mcc_payment_options_view.dart';
 import 'keyboard_first_back.dart';
@@ -25,6 +27,7 @@ class BenefitItemData {
     this.userIconKey,
     this.userMarker,
     this.lastFourDigits,
+    this.balance,
   });
 
   final CashbackCategoryModel category;
@@ -38,6 +41,9 @@ class BenefitItemData {
   /// Short visual marker of the card owner; see [personMarker].
   final PersonMarker? userMarker;
   final String? lastFourDigits;
+
+  /// Card balance from ZenMoney with its fetch time; null shows nothing.
+  final CardBalanceView? balance;
 }
 
 class BenefitMccSearchResult {
@@ -104,6 +110,7 @@ class BenefitPurchaseOption {
     this.reason,
     this.chainLabel,
     this.bankColor = const Color(0xFF17396D),
+    this.balance,
   });
 
   final String bankMark;
@@ -118,6 +125,9 @@ class BenefitPurchaseOption {
   final String? reason;
   final String? chainLabel;
   final Color bankColor;
+
+  /// Card balance from ZenMoney with its fetch time; null shows nothing.
+  final CardBalanceView? balance;
 }
 
 class BenefitStatesView extends StatefulWidget {
@@ -844,6 +854,14 @@ class _BestPurchaseCard extends StatelessWidget {
                             color: Color(0xFFDCEAFF),
                           ),
                         ),
+                        if (option.balance != null) ...[
+                          const SizedBox(height: 3),
+                          CardBalanceLabel(
+                            view: option.balance!,
+                            fontSize: 10,
+                            onDark: true,
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -1020,6 +1038,8 @@ class _AlternativePurchaseRow extends StatelessWidget {
                                 Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                     ),
+                    if (option.balance != null)
+                      CardBalanceLabel(view: option.balance!, fontSize: 10),
                     if (option.matchLabel != null)
                       Text(
                         option.matchLabel!,
@@ -2016,6 +2036,8 @@ class _OfferRow extends StatelessWidget {
                       minPurchaseAmount: category.minPurchaseAmount,
                       fontSize: 10,
                     ),
+                    if (item.balance != null)
+                      CardBalanceLabel(view: item.balance!, fontSize: 10),
                   ],
                 ),
               ),
@@ -2235,6 +2257,10 @@ class _BenefitListCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (item.balance != null) ...[
+                      const SizedBox(height: 3),
+                      CardBalanceLabel(view: item.balance!, fontSize: 10),
+                    ],
                   ],
                 ),
               ),
@@ -2440,6 +2466,10 @@ class _DetailCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (item.balance != null) ...[
+              const SizedBox(height: 8),
+              CardBalanceLabel(view: item.balance!, fontSize: 13),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 4,

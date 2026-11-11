@@ -5,6 +5,7 @@ description = "CashFlow HTTP API"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "alembic>=1.16,<2",
+  "cryptography==50.0.2",
   "flask>=3.1,<4",
   "flask-cors>=6,<7",
   "flask-sqlalchemy>=3.1,<4",
