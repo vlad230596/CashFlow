@@ -13,7 +13,7 @@ import 'subscription_notification_runtime.dart';
 ///
 /// Each kind owns a disjoint block of Android notification ids
 /// (`block * blockSize` .. `(block + 1) * blockSize - 1`) and a typed tap
-/// payload `"<key>:<entityId>"`. To add a kind (e.g. expiring promo codes):
+/// payload `"<key>:<entityId>"`. To add a kind:
 /// add a constant with an unused [block] and its own channel, append it to
 /// [values], map entities to [ReminderSpec]s, and call
 /// `ReminderNotificationService.synchronize(kind, specs)`. Never reuse or
@@ -49,9 +49,15 @@ class ReminderKind {
     channelDescription: 'Напоминания об оплате регулярных и разовых платежей',
   );
 
-  // Block 3 is reserved for promo codes / expiring bonuses.
+  static const promo = ReminderKind._(
+    key: 'promo',
+    block: 3,
+    channelId: 'promo_expiry',
+    channelName: 'Промокоды и баллы',
+    channelDescription: 'Напоминания об истечении промокодов и сгорании баллов',
+  );
 
-  static const values = [subscription, payment];
+  static const values = [subscription, payment, promo];
 
   /// Ids per kind block; blocks 1..6 fit below the legacy range.
   static const blockSize = 100000000;

@@ -1,4 +1,5 @@
 import '../models/planned_payment_model.dart';
+import '../models/promo_model.dart';
 import '../models/subscription_model.dart';
 import 'reminder_notification_service.dart';
 
@@ -37,6 +38,35 @@ List<ReminderSpec> paymentReminderSpecs(
                 '${reminderAmount(payment.expectedAmount)} ${payment.currency}'
                 ' — оплатить до ${_date(payment.nextDueDate)}'
                 '${days == 0 ? '' : ' (${_inDays(days)})'}',
+          ),
+    ];
+
+/// Active, synced items with a known expiry date; [today] is the Moscow day.
+List<ReminderSpec> promoReminderSpecs(
+  Iterable<PromoModel> promos,
+  DateTime today,
+) =>
+    [
+      for (final promo in promos)
+        if (promo.id != null &&
+            !promo.isPending &&
+            promo.expiresAt != null &&
+            promo.status(today) == PromoStatus.active)
+          ReminderSpec(
+            entityId: promo.id!,
+            dueDate: promo.expiresAt!,
+            reminderDays: promo.reminderDays,
+            title: (days) => days == 0
+                ? 'Последний день: ${promo.title}'
+                : promo.isPoints
+                    ? 'Скоро сгорят баллы: ${promo.title}'
+                    : 'Скоро истекает: ${promo.title}',
+            body: (days) => [
+              '${promo.isPoints ? 'Сгорят' : 'Действует до'} '
+                  '${promo.isPoints ? _inDays(days + 1) : _date(promo.expiresAt!)}',
+              if (promo.isPoints) 'последний день ${_date(promo.expiresAt!)}',
+              if (promo.promoCode != null) 'код ${promo.promoCode}',
+            ].join(' · '),
           ),
     ];
 

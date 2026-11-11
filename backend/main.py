@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import payment_schedule
+import promo_parser
 from bank_identity import BANK_IMPORT_NAMES, bank_key_for_name, validated_bank_key
 from business_time import MOSCOW, utc_naive_now
 from business_time import as_utc as _as_utc
@@ -636,6 +637,49 @@ class PlannedPaymentRecord(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), nullable=False)
 
 
+class PromoItem(db.Model):
+    """A saved promo code / offer or an expiring points balance."""
+
+    __tablename__ = 'promo_item'
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('promo', 'points')", name='ck_promo_item_kind'),
+        db.CheckConstraint(
+            'points_amount IS NULL OR points_amount >= 0',
+            name='ck_promo_item_points_amount',
+        ),
+        db.CheckConstraint(
+            'starts_at IS NULL OR expires_at IS NULL OR starts_at <= expires_at',
+            name='ck_promo_item_period',
+        ),
+        db.UniqueConstraint('auth_user_id', 'client_id', name='uq_promo_item_owner_client'),
+        db.Index('ix_promo_item_owner_expires', 'auth_user_id', 'expires_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    auth_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('auth_user.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    client_id = db.Column(db.String(64))
+    kind = db.Column(db.String(16), nullable=False)
+    title = db.Column(db.String(200), nullable=False)
+    merchant = db.Column(db.String(200))
+    promo_code = db.Column(db.String(100))
+    discount = db.Column(db.String(100))
+    points_amount = db.Column(db.Numeric(18, 2))
+    points_unit = db.Column(db.String(40))
+    description = db.Column(db.Text)
+    source_text = db.Column(db.Text)
+    starts_at = db.Column(db.Date)
+    expires_at = db.Column(db.Date)
+    reminder_days_json = db.Column(db.Text, nullable=False, default='[3, 1]')
+    used_at = db.Column(db.DateTime(timezone=True))
+    archived_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
 class AuthLoginAttempt(db.Model):
     __tablename__ = 'auth_login_attempt'
 
@@ -968,10 +1012,10 @@ def _required_role():
         or request.path.startswith('/api/partner-offers/hide-rules')
     ):
         return 'viewer'
-    if request.path.startswith(('/api/subscriptions', '/api/payments')):
-        # Subscriptions and planned payments are personal resources and every
-        # query below is scoped to the authenticated user, so viewers may
-        # manage their own records.
+    if request.path.startswith(('/api/subscriptions', '/api/payments', '/api/promos')):
+        # Subscriptions, planned payments and promo codes are personal
+        # resources and every query below is scoped to the authenticated
+        # user, so viewers may manage their own records.
         return 'viewer'
     if request.method in ('GET', 'HEAD'):
         return 'viewer'
@@ -2486,6 +2530,302 @@ def undo_planned_payment_record(payment_id, record_id):
     db.session.delete(latest)
     db.session.commit()
     return jsonify(_planned_payment_to_dict(payment, include_history=True))
+
+
+# Promo codes, offers and expiring points («Промокоды и баллы»).
+
+PROMO_KINDS = {'promo', 'points'}
+PROMO_STATUSES = {'active', 'used', 'expired', 'archived', 'all'}
+PROMO_DEFAULT_REMINDERS = [3, 1]
+PROMO_TEXT_LIMITS = {
+    'title': 200,
+    'merchant': 200,
+    'promo_code': 100,
+    'discount': 100,
+    'points_unit': 40,
+    'description': 4000,
+    'source_text': promo_parser.MAX_TEXT_LENGTH,
+}
+PROMO_CLIENT_ID = re.compile(r'^[A-Za-z0-9_-]{8,64}$')
+
+
+def _promo_text(payload, field_name, *, required=False):
+    value = payload.get(field_name)
+    if value is None:
+        if required:
+            raise ValueError(f'{field_name} is required')
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f'{field_name} must be a string or null')
+    # The pasted message is kept verbatim; other fields are trimmed.
+    if field_name != 'source_text':
+        value = value.strip()
+    limit = PROMO_TEXT_LIMITS[field_name]
+    if len(value) > limit:
+        raise ValueError(f'{field_name} cannot exceed {limit} characters')
+    if not value.strip():
+        if required:
+            raise ValueError(f'{field_name} must contain 1 to {limit} characters')
+        return None
+    return value
+
+
+def _promo_points_amount(value):
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError('points_amount must be a decimal number or null')
+    try:
+        amount = Decimal(str(value).replace(' ', '').replace(',', '.'))
+    except InvalidOperation:
+        raise ValueError('points_amount must be a decimal number or null') from None
+    if not amount.is_finite() or amount < 0 or amount >= Decimal('1e16'):
+        raise ValueError('points_amount must be a non-negative number')
+    return amount.quantize(Decimal('0.01'))
+
+
+def _promo_date(payload, field_name):
+    value = payload.get(field_name)
+    return None if value is None else _subscription_date(value, field_name)
+
+
+def _promo_reminders(value):
+    if value is None:
+        return list(PROMO_DEFAULT_REMINDERS)
+    return _subscription_reminder_days(
+        value, kind='promo', interval_count=1, interval_unit='month',
+    )
+
+
+def _promo_status(item, today):
+    if item.archived_at is not None:
+        return 'archived'
+    if item.used_at is not None:
+        return 'used'
+    if item.expires_at is not None and item.expires_at < today:
+        return 'expired'
+    return 'active'
+
+
+def _promo_to_dict(item, today):
+    return {
+        'id': item.id,
+        'client_id': item.client_id,
+        'kind': item.kind,
+        'title': item.title,
+        'merchant': item.merchant,
+        'promo_code': item.promo_code,
+        'discount': item.discount,
+        'points_amount': (
+            _money_json(item.points_amount) if item.points_amount is not None else None
+        ),
+        'points_unit': item.points_unit,
+        'description': item.description,
+        'source_text': item.source_text,
+        'starts_at': item.starts_at.isoformat() if item.starts_at else None,
+        'expires_at': item.expires_at.isoformat() if item.expires_at else None,
+        'reminder_days': json.loads(item.reminder_days_json),
+        'status': _promo_status(item, today),
+        'days_left': (item.expires_at - today).days if item.expires_at else None,
+        'is_used': item.used_at is not None,
+        'used_at': _iso_datetime(item.used_at),
+        'is_archived': item.archived_at is not None,
+        'archived_at': _iso_datetime(item.archived_at),
+        'created_at': _iso_datetime(item.created_at),
+        'updated_at': _iso_datetime(item.updated_at),
+    }
+
+
+def _apply_promo_fields(item, payload, *, creating):
+    """Validate and copy mutable fields; PUT may send any subset."""
+    if creating or 'kind' in payload:
+        kind = payload.get('kind', 'promo')
+        if kind not in PROMO_KINDS:
+            raise ValueError('kind must be promo or points')
+        item.kind = kind
+    if creating or 'title' in payload:
+        item.title = _promo_text(payload, 'title', required=True)
+    for field_name in (
+        'merchant', 'promo_code', 'discount', 'points_unit', 'description', 'source_text',
+    ):
+        if field_name in payload:
+            setattr(item, field_name, _promo_text(payload, field_name))
+    if 'points_amount' in payload:
+        item.points_amount = _promo_points_amount(payload['points_amount'])
+    if 'starts_at' in payload:
+        item.starts_at = _promo_date(payload, 'starts_at')
+    if 'expires_at' in payload:
+        item.expires_at = _promo_date(payload, 'expires_at')
+    if creating or 'reminder_days' in payload:
+        item.reminder_days_json = json.dumps(_promo_reminders(payload.get('reminder_days')))
+    if item.starts_at and item.expires_at and item.starts_at > item.expires_at:
+        raise ValueError('starts_at cannot be later than expires_at')
+
+
+def _promo_client_id(value):
+    if value is None:
+        return None
+    if not isinstance(value, str) or not PROMO_CLIENT_ID.match(value):
+        raise ValueError('client_id must be 8 to 64 letters, digits, hyphens or underscores')
+    return value
+
+
+def _owned_promo(promo_id):
+    return PromoItem.query.filter_by(id=promo_id, auth_user_id=g.auth_user.id).first()
+
+
+def _owned_promo_by_client_id(client_id):
+    return PromoItem.query.filter_by(
+        auth_user_id=g.auth_user.id, client_id=client_id,
+    ).first()
+
+
+def _promo_not_found():
+    return jsonify({'error': 'Promo not found'}), 404
+
+
+def _promo_sort_key(item):
+    # Soonest expiry first; items without an expiry date go last.
+    return (item.expires_at is None, item.expires_at or date.max, item.title.lower(), item.id)
+
+
+@app.route('/api/promos', methods=['GET', 'POST'])
+def promos():
+    today = _business_today()
+    if request.method == 'GET':
+        status = request.args.get('status', 'all')
+        if status not in PROMO_STATUSES:
+            return jsonify({
+                'error': 'status must be active, used, expired, archived, or all',
+            }), 400
+        items = PromoItem.query.filter_by(auth_user_id=g.auth_user.id).all()
+        if status != 'all':
+            items = [item for item in items if _promo_status(item, today) == status]
+        items.sort(key=_promo_sort_key)
+        return jsonify({
+            'items': [_promo_to_dict(item, today) for item in items],
+            'total': len(items),
+            'today': today.isoformat(),
+        })
+
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        client_id = _promo_client_id(payload.get('client_id'))
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    if client_id is not None:
+        # An item created offline may be retried after a lost response.
+        existing = _owned_promo_by_client_id(client_id)
+        if existing is not None:
+            return jsonify(_promo_to_dict(existing, today)), 200
+    now = _utc_now()
+    item = PromoItem(
+        auth_user_id=g.auth_user.id,
+        client_id=client_id,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        _apply_promo_fields(item, payload, creating=True)
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    db.session.add(item)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        existing = _owned_promo_by_client_id(client_id) if client_id else None
+        if existing is None:
+            raise
+        return jsonify(_promo_to_dict(existing, today)), 200
+    return jsonify(_promo_to_dict(item, today)), 201
+
+
+@app.post('/api/promos/parse')
+def parse_promo():
+    """Pre-fill fields from a pasted message; nothing is stored."""
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    text = payload.get('text')
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({'error': 'text must be a non-empty string'}), 400
+    if len(text) > promo_parser.MAX_TEXT_LENGTH:
+        return jsonify({
+            'error': f'text cannot exceed {promo_parser.MAX_TEXT_LENGTH} characters',
+        }), 400
+    today = _business_today()
+    result = promo_parser.parse_promo_text(text, today)
+    result['today'] = today.isoformat()
+    return jsonify(result)
+
+
+@app.route('/api/promos/<int:promo_id>', methods=['GET', 'PUT', 'DELETE'])
+def promo_detail(promo_id):
+    item = _owned_promo(promo_id)
+    if item is None:
+        return _promo_not_found()
+    today = _business_today()
+    if request.method == 'GET':
+        return jsonify(_promo_to_dict(item, today))
+    if request.method == 'DELETE':
+        db.session.delete(item)
+        db.session.commit()
+        return '', 204
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        _apply_promo_fields(item, payload, creating=False)
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
+    item.updated_at = _utc_now()
+    db.session.commit()
+    return jsonify(_promo_to_dict(item, today))
+
+
+def _promo_transition(promo_id, field_name, *, set_value, conflict):
+    item = _owned_promo(promo_id)
+    if item is None:
+        return _promo_not_found()
+    if (getattr(item, field_name) is not None) == set_value:
+        return jsonify({'error': conflict}), 409
+    now = _utc_now()
+    setattr(item, field_name, now if set_value else None)
+    item.updated_at = now
+    db.session.commit()
+    return jsonify(_promo_to_dict(item, _business_today()))
+
+
+@app.post('/api/promos/<int:promo_id>/use')
+def use_promo(promo_id):
+    return _promo_transition(
+        promo_id, 'used_at', set_value=True, conflict='Promo is already used',
+    )
+
+
+@app.post('/api/promos/<int:promo_id>/unuse')
+def unuse_promo(promo_id):
+    return _promo_transition(
+        promo_id, 'used_at', set_value=False, conflict='Promo is not marked used',
+    )
+
+
+@app.post('/api/promos/<int:promo_id>/archive')
+def archive_promo(promo_id):
+    return _promo_transition(
+        promo_id, 'archived_at', set_value=True, conflict='Promo is already archived',
+    )
+
+
+@app.post('/api/promos/<int:promo_id>/restore')
+def restore_promo(promo_id):
+    return _promo_transition(
+        promo_id, 'archived_at', set_value=False, conflict='Promo is not archived',
+    )
 
 
 MCC_PATTERN = re.compile(r'^\d{4}$')

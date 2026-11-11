@@ -4,11 +4,13 @@ import 'package:provider/provider.dart';
 import '../models/planned_payment_model.dart';
 import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
+import '../services/reminder_notification_service.dart';
 import 'cashback_screen.dart';
 import 'monthly_cashback_screen.dart';
 import 'more_screen.dart';
 import 'partner_offers_screen.dart';
 import 'payments_hub_screen.dart';
+import 'promos_screen.dart';
 import 'widgets/keyboard_first_back.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<int> _tabHistory = [];
   bool _benefitHasInternalDetail = false;
   static const _paymentsIndex = 3;
+  static const _moreIndex = 4;
   final _paymentsKey = GlobalKey<PaymentsHubScreenState>();
   DataProvider? _dataProvider;
 
@@ -82,6 +85,16 @@ class _HomeScreenState extends State<HomeScreen> {
     if (provider == null || target == null || !mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (target.kind == ReminderKind.promo) {
+        // Promo codes live under More; open the list with the item on top.
+        _selectDestination(_moreIndex);
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PromosScreen(initialPromoId: target.entityId),
+          ),
+        );
+        return;
+      }
       _selectDestination(_paymentsIndex);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final hub = _paymentsKey.currentState;

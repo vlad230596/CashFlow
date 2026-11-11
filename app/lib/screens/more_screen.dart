@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_build_info.dart';
+import '../models/promo_model.dart';
 import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
 import '../services/cashback_import_launcher.dart';
 import 'admin/admin_hub_screen.dart';
 import 'cards_screen.dart';
+import 'promos_screen.dart';
 import 'settings/canonical_categories_screen.dart';
 import 'settings/banks_settings.dart';
 import 'settings/cards_settings.dart';
@@ -242,6 +244,8 @@ class _MoreScreenState extends State<MoreScreen> {
                                 children: [
                                   _dataPanel(provider, showWindowsTools),
                                   const SizedBox(height: 20),
+                                  _promosPanel(provider),
+                                  const SizedBox(height: 20),
                                   _parametersPanel(provider),
                                   const SizedBox(height: 20),
                                   const _FutureFamilyCard(),
@@ -268,6 +272,8 @@ class _MoreScreenState extends State<MoreScreen> {
                           const SizedBox(height: 20),
                           _managementPanel(provider),
                         ],
+                        const SizedBox(height: 20),
+                        _promosPanel(provider),
                         const SizedBox(height: 20),
                         _parametersPanel(provider),
                         const SizedBox(height: 20),
@@ -379,6 +385,10 @@ class _MoreScreenState extends State<MoreScreen> {
                   ],
                 ),
               ],
+              const _SectionLabel('Предложения'),
+              _CompactGroup(
+                children: [_promosRow(provider, compact: true)],
+              ),
               const _SectionLabel('Карты'),
               _CompactGroup(
                 children: [
@@ -496,6 +506,32 @@ class _MoreScreenState extends State<MoreScreen> {
       ],
     );
   }
+
+  Widget _promosRow(DataProvider provider, {bool compact = false}) {
+    final today = provider.businessToday;
+    final active = provider.promosWithStatusToday(PromoStatus.active);
+    final urgent = active.where((item) => item.isUrgent(today)).length;
+    return _HubRow(
+      key: const ValueKey('more-promos'),
+      compact: compact,
+      showTopDivider: !compact,
+      icon: Icons.confirmation_number_outlined,
+      iconColor: const Color(0xFFB0306B),
+      iconBackgroundColor: const Color(0xFFFDE7F1),
+      title: 'Промокоды и баллы',
+      subtitle: urgent > 0
+          ? 'Скоро сгорят: $urgent'
+          : 'Предложения, промокоды и бонусы со сроком',
+      value: active.isEmpty ? null : '${active.length}',
+      onTap: () => _open(const PromosScreen()),
+    );
+  }
+
+  Widget _promosPanel(DataProvider provider) => _Panel(
+        title: 'Предложения',
+        subtitle: 'Сохраните сообщение — напомним, пока не сгорело',
+        children: [_promosRow(provider)],
+      );
 
   Widget _managementPanel(DataProvider provider) {
     return _Panel(
@@ -944,6 +980,7 @@ class _RefreshCard extends StatelessWidget {
 
 class _HubRow extends StatelessWidget {
   const _HubRow({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,

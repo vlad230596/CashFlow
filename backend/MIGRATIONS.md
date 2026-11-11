@@ -2,7 +2,12 @@
 
 Schema changes are managed by Alembic. Runtime startup never creates or alters tables.
 
-Current repository head: `0012_planned_payments` (2026-11-11). It adds the personal
+Current repository head: `0013_promo_items` (2026-11-11). It adds the personal
+`promo_item` table (promo codes/offers and expiring points: optional `expires_at`, verbatim
+`source_text`, `used_at`/`archived_at`; "expired" is derived, never stored) with a unique
+`(auth_user_id, client_id)` so an item created offline can be retried idempotently.
+
+Previous head `0012_planned_payments` (2026-11-11) adds the personal
 `planned_payment` table (recurring payments anchored to `anchor_date`, one-off payments
 completed by `completed_at`; optional card with `ON DELETE SET NULL`) and
 `planned_payment_record` (one confirmation per due date). Like every revision it must be

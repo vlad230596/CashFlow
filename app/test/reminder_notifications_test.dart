@@ -75,7 +75,9 @@ void main() {
         const ReminderTarget(ReminderKind.subscription, 3));
     expect(ReminderTarget.parse('12'),
         const ReminderTarget(ReminderKind.subscription, 12));
-    expect(ReminderTarget.parse('promo:1'), isNull);
+    expect(ReminderTarget.parse('promo:1'),
+        const ReminderTarget(ReminderKind.promo, 1));
+    expect(ReminderTarget.parse('coupon:1'), isNull);
     expect(ReminderTarget.parse('payment:x'), isNull);
     expect(ReminderTarget.parse(null), isNull);
   });

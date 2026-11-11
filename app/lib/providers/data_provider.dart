@@ -15,8 +15,11 @@ import '../models/mcc_lookup_model.dart';
 import '../models/mcc_rule_model.dart';
 import '../models/partner_offer_model.dart';
 import '../models/planned_payment_model.dart';
+import '../models/promo_model.dart';
 import '../models/subscription_model.dart';
 import '../services/planned_payment_api.dart';
+import '../services/promo_api.dart';
+import '../services/promo_text_fallback.dart';
 import '../services/reminder_notification_service.dart';
 import '../services/reminder_sources.dart';
 import '../services/mcc_cache_store.dart';
@@ -94,6 +97,7 @@ class DataProvider with ChangeNotifier {
       },
     );
     _paymentsApi = PlannedPaymentApi(_client, _apiUri);
+    _promoApi = PromoApi(_client, _apiUri);
     _notificationTapSubscription = _reminders.notificationTaps.listen((target) {
       pendingReminderTarget = target;
       notifyListeners();
@@ -118,6 +122,7 @@ class DataProvider with ChangeNotifier {
   late final http.Client _client;
   final ReminderNotificationService _reminders;
   late final PlannedPaymentApi _paymentsApi;
+  late final PromoApi _promoApi;
   late final StreamSubscription<ReminderTarget> _notificationTapSubscription;
   String? _accessToken;
   DateTime? _sessionExpiresAt;
@@ -128,6 +133,7 @@ class DataProvider with ChangeNotifier {
   int _partnerLoadVersion = 0;
   int _subscriptionLoadVersion = 0;
   int _paymentLoadVersion = 0;
+  int _promoLoadVersion = 0;
   bool _isCurrentSession(int generation) => generation == _sessionGeneration;
 
   AuthIdentity? currentAuthUser;
@@ -163,6 +169,9 @@ class DataProvider with ChangeNotifier {
   List<PartnerOffer> partnerOffers = [];
   List<SubscriptionModel> subscriptions = [];
   List<PlannedPaymentModel> plannedPayments = [];
+
+  /// Promo codes and points, including items saved offline (`isPending`).
+  List<PromoModel> promos = [];
   PrimaryDataPhase primaryDataPhase = PrimaryDataPhase.initialLoading;
   String? primaryDataError;
   DateTime? dataSnapshotUpdatedAt;
@@ -172,6 +181,8 @@ class DataProvider with ChangeNotifier {
   String? subscriptionsError;
   bool plannedPaymentsLoading = false;
   String? plannedPaymentsError;
+  bool promosLoading = false;
+  String? promosError;
 
   /// The item a tapped reminder points at, until the shell consumes it.
   ReminderTarget? pendingReminderTarget;
@@ -234,6 +245,10 @@ class DataProvider with ChangeNotifier {
     if (token != null && token != _accessToken) return;
     final subscriptionsCacheKey = _subscriptionsCacheKey;
     final paymentsCacheKey = _plannedPaymentsCacheKey;
+    // Items saved offline exist nowhere else: keep them for the next login
+    // of this account instead of deleting the account-scoped cache.
+    final promosCacheKey =
+        promos.any((item) => item.isPending) ? null : _promosCacheKey;
     _sessionGeneration++;
     _accessToken = null;
     _sessionExpiresAt = null;
@@ -253,6 +268,8 @@ class DataProvider with ChangeNotifier {
     subscriptionsError = null;
     plannedPayments = [];
     plannedPaymentsError = null;
+    promos = [];
+    promosError = null;
     pendingReminderTarget = null;
     try {
       await Future.wait([
@@ -263,6 +280,7 @@ class DataProvider with ChangeNotifier {
           _removeSubscriptionsCache(subscriptionsCacheKey),
         if (paymentsCacheKey != null)
           _removeSubscriptionsCache(paymentsCacheKey),
+        if (promosCacheKey != null) _removeSubscriptionsCache(promosCacheKey),
         _synchronizeReminders(),
       ]);
     } finally {
@@ -398,6 +416,7 @@ class DataProvider with ChangeNotifier {
       await loadLocalData();
       await _loadSubscriptionsCache();
       await _loadPlannedPaymentsCache();
+      await _loadPromosCache();
       await _loadPartnerOffersCache();
       await _loadMccCache();
       notifyListeners();
@@ -666,6 +685,7 @@ class DataProvider with ChangeNotifier {
       await loadLocalData();
       await _loadSubscriptionsCache();
       await _loadPlannedPaymentsCache();
+      await _loadPromosCache();
       await _loadPartnerOffersCache();
       await _synchronizeReminders();
       log.event('startup: account caches loaded '
@@ -825,6 +845,8 @@ class DataProvider with ChangeNotifier {
       await fetchSubscriptions();
       if (!current()) return false;
       await fetchPlannedPayments();
+      if (!current()) return false;
+      await fetchPromos();
       if (!current()) return false;
       await fetchPartnerOffers();
       if (!current()) return false;
@@ -1032,6 +1054,9 @@ class DataProvider with ChangeNotifier {
       if (_plannedPaymentsCacheKey != null)
         _plannedPaymentsCacheKey!:
             json.encode(plannedPayments.map((item) => item.toJson()).toList()),
+      if (_promosCacheKey != null)
+        _promosCacheKey!:
+            json.encode(promos.map((item) => item.toJson()).toList()),
       if (dataSnapshotUpdatedAt != null)
         _dataCacheKey('dataSnapshotUpdatedAt'):
             dataSnapshotUpdatedAt!.toIso8601String(),
@@ -1305,9 +1330,21 @@ class DataProvider with ChangeNotifier {
     }
   }
 
+  Future<void> _synchronizePromoNotifications() async {
+    try {
+      await _reminders.synchronize(
+        ReminderKind.promo,
+        promoReminderSpecs(promos, businessToday),
+      );
+    } catch (error) {
+      debugPrint('Could not schedule promo notifications: $error');
+    }
+  }
+
   Future<void> _synchronizeReminders() async {
     await _synchronizeSubscriptionNotifications();
     await _synchronizePaymentNotifications();
+    await _synchronizePromoNotifications();
   }
 
   static String _subscriptionApiDate(DateTime value) {
@@ -1501,6 +1538,193 @@ class DataProvider with ChangeNotifier {
           .toList();
     } catch (error) {
       debugPrint('Could not load planned payments cache: $error');
+    }
+  }
+
+  // Promo codes, offers and expiring points («Промокоды и баллы»).
+
+  /// Items with [status] on the Moscow business day, in display order.
+  List<PromoModel> promosWithStatusToday(PromoStatus status) =>
+      promosWithStatus(promos, status, businessToday);
+
+  /// Uploads items saved offline, then reloads the server list.
+  Future<bool> fetchPromos() async {
+    final session = _sessionGeneration;
+    final version = ++_promoLoadVersion;
+    bool current() =>
+        _isCurrentSession(session) && version == _promoLoadVersion;
+    promosLoading = true;
+    promosError = null;
+    notifyListeners();
+    try {
+      final uploadError = await _uploadPendingPromos(current);
+      if (!current()) return false;
+      final fetched = await _promoApi.list();
+      if (!current()) return false;
+      final fetchedClientIds = {
+        for (final item in fetched)
+          if (item.clientId != null) item.clientId,
+      };
+      promos = [
+        ...fetched,
+        // Still offline-only (e.g. rejected by validation): keep locally.
+        for (final item in promos)
+          if (item.isPending && !fetchedClientIds.contains(item.clientId)) item,
+      ];
+      promosError = uploadError;
+      await _saveDataLocally();
+      await _synchronizePromoNotifications();
+      return true;
+    } catch (error) {
+      if (!current()) return false;
+      promosError = error.toString();
+      debugPrint('Error fetching promos: $error');
+      return false;
+    } finally {
+      if (current()) {
+        promosLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Returns a message when the server rejected an item saved offline.
+  Future<String?> _uploadPendingPromos(bool Function() current) async {
+    String? rejected;
+    for (final item in promos.where((item) => item.isPending).toList()) {
+      if (!current()) return rejected;
+      try {
+        final saved = await _promoApi.create(item);
+        if (!current()) return rejected;
+        _replacePromo(item, saved);
+      } on ApiException catch (error) {
+        if (_isTransportLikeFailure(error)) rethrow;
+        // A rejected item stays editable on the device.
+        rejected = 'Не удалось отправить «${item.title}»: ${error.message}';
+      }
+    }
+    return rejected;
+  }
+
+  static bool _isTransportLikeFailure(Object error) =>
+      error is! ApiException ||
+      error.statusCode >= 500 ||
+      error.statusCode == 408 ||
+      error.statusCode == 429;
+
+  Future<PromoModel> fetchPromo(int id) async {
+    final item = await _promoApi.detail(id);
+    await _storePromo(item);
+    return item;
+  }
+
+  /// Saves on the server, or on the device when the server is unreachable
+  /// (the result then has `isPending`; it is uploaded on the next refresh).
+  Future<PromoModel> createPromo(PromoModel item) async {
+    final draft = item.clientId == null
+        ? item.copyWith(clientId: newPromoClientId())
+        : item;
+    try {
+      final saved = await _promoApi.create(draft);
+      await _storePromo(saved, replacing: draft);
+      return saved;
+    } catch (error) {
+      if (!_isTransportLikeFailure(error)) rethrow;
+      debugPrint('Promo saved offline: $error');
+      final pending = draft.copyWith(isPending: true);
+      await _storePromo(pending);
+      return pending;
+    }
+  }
+
+  /// Server update; an item saved offline is changed on the device only.
+  Future<PromoModel> updatePromo(PromoModel item) async {
+    if (item.isPending || item.id == null) {
+      final pending = item.copyWith(isPending: true);
+      await _storePromo(pending);
+      return pending;
+    }
+    final saved = await _promoApi.update(item);
+    await _storePromo(saved);
+    return saved;
+  }
+
+  Future<PromoModel> setPromoUsed(int id, bool used) =>
+      _transitionPromo(id, used ? 'use' : 'unuse');
+
+  Future<PromoModel> setPromoArchived(int id, bool archived) =>
+      _transitionPromo(id, archived ? 'archive' : 'restore');
+
+  Future<PromoModel> _transitionPromo(int id, String action) async {
+    final saved = await _promoApi.transition(id, action);
+    await _storePromo(saved);
+    return saved;
+  }
+
+  Future<void> deletePromo(PromoModel item) async {
+    final id = item.id;
+    if (id != null && !item.isPending) await _promoApi.delete(id);
+    promos = promos
+        .where((existing) => existing.localKey != item.localKey)
+        .toList(growable: false);
+    await _saveDataLocally();
+    await _synchronizePromoNotifications();
+    notifyListeners();
+  }
+
+  /// Server parsing with an on-device fallback for dates and codes.
+  Future<PromoParseResult> parsePromoText(String text) async {
+    try {
+      return await _promoApi.parse(text);
+    } catch (error) {
+      if (!_isTransportLikeFailure(error)) rethrow;
+      debugPrint('Promo parse fallback: $error');
+      return parsePromoTextOffline(text, businessToday);
+    }
+  }
+
+  /// Asks for notification permission once something can be reminded.
+  Future<bool> requestPromoNotificationPermission() async {
+    if (!promos.any((item) => item.id != null && item.expiresAt != null)) {
+      return false;
+    }
+    return _reminders.requestPermission();
+  }
+
+  PromoModel? promoByKey(String localKey) =>
+      promos.where((item) => item.localKey == localKey).firstOrNull;
+
+  void _replacePromo(PromoModel previous, PromoModel next) {
+    final index = promos.indexWhere((item) =>
+        item.localKey == previous.localKey ||
+        (next.id != null && item.id == next.id) ||
+        (previous.clientId != null && item.clientId == previous.clientId));
+    promos = index == -1 ? [...promos, next] : ([...promos]..[index] = next);
+  }
+
+  Future<void> _storePromo(PromoModel item, {PromoModel? replacing}) async {
+    _replacePromo(replacing ?? item, item);
+    await _saveDataLocally();
+    await _synchronizePromoNotifications();
+    notifyListeners();
+  }
+
+  String? get _promosCacheKey {
+    final authUserId = currentAuthUser?.id;
+    return authUserId == null ? null : _dataCacheKey('promos');
+  }
+
+  Future<void> _loadPromosCache() async {
+    final key = _promosCacheKey;
+    if (key == null) return;
+    final cached = (await SharedPreferences.getInstance()).getString(key);
+    if (cached == null || key != _promosCacheKey) return;
+    try {
+      promos = (json.decode(cached) as List)
+          .map((item) => PromoModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (error) {
+      debugPrint('Could not load promos cache: $error');
     }
   }
 

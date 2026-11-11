@@ -11,6 +11,8 @@ Main user flows:
 - Review and classify personal partner offers.
 - «Платежи»: track subscription renewals, recurring payments anchored to a due day and
   one-off payments; mark them paid; schedule local reminders on Android.
+- «Ещё → Промокоды и баллы»: paste an SMS/messenger text, parse it into a promo
+  code / offer or a points balance with an expiry date, remind before it burns.
 - Manage banks, users, and cards from settings screens.
 - Import and publish MCC rule revisions from administrative screens.
 
@@ -48,7 +50,15 @@ Main user flows:
 - `lib/services/reminder_notification_service.dart` schedules reminders for every
   `ReminderKind` (own id block and `"<kind>:<id>"` payload; bare legacy ids mean a
   subscription). `reminder_sources.dart` maps entities to specs. Add a new kind
-  there (block 3 is reserved for promo codes) instead of a new service.
+  there instead of a new service. Blocks: 1 subscriptions, 2 payments,
+  3 promo codes (`"promo:<id>"`; a tap opens «Промокоды и баллы» over «Ещё»).
+- `lib/screens/promos_screen.dart` holds the promo list, details and editor
+  (`PromoEditScreen(initialText:)` is the entry point for a future share intent).
+  `lib/models/promo_model.dart` derives active/expired/used/archived from the
+  Moscow business day. Parsing is server-side (`backend/promo_parser.py`);
+  `lib/services/promo_text_fallback.dart` is the offline date/code fallback.
+  An item created without network is cached with `pending` and a `client_id`
+  and uploaded idempotently by `fetchPromos()`.
 - `lib/screens/cashback_screen.dart` shows searchable active cashback categories and benefit states.
 - `lib/screens/monthly_cashback_screen.dart` handles monthly category selection and bulk category entry.
 - `lib/screens/partner_offers_screen.dart` shows the account-scoped partner offer catalogue;
@@ -157,6 +167,11 @@ Known endpoints:
   payments advance to the next anchored date), `DELETE /api/payments/{id}/records/{record_id}`
   (undo the latest record only)
 - `GET /api/payments/upcoming?until=` (unpaid due dates incl. overdue, for forecasts)
+- `GET /api/promos?status=active|used|expired|archived|all`, `POST /api/promos`
+  (optional `client_id` makes retries idempotent: 200 with the existing item),
+  `GET|PUT|DELETE /api/promos/{id}`, `POST /api/promos/{id}/use|unuse|archive|restore`
+- `POST /api/promos/parse` (`{text}` → pre-filled fields incl. `expires_at`,
+  `expiry_phrase`, `expires_at_confidence`; stores nothing)
 - `GET /api/mcc` (code and title of every reference MCC; loaded once into
   `DataProvider.mccCatalog` for search)
 - `GET /api/mcc/offline-snapshot?schema=3&as_of=` (authenticated catalogue, normalized

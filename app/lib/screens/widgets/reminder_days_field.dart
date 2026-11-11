@@ -9,6 +9,7 @@ class ReminderDaysField extends StatelessWidget {
     this.options = const [0, 1, 2, 3, 7, 14, 30],
     this.allowEmpty = true,
     this.footer,
+    this.dueDayLabel = 'В день оплаты',
   });
 
   final List<int> value;
@@ -19,16 +20,20 @@ class ReminderDaysField extends StatelessWidget {
   final bool allowEmpty;
   final Widget? footer;
 
-  static String label(int days) => switch (days) {
-        0 => 'В день оплаты',
+  /// Chip text for the due day itself (0 days before).
+  final String dueDayLabel;
+
+  static String label(int days, {String dueDay = 'В день оплаты'}) =>
+      switch (days) {
+        0 => dueDay,
         1 => 'За 1 день',
         _ => 'За $days дн.',
       };
 
-  static String summary(List<int> days) {
+  static String summary(List<int> days, {String dueDay = 'В день оплаты'}) {
     if (days.isEmpty) return 'Без напоминаний';
     final sorted = days.toSet().toList()..sort((a, b) => b.compareTo(a));
-    return sorted.map(label).join(', ');
+    return sorted.map((day) => label(day, dueDay: dueDay)).join(', ');
   }
 
   @override
@@ -47,7 +52,7 @@ class ReminderDaysField extends StatelessWidget {
             for (final days in choices)
               FilterChip(
                 key: ValueKey('reminder-day-$days'),
-                label: Text(label(days)),
+                label: Text(label(days, dueDay: dueDayLabel)),
                 selected: selected.contains(days),
                 onSelected: (enabled) {
                   final next = {...selected};
@@ -66,7 +71,8 @@ class ReminderDaysField extends StatelessWidget {
         Text(
           selected.isEmpty
               ? 'Напоминаний не будет.'
-              : 'Напомним в 10:00: ${summary(value).toLowerCase()}.',
+              : 'Напомним в 10:00: '
+                  '${summary(value, dueDay: dueDayLabel).toLowerCase()}.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         if (footer != null) footer!,
