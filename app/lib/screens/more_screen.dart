@@ -6,9 +6,11 @@ import '../models/promo_model.dart';
 import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
 import '../services/cashback_import_launcher.dart';
+import '../services/cashback_import_session.dart';
 import 'admin/admin_hub_screen.dart';
 import 'cards_screen.dart';
 import 'promos_screen.dart';
+import 'widgets/cashback_json_import.dart';
 import 'settings/canonical_categories_screen.dart';
 import 'settings/card_balances_settings_screen.dart';
 import 'settings/banks_settings.dart';
@@ -97,6 +99,7 @@ class _MoreScreenState extends State<MoreScreen> {
   Future<void> _launchCashbackBrowser(DataProvider provider) async {
     final profile = await _selectBrowserProfile(provider);
     if (profile == null || !mounted) return;
+    await CashbackImportSession.rememberProfile(profile);
     final error = await launchCashbackImport(profile);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -109,76 +112,8 @@ class _MoreScreenState extends State<MoreScreen> {
     );
   }
 
-  Future<int?> _selectImportUser(DataProvider provider) async {
-    if (provider.users.isEmpty) return null;
-    if (provider.users.length == 1) return provider.users.single.id;
-    var selectedUserId = provider.users.first.id;
-    return showDialog<int>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Кому импортировать категории?'),
-        content: StatefulBuilder(
-          builder: (context, setDialogState) => DropdownButtonFormField<int>(
-            initialValue: selectedUserId,
-            decoration: const InputDecoration(
-              labelText: 'Владелец карт',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              for (final user in provider.users)
-                DropdownMenuItem(value: user.id, child: Text(user.name)),
-            ],
-            onChanged: (value) {
-              if (value != null) {
-                setDialogState(() => selectedUserId = value);
-              }
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, selectedUserId),
-            child: const Text('Импортировать'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _importCashback(DataProvider provider) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final file = await pickCashbackImportFile();
-      if (file == null || !mounted) return;
-      final userId = await _selectImportUser(provider);
-      if (userId == null || !mounted) return;
-      final result = await provider.importCashbackDocument(
-        file.contents,
-        userId,
-      );
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Импортировано банков: ${result.importedBanks}; '
-            'создано: ${result.created}, обновлено: ${result.updated}; '
-            'партнёрских предложений создано: '
-            '${result.createdPartnerOffers}, обновлено: '
-            '${result.updatedPartnerOffers}.',
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Не удалось импортировать JSON: $error')),
-      );
-    }
-  }
+  Future<void> _importCashback(DataProvider provider) =>
+      importCashbackJson(context, provider);
 
   Future<void> _pickCashbackDate(DataProvider provider) async {
     final selected = await showDatePicker(

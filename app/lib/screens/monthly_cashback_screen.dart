@@ -12,6 +12,8 @@ import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
 import '../services/cashback_import_launcher.dart';
+import '../services/cashback_import_session.dart';
+import '../services/card_context.dart';
 import '../services/cashback_selection_plan.dart';
 import '../services/monthly_plan_projection.dart';
 import '../utils/cashback_needs.dart';
@@ -21,6 +23,7 @@ import '../utils/cashflow_formatters.dart';
 import '../utils/identity_icons.dart';
 import 'cashback_category_edit_screen.dart';
 import 'widgets/cashback_description_button.dart';
+import 'widgets/cashback_json_import.dart';
 import 'widgets/cashback_limits_label.dart';
 
 class ParsedCashbackCategoryLine {
@@ -97,7 +100,9 @@ class MonthlyCashbackScreen extends StatefulWidget {
 class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   static const int _defaultMaxCategories = 3;
 
-  final Map<int, int> _maxCategoriesPerCard = {};
+  /// Limits typed into a bank card on this screen. Everything else follows
+  /// the card's server value, which a bank import may change at any time.
+  final Map<int, int> _maxCategoriesOverrides = {};
   final Map<int, TextEditingController> _maxCategoriesControllers = {};
   final Set<int> _rejectedCategoryIds = {};
   late DateTime _startDate;
@@ -160,14 +165,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
   String _formatDate(DateTime date) => CashFlowFormatters.calendarDate(date);
   String _formatMonth(DateTime date) => CashFlowFormatters.month(date);
 
-  bool _isCategoryInSelectedPeriod(CashbackCategoryModel category) {
-    return CashbackPeriod(_startDate, _endDate).overlaps(category);
-  }
-
   List<CashbackCategoryModel> _periodCategories(DataProvider dataProvider) {
-    return dataProvider.cashbackCategories
-        .where(_isCategoryInSelectedPeriod)
-        .toList();
+    final period = CashbackPeriod(_startDate, _endDate);
+    return dataProvider.cashbackCategories.where(period.overlaps).toList();
   }
 
   MonthlyPlanProjection _projection(DataProvider provider) =>
@@ -184,18 +184,27 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
           query: _query,
           rejectedCategoryIds: _rejectedCategoryIds);
 
-  int _getMaxCategories(int cardId, int? serverValue) {
-    return _maxCategoriesPerCard.putIfAbsent(
-      cardId,
-      () => serverValue ?? _defaultMaxCategories,
-    );
-  }
+  int _getMaxCategories(int cardId, int? serverValue) =>
+      _maxCategoriesOverrides[cardId] ?? serverValue ?? _defaultMaxCategories;
 
   TextEditingController _getMaxController(int cardId, int maxCategories) {
-    return _maxCategoriesControllers.putIfAbsent(
+    final controller = _maxCategoriesControllers.putIfAbsent(
       cardId,
       () => TextEditingController(text: maxCategories.toString()),
     );
+    // Show a limit that changed on the server, but never rewrite the field
+    // while it holds the user's own value.
+    final text = maxCategories.toString();
+    if (!_maxCategoriesOverrides.containsKey(cardId) &&
+        controller.text != text) {
+      // Changing the controller notifies its TextField; not during build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_maxCategoriesOverrides.containsKey(cardId)) {
+          controller.text = text;
+        }
+      });
+    }
+    return controller;
   }
 
   int _selectedStandardCount(
@@ -355,6 +364,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     final target = await _selectBrowserProfile(context, dataProvider);
     if (target == null || !context.mounted) return;
     final profile = target.profile;
+    await CashbackImportSession.rememberProfile(profile);
+    if (!context.mounted) return;
 
     final plan = buildCashbackSelectionPlan(
       now: DateTime.now(),
@@ -1731,6 +1742,13 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             );
             final canSendToChrome =
                 detectAppSessionType().canLaunchCashbackBrowser;
+            // The JSON the browser downloads is imported where the plan is
+            // made, not only from «Ещё».
+            final importButton = OutlinedButton.icon(
+              onPressed: () => importCashbackJson(context, dataProvider),
+              icon: const Icon(Icons.upload_file_outlined, size: 18),
+              label: const Text('Импортировать JSON'),
+            );
             final confirmationButton = OutlinedButton.icon(
               onPressed: () => Navigator.push(
                 context,
@@ -1775,6 +1793,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                   if (canSendToChrome) ...[
                     const SizedBox(height: 8),
                     sendButton,
+                    const SizedBox(height: 8),
+                    importButton,
                   ],
                 ],
               );
@@ -1787,6 +1807,8 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 const SizedBox(width: 8),
                 confirmationButton,
                 if (canSendToChrome) ...[
+                  const SizedBox(width: 8),
+                  importButton,
                   const SizedBox(width: 8),
                   sendButton,
                 ],
@@ -2223,6 +2245,14 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     if (dataProvider.cards.isEmpty) {
       return const Center(child: Text('Нет карт для выбора категорий'));
     }
+    // Each row's decision controls need the period offers of its group. Index
+    // them once per build instead of re-filtering every category per row.
+    final offersByNeedKey = <String, List<CashbackCategoryModel>>{};
+    for (final offer in periodCategories) {
+      for (final key in _needs.keysFor(offer).toSet()) {
+        offersByNeedKey.putIfAbsent(key, () => []).add(offer);
+      }
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         return GridView.builder(
@@ -2257,6 +2287,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
               dataProvider,
               card,
               categories,
+              offersByNeedKey,
             );
           },
         );
@@ -2269,8 +2300,14 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     DataProvider dataProvider,
     CardModel card,
     List<CashbackCategoryModel> categories,
+    Map<String, List<CashbackCategoryModel>> offersByNeedKey,
   ) {
     final cardId = card.id!;
+    final cardContext = CardContextCatalog(
+      cards: dataProvider.cards,
+      banks: dataProvider.banks,
+      users: dataProvider.users,
+    ).forCard(card);
     final maximum = _getMaxCategories(cardId, card.maxCashbackCategories);
     final selected = _selectedStandardCount(categories, cardId);
     final controller = _getMaxController(cardId, maximum);
@@ -2288,11 +2325,31 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
             padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
             child: Row(
               children: [
-                const Icon(Icons.credit_card),
+                // Same identity marks as «Карты и категории».
+                BankIconBadge(
+                  iconKey: cardContext.bankIconKey,
+                  bankName: cardContext.bankName,
+                  size: 28,
+                ),
+                const SizedBox(width: 6),
+                cardContext.ownerIconKey != null
+                    ? UserIconBadge(
+                        iconKey: cardContext.ownerIconKey,
+                        userName: cardContext.ownerName,
+                        size: 24,
+                      )
+                    : PersonMarkerBadge(
+                        marker: personMarker(
+                          card.userId,
+                          dataProvider.users.map((user) => user.id),
+                        ),
+                        userName: cardContext.ownerName,
+                        size: 24,
+                      ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    _cardLabel(dataProvider, cardId),
+                    cardContext.benefitLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700),
@@ -2310,7 +2367,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (value) => setState(() {
-                      _maxCategoriesPerCard[cardId] =
+                      _maxCategoriesOverrides[cardId] =
                           int.tryParse(value) ?? _defaultMaxCategories;
                     }),
                   ),
@@ -2337,6 +2394,7 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                     itemBuilder: (context, index) {
                       final category = categories[index];
                       final groupTitle = _needs.primaryTitle(category);
+                      final groupKey = _needs.keysFor(category).first;
                       return ListTile(
                         dense: true,
                         leading: Icon(
@@ -2386,14 +2444,9 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                               dataProvider,
                               category,
                               MonthlyPlanGroup(
-                                key: _needs.keysFor(category).first,
+                                key: groupKey,
                                 title: groupTitle,
-                                offers: _periodCategories(dataProvider)
-                                    .where(
-                                      (offer) => _needs.keysFor(offer).contains(
-                                          _needs.keysFor(category).first),
-                                    )
-                                    .toList(),
+                                offers: offersByNeedKey[groupKey] ?? const [],
                               ),
                             ),
                           ],

@@ -131,6 +131,21 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('compact search by the last card digits lists that card',
+      (tester) async {
+    await _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(_app(items: _items));
+
+    await tester.enterText(find.byKey(const Key('benefit-search')), '5678');
+    await tester.pump();
+
+    expect(find.byKey(const Key('benefit-compact-search-results')),
+        findsOneWidget);
+    expect(find.text('Супермаркеты'), findsWidgets);
+    expect(find.text('Аптеки'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('search names a category that no card covers', (tester) async {
     await _setViewport(tester, const Size(390, 844));
     await tester.pumpWidget(_app(

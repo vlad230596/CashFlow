@@ -27,6 +27,18 @@ void main() async {
     ),
   );
   AppLog.instance.event('startup: runApp');
+  // A long build blocks the UI isolate, so it also inflates the durations of
+  // every request logged meanwhile. Record such frames to tell the two apart.
+  binding.addTimingsCallback((timings) {
+    for (final timing in timings) {
+      final build = timing.buildDuration.inMilliseconds;
+      final raster = timing.rasterDuration.inMilliseconds;
+      if (build + raster >= 250) {
+        AppLog.instance
+            .event('slow frame: build=${build}ms raster=${raster}ms');
+      }
+    }
+  });
   unawaited(binding.waitUntilFirstFrameRasterized.then((_) {
     AppLog.instance.event('startup: first frame rasterized '
         'authenticated=${dataProvider.isAuthenticated} '

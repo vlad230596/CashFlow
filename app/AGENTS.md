@@ -107,13 +107,11 @@ Main user flows:
 - UI screens read state through `Provider.of<DataProvider>(context)` or `Consumer<DataProvider>`.
 - Mutating methods call the backend first, update in-memory lists, then call `notifyListeners()`.
 
-Current cached keys:
-
-- `banks`
-- `users`
-- `cards`
-- `activeCashbackCategories`
-- Main collections, partner offers, and subscriptions use API URL/account-scoped keys.
+Cached collections use API URL/account-scoped keys (`data:v1:<url>:<user>:<name>`).
+A signed-in `loadLocalData()` deletes the old unscoped keys (`banks`, `users`, `cards`,
+`cashbackCategories`, `activeCashbackCategories`, `subscriptions`,
+`partnerOffers:<id>`). On Windows each preference write rewrites the whole
+`shared_preferences.json`, so keep large or dead entries out of it.
 - `MccRepository` returns cached MCC results immediately and revalidates in the background.
   Complete snapshots and dated individual-answer overlays are separate, scoped by API URL,
   account and date. A successful single-code request must never replace the complete base.

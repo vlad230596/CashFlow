@@ -974,6 +974,33 @@ class DataProvider with ChangeNotifier {
       ? name
       : 'data:v1:${Uri.encodeComponent(apiBaseUrl)}:${currentAuthUser!.id}:$name';
 
+  /// Caches written before keys were scoped by API URL and account. A signed-in
+  /// session never reads them, but on Windows every preference write rewrites
+  /// the whole file, so their ~2 MB slowed each save. Without a session the
+  /// bare names are the live keys ([_dataCacheKey]), so they stay. Removed
+  /// only when present: a removal is itself a full rewrite.
+  static const _unscopedCacheKeys = {
+    'subscriptions',
+    'banks',
+    'users',
+    'cards',
+    'cashbackCategories',
+    'activeCashbackCategories',
+  };
+
+  Future<void> _dropUnscopedCaches(SharedPreferences prefs) async {
+    if (currentAuthUser == null) return;
+    final stale = prefs
+        .getKeys()
+        .where((key) =>
+            _unscopedCacheKeys.contains(key) ||
+            key.startsWith('partnerOffers:'))
+        .toList();
+    for (final key in stale) {
+      await prefs.remove(key);
+    }
+  }
+
   String? _loadedReferenceScope;
   Future<void> loadLocalData() async {
     final scope = _dataCacheKey('banks');
@@ -990,8 +1017,7 @@ class DataProvider with ChangeNotifier {
     }
     _loadedReferenceScope = scope;
     final prefs = await SharedPreferences.getInstance();
-    // Remove the pre-user-scoping key from early development builds.
-    await prefs.remove('subscriptions');
+    await _dropUnscopedCaches(prefs);
     if (scope != _dataCacheKey('banks')) return;
     try {
       final cachedBanks = prefs.getString(_dataCacheKey('banks'));

@@ -59,4 +59,25 @@ void main() {
         requestedBankIds: ['sber']);
     expect((plan['banks'] as List).single['bankId'], 'sber');
   });
+  test('overlap compares calendar days; a category end day is exclusive', () {
+    final period =
+        CashbackPeriod(DateTime(2026, 11, 1), DateTime(2026, 11, 30));
+    expect(
+        period.overlaps(
+            offer(6, DateTime(2026, 10, 1), DateTime(2026, 11, 1, 23, 59, 59))),
+        isFalse);
+    expect(
+        period
+            .overlaps(offer(10, DateTime(2026, 10, 1), DateTime(2026, 11, 2))),
+        isTrue);
+    expect(period.overlaps(offer(7, DateTime(2026, 12, 1), DateTime(2027, 1))),
+        isFalse);
+    expect(
+        period.overlaps(offer(8, DateTime(2026, 11, 30), DateTime(2026, 12))),
+        isTrue);
+    final yearEnd = CashbackPeriod.month(DateTime(2026, 12, 15));
+    expect(yearEnd.endExclusive, DateTime(2027, 1, 1));
+    expect(yearEnd.overlaps(offer(9, DateTime(2027, 1, 1), DateTime(2027, 2))),
+        isFalse);
+  });
 }

@@ -607,9 +607,11 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
       }
     }
     final normalized = normalizeNeedQuery(query);
+    final cardQuery = query.trim().toLowerCase();
     final groups = <_NeedGroup>[];
     for (final entry in grouped.entries) {
       var match = NeedMatch.title;
+      var items = entry.value;
       if (normalized.isNotEmpty) {
         match = needs.match(entry.key, query);
         if (match == NeedMatch.none &&
@@ -617,9 +619,16 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
                 normalizeNeedQuery(item.category.name).contains(normalized))) {
           match = NeedMatch.alias;
         }
-        if (match == NeedMatch.none) continue;
+        if (match == NeedMatch.none) {
+          // A card number or owner/bank names a card: keep only its offers.
+          items = entry.value
+              .where((item) => item.cardLabel.toLowerCase().contains(cardQuery))
+              .toList();
+          if (items.isEmpty) continue;
+          match = NeedMatch.alias;
+        }
       }
-      final offers = [...entry.value]..sort((a, b) =>
+      final offers = [...items]..sort((a, b) =>
           b.category.cashbackPercent.compareTo(a.category.cashbackPercent));
       groups.add(_NeedGroup(title: entry.key, items: offers, match: match));
     }
