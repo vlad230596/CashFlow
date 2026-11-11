@@ -32,6 +32,7 @@ import '../services/timeout_client.dart';
 import '../services/import_coordinator.dart';
 import '../services/reference_data_store.dart';
 import '../services/business_clock.dart';
+import '../utils/cashback_period.dart';
 export '../services/import_coordinator.dart';
 
 enum PrimaryDataPhase { initialLoading, ready, refreshing, failed }
@@ -468,14 +469,13 @@ class DataProvider with ChangeNotifier {
         ? cashbackCategories
         : activeCashbackCategories;
 
+    // Day keys, not new DateTimes: a local DateTime costs a time-zone system
+    // call on Windows, and this runs for every category on each rebuild.
+    final effectiveDay = calendarDayKey(cashbackEffectiveDate);
     return source.where((category) {
-      final effectiveDate = cashbackEffectiveDate;
-      final startDate = _dateOnly(category.startDate);
-      final endDate = _dateOnly(category.endDate);
-
       return category.isActive &&
-          !effectiveDate.isBefore(startDate) &&
-          effectiveDate.isBefore(endDate);
+          effectiveDay >= calendarDayKey(category.startDate) &&
+          effectiveDay < calendarDayKey(category.endDate);
     }).toList();
   }
 

@@ -1799,19 +1799,26 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
                 ],
               );
             }
+            // With the Windows import actions the controls exceed a ~1000 px
+            // window; let them take a second line instead of overflowing.
             return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 dateButton,
-                const Spacer(),
-                switcher,
                 const SizedBox(width: 8),
-                confirmationButton,
-                if (canSendToChrome) ...[
-                  const SizedBox(width: 8),
-                  importButton,
-                  const SizedBox(width: 8),
-                  sendButton,
-                ],
+                Expanded(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      switcher,
+                      confirmationButton,
+                      if (canSendToChrome) ...[importButton, sendButton],
+                    ],
+                  ),
+                ),
               ],
             );
           },

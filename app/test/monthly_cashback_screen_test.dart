@@ -5,12 +5,37 @@ import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/models/user_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
 import 'package:cashflow/screens/monthly_cashback_screen.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'support/mcc_test_cache.dart';
 
 void main() {
+  testWidgets('Windows plan toolbar with import actions fits a 1000 px window',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    for (final width in [800.0, 1017.0, 1400.0]) {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final provider = DataProvider(mccCacheStore: isolatedMccCache())
+        ..banks = [BankModel(id: 1, name: 'Банк', description: '')]
+        ..users = [UserModel(id: 1, name: 'Анна')]
+        ..cards = [CardModel(id: 1, bankId: 1, userId: 1)];
+      await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: provider,
+        child: const MaterialApp(home: Scaffold(body: MonthlyCashbackScreen())),
+      ));
+      await tester.pump();
+      expect(find.text('Импортировать JSON'), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: 'width $width');
+    }
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   testWidgets('mobile plan follows the manual needs-first layout',
       (tester) async {
     tester.view.physicalSize = const Size(360, 800);
