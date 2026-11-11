@@ -2,15 +2,15 @@ import { parseSelectionPlan, selectionPlanPeriodLabel } from '../../adapters/sel
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { strToU8, zipSync } from 'fflate';
-import type { BankId, CashbackCategory, CashbackImportBankResult, CashbackImportDocument, CashbackSelectionPlanCategory, CashbackSelectionPlanDocument, CollectionStatus, PageProbe } from '../../adapters/types';
+import type { BankId, CashbackCategory, CashbackImportBankResult, CashbackImportDocument, CashbackSelectionPlanCategory, CashbackSelectionPlanDocument, ProbeMode } from '../../adapters/types';
+import { isAuthenticationTab, probeBank, type BankProbeOutcome } from '../../adapters/probe-client';
+import { applyOutcome, buildImportDocument, COLLECTED_STORAGE_KEY, emptyBankView, exportGaps, restoreViews, serializeImportDocument, serializeViews, type BankView } from '../../adapters/collected-results';
 import { DEFAULT_BANK_IDS, findBank } from '../../banks/registry';
 import { collectExtendedBank } from '../../adapters/extended/collect';
 import { extendedFreshness, type ExtendedFreshness } from '../../adapters/extended/freshness';
 import type { ExtendedBankResult } from '../../adapters/extended/types';
 import './style.css';
 
-type BankViewStatus = CollectionStatus;
-type BankView = { status: BankViewStatus; result: CashbackImportBankResult | null; message: string | null };
 type ImportRequest = { banks?: BankId[]; autoCollect?: boolean };
 type ExportedIcon = {
   id: string;
@@ -49,6 +49,8 @@ function ExtendedStatus({ freshness, thisSession }: { freshness: ExtendedFreshne
     return <p className="extended-status extended-missing">Акции: ещё не собирались</p>;
   }
   const date = freshness.collectedAt.toLocaleString('ru-RU');
+  const failure = freshness.state === 'fresh' || freshness.state === 'stale' ? freshness.lastFailure : null;
+  const failureNote = failure && <><br />Повторный сбор {new Date(failure.at).toLocaleString('ru-RU')} не удался, показан предыдущий: {failure.error.replace(/^https?:\/\/\S+: /, '')}</>;
   if (freshness.state === 'failed') {
     return <p className="extended-status extended-stale">
       Акции: сбор {date} ({freshness.age}) не удался — в JSON не попадут.
@@ -58,19 +60,16 @@ function ExtendedStatus({ freshness, thisSession }: { freshness: ExtendedFreshne
   if (freshness.state === 'stale') {
     return <p className="extended-status extended-stale">
       Акции: последний сбор {date} ({freshness.age}) — устарели, не показываются и не попадут в JSON
+      {failureNote}
     </p>;
   }
   const good = freshness.run === 'complete';
   return <p className={`extended-status ${good ? 'extended-fresh' : 'extended-partial'}`}>
     {good ? '✓' : '!'} Акции обновлены {freshness.age} ({date}) · {extendedRunLabels[freshness.run]}
     {thisSession && ' · в этом сеансе'}
+    {failureNote}
   </p>;
 }
-
-const emptyBankView = (): BankView => ({ status: 'waiting', result: null, message: null });
-const isLoginUrl = (url: string) => /\/login|\/signin|\/auth\/|passport\.yandex|private\.auth\.alfabank|\/passport\/|\/apps\/auth|\/csafront\/index\.do(?:#\/?)?$/i.test(url);
-const isAuthenticationTab = (tab: { url?: string; title?: string }) =>
-  isLoginUrl(tab.url ?? '') || /^(?:вход|авторизация)/i.test(tab.title ?? '');
 
 function CategoryIcon({ name, url, backgroundColor }: {
   name: string;
@@ -117,63 +116,13 @@ async function requestedBankIds(): Promise<BankId[]> {
   return valid?.length ? valid : DEFAULT_BANK_IDS;
 }
 
-async function probeBank(bankId: BankId): Promise<BankView> {
-  const bank = findBank(bankId);
-  const tabs = await browser.tabs.query({ url: bank.tabPatterns });
-  if (!tabs.length) return emptyBankView();
-
-  const responses = await Promise.all(tabs.map(async (tab) => {
-    if (tab.id == null) return null;
-    try {
-      return await browser.tabs.sendMessage(tab.id, { type: 'cashflow:probe-page' }) as PageProbe;
-    } catch {
-      return null;
-    }
-  }));
-  const response = responses
-    .filter((candidate): candidate is PageProbe => candidate != null)
-    .sort((left, right) => {
-      const countDifference = right.categories.length - left.categories.length;
-      if (countDifference) return countDifference;
-      const preferredDifference = Number(bank.preferredUrlParts.some((part) => right.url.includes(part))) -
-        Number(bank.preferredUrlParts.some((part) => left.url.includes(part)));
-      if (preferredDifference) return preferredDifference;
-      return Number(right.authenticationStatus === 'authentication_required') -
-        Number(left.authenticationStatus === 'authentication_required');
-    })[0];
-
-  if (!response) {
-    return tabs.some(isAuthenticationTab)
-      ? { status: 'auth', result: null, message: 'Требуется авторизация' }
-      : { status: 'error', result: null, message: 'Обновите вкладку после загрузки расширения' };
-  }
-  if (
-    response.authenticationStatus === 'authentication_required' ||
-    (response.categories.length === 0 && tabs.some(isAuthenticationTab))
-  ) {
-    return { status: 'auth', result: null, message: 'Требуется авторизация' };
-  }
-  if (response.authenticationStatus === 'unknown' && response.categories.length === 0) {
-    return { status: 'waiting', result: null, message: 'Ожидаю страницу категорий' };
-  }
-  return {
-    status: 'ready',
-    result: {
-      ...response,
-      bankName: bank.name,
-      collectionStatus: 'ready',
-      collectedAt: new Date().toISOString(),
-      message: null,
-    },
-    message: null,
-  };
-}
-
 function App() {
   const [bankIds, setBankIds] = useState<BankId[]>(DEFAULT_BANK_IDS);
-  const [views, setViews] = useState<Record<string, BankView>>({});
+  const [initialized, setInitialized] = useState(false);
+  const [views, setViews] = useState<Partial<Record<BankId, BankView>>>({});
   const [autoCollect, setAutoCollect] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [collectMessage, setCollectMessage] = useState<string | null>(null);
   const [iconsBusy, setIconsBusy] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [selectionPlan, setSelectionPlan] = useState<CashbackSelectionPlanDocument | null>(null);
@@ -183,47 +132,90 @@ function App() {
   const [extendedCollectingBank, setExtendedCollectingBank] = useState<BankId | null>(null);
   const [extendedUpdatedNow, setExtendedUpdatedNow] = useState<ReadonlySet<BankId>>(new Set());
   const [now, setNow] = useState(() => new Date());
-  const viewsRef = useRef(views);
-  const collectingRef = useRef(false);
+  const bankIdsRef = useRef(bankIds);
+  const collectRunRef = useRef<Promise<void> | null>(null);
+  const manualPendingRef = useRef(false);
   const extendedCollectingRef = useRef(false);
 
   useEffect(() => {
-    viewsRef.current = views;
-  }, [views]);
+    bankIdsRef.current = bankIds;
+  }, [bankIds]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const collect = useCallback(async (onlyPending = false, showBusy = true) => {
-    if (collectingRef.current || extendedCollectingRef.current) return;
-    const ids = onlyPending
-      ? bankIds.filter((id) => viewsRef.current[id]?.status !== 'ready')
-      : bankIds;
-    if (!ids.length) return;
-    collectingRef.current = true;
-    if (showBusy) setBusy(true);
-    try {
-      const entries = await Promise.all(ids.map(async (id) => [id, await probeBank(id)] as const));
-      setViews((current) => ({ ...current, ...Object.fromEntries(entries) }));
-    } finally {
-      collectingRef.current = false;
-      if (showBusy) setBusy(false);
+  const probeAll = useCallback(async (mode: ProbeMode) => {
+    await Promise.all(bankIdsRef.current.map(async (id) => {
+      let outcome: BankProbeOutcome;
+      try {
+        outcome = await probeBank(id, mode);
+      } catch (error) {
+        outcome = { status: 'error', probe: null, message: String(error) };
+      }
+      // Each bank is merged as soon as it answers; a slow bank no longer
+      // delays (or, on failure, discards) the others.
+      setViews((current) => ({ ...current, [id]: applyOutcome(current[id], outcome, findBank(id).name, new Date()) }));
+    }));
+  }, []);
+
+  /**
+   * Manual clicks are never dropped: a click during an automatic or another
+   * manual collection schedules one more thorough pass after it.
+   */
+  const collect = useCallback((manual: boolean): Promise<void> => {
+    if (manual) {
+      manualPendingRef.current = true;
+      setBusy(true);
+      setCollectMessage(null);
     }
-  }, [bankIds]);
+    if (extendedCollectingRef.current) {
+      if (manual) setCollectMessage('Идёт сбор расширенных предложений — категории соберутся сразу после него');
+      return Promise.resolve();
+    }
+    if (collectRunRef.current) return collectRunRef.current;
+    const run = (async () => {
+      try {
+        let mode: ProbeMode = manualPendingRef.current ? 'thorough' : 'passive';
+        manualPendingRef.current = false;
+        for (;;) {
+          await probeAll(mode);
+          if (!manualPendingRef.current || extendedCollectingRef.current) break;
+          manualPendingRef.current = false;
+          mode = 'thorough';
+        }
+      } finally {
+        collectRunRef.current = null;
+        if (!manualPendingRef.current) setBusy(false);
+      }
+    })();
+    collectRunRef.current = run;
+    return run;
+  }, [probeAll]);
 
   useEffect(() => {
     void (async () => {
       const ids = await requestedBankIds();
-      const stored = await browser.storage.local.get(['cashflowImportRequest', 'cashflowSelectionPlan']);
+      const stored = await browser.storage.local.get(['cashflowImportRequest', 'cashflowSelectionPlan', COLLECTED_STORAGE_KEY]);
       const request = stored.cashflowImportRequest as ImportRequest | undefined;
+      // Results survive closing and reopening the side panel.
+      setViews(restoreViews(stored[COLLECTED_STORAGE_KEY], ids, new Date()));
       setBankIds(ids);
+      bankIdsRef.current = ids;
       setAutoCollect(request?.autoCollect ?? true);
       const plan = stored.cashflowSelectionPlan as CashbackSelectionPlanDocument | undefined;
       setSelectionPlan(parseSelectionPlan(plan));
+      setInitialized(true);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!initialized) return;
+    const stored = serializeViews(views, new Date());
+    if (!Object.keys(stored.banks).length) return;
+    void browser.storage.local.set({ [COLLECTED_STORAGE_KEY]: stored }).catch(() => undefined);
+  }, [initialized, views]);
 
   useEffect(() => {
     const listener = (changes: Record<string, Browser.storage.StorageChange>) => {
@@ -236,16 +228,24 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void collect(false, false);
-    // Bank list is the intentional trigger; collect identity changes while results arrive.
+    if (!initialized) return;
+    void collect(false);
+    // Bank list is the intentional trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bankIds.join(',')]);
+  }, [initialized, bankIds.join(',')]);
 
   useEffect(() => {
-    if (!autoCollect) return undefined;
-    const timer = window.setInterval(() => void collect(false, false), 5000);
+    if (!autoCollect || !initialized) return undefined;
+    const timer = window.setInterval(() => void collect(false), 5000);
     return () => window.clearInterval(timer);
-  }, [autoCollect, collect]);
+  }, [autoCollect, initialized, collect]);
+
+  async function clearCollected() {
+    if (collectRunRef.current) await collectRunRef.current;
+    setViews({});
+    await browser.storage.local.remove(COLLECTED_STORAGE_KEY).catch(() => undefined);
+    await collect(true);
+  }
 
   async function openTabs() {
     for (const id of bankIds) {
@@ -260,7 +260,7 @@ function App() {
   async function openBank(id: BankId) {
     const bank = findBank(id);
     const existing = await browser.tabs.query({ url: bank.tabPatterns });
-    const authTab = views[id]?.status === 'auth'
+    const authTab = views[id]?.liveStatus === 'auth' || views[id]?.status === 'auth'
       ? existing.find(isAuthenticationTab)
       : undefined;
     const tab = authTab ?? existing.find((candidate) =>
@@ -286,7 +286,9 @@ function App() {
   }, []);
 
   async function collectExtended() {
-    if (extendedBusy) return;
+    // A ref, not state: two quick clicks happen before React re-renders.
+    if (extendedCollectingRef.current) return;
+    if (collectRunRef.current) await collectRunRef.current;
     extendedCollectingRef.current = true;
     setExtendedBusy(true);
     const failures: string[] = [];
@@ -315,6 +317,7 @@ function App() {
       extendedCollectingRef.current = false;
       setExtendedCollectingBank(null);
       setExtendedBusy(false);
+      if (manualPendingRef.current) void collect(true);
     }
   }
 
@@ -328,39 +331,16 @@ function App() {
     return value.state === 'fresh' && value.run === 'complete';
   }).length;
 
-  const output = useMemo<CashbackImportDocument>(() => ({
-    schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
-    requestedBanks: bankIds,
-    banks: bankIds.map((id): CashbackImportBankResult => {
-      const bank = findBank(id);
-      const view = views[id] ?? emptyBankView();
-      const base: CashbackImportBankResult = view.result ?? {
-        bankId: id,
-        bankName: bank.name,
-        collectionStatus: view.status,
-        collectedAt: null,
-        title: null,
-        url: null,
-        readyState: null,
-        authenticationStatus: view.status === 'auth' ? 'authentication_required' : 'unknown',
-        selection: {
-          isLocked: null,
-          selectedCount: 0,
-          visibleCount: 0,
-          maxSelectable: null,
-          totalOptions: null,
-          groups: [],
-        },
-        categories: [],
-        message: view.message,
-      };
-      // Only collections from the last day are exported; older ones would
-      // mark long-gone offers as available again.
+  const output = useMemo<CashbackImportDocument>(() => buildImportDocument(
+    bankIds,
+    views,
+    (id) => findBank(id).name,
+    // Only collections from the last day are exported; older ones would
+    // mark long-gone offers as available again.
+    Object.fromEntries(bankIds.flatMap((id) => {
       const extra = extended[id];
       const fresh = freshness[id];
-      return extra && fresh.state === 'fresh' ? {
-        ...base,
+      return extra && fresh.state === 'fresh' ? [[id, {
         extendedOffers: fresh.offers,
         extendedSummary: {
           collectedAt: extra.collectedAt,
@@ -371,28 +351,42 @@ function App() {
           errors: extra.errors,
           runStatus: extra.runStatus,
         },
-      } : base;
-    }),
-  }), [bankIds, views, extended, freshness]);
+      }]] : [];
+    })),
+  ), [bankIds, views, extended, freshness]);
 
   const readyCount = output.banks.filter((bank) => bank.collectionStatus === 'ready').length;
 
+  const outputRef = useRef(output);
+  outputRef.current = output;
+
   async function downloadJson() {
-    const exported = {
-      ...output,
-      generatedAt: new Date().toISOString(),
-      banks: output.banks.map((bank) => ({
-        ...bank,
-        categories: bank.categories.map(({ iconUrl: _iconUrl, ...category }) => category),
-      })),
-    };
-    const json = JSON.stringify(exported, null, 2);
+    setExportMessage(null);
+    // Export what the running collection is about to deliver, not a snapshot
+    // taken in the middle of it.
+    if (collectRunRef.current) {
+      setExportMessage('Дожидаюсь завершения сбора…');
+      await collectRunRef.current;
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    }
+    const document = outputRef.current;
+    const json = serializeImportDocument(document);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    await browser.downloads.download({
-      url: `data:application/json;charset=utf-8,${encodeURIComponent(json)}`,
-      filename: `CashFlow/cashback-${stamp}.json`,
-      saveAs: true,
-    });
+    // A data: URL silently failed for large exports (Cyrillic text triples in
+    // size when percent-encoded and Chrome caps URL length at 2 MB).
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    try {
+      await browser.downloads.download({ url, filename: `CashFlow/cashback-${stamp}.json`, saveAs: true });
+      const gaps = exportGaps(document.banks);
+      const exportedCount = document.banks.length - gaps.length;
+      setExportMessage(`JSON сохранён: категории ${exportedCount} из ${document.banks.length} банков` +
+        (gaps.length ? `. Без категорий (будут пропущены при импорте): ${gaps.join(', ')}` : ''));
+    } catch (error) {
+      setExportMessage(`JSON не сохранён: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // The download reads the blob asynchronously after the save dialog.
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
   }
 
   async function downloadIcons() {
@@ -467,7 +461,7 @@ function App() {
           saveAs: true,
         });
       } finally {
-        URL.revokeObjectURL(archiveUrl);
+        window.setTimeout(() => URL.revokeObjectURL(archiveUrl), 60_000);
       }
       setExportMessage(failedIcons.length
         ? `Архив готов: ${exportedIcons.length} из ${icons.size} значков`
@@ -484,13 +478,15 @@ function App() {
     </header>
     <div className="actions">
       <button type="button" className="secondary" onClick={openTabs}>Открыть вкладки</button>
-      <button type="button" onClick={() => void collect(false)} disabled={busy}>{busy ? 'Собираю…' : 'Собрать все'}</button>
+      <button type="button" onClick={() => void collect(true)} disabled={busy}>{busy ? 'Собираю…' : 'Собрать все'}</button>
+      <button type="button" className="secondary" onClick={() => void clearCollected()} disabled={busy}>Собрать заново</button>
       <button type="button" className="extended-action" onClick={() => void collectExtended()} disabled={extendedBusy}>
         {extendedBusy ? 'Собираю расширенные…' : 'Собрать расширенные предложения'}
       </button>
       <button type="button" className="icons" onClick={() => void downloadIcons()} disabled={iconsBusy}>{iconsBusy ? 'Собираю ZIP…' : 'Скачать значки ZIP'}</button>
       <button type="button" className="success" onClick={downloadJson}>Скачать JSON</button>
     </div>
+    {collectMessage && <p className="export-message">{collectMessage}</p>}
     {exportMessage && <p className="export-message">{exportMessage}</p>}
     {extendedProgress && <p className="export-message">{extendedProgress}</p>}
     <p className={`extended-overview ${completeBankCount === bankIds.length ? 'extended-fresh' : 'extended-partial'}`}>
@@ -500,7 +496,7 @@ function App() {
     {selectionPlan && <section className="selection-plan">
       <div className="plan-heading"><div><h2>План на выбранный период</h2><p>{selectionPlanPeriodLabel(selectionPlan)}</p></div><span>Только подсказка</span></div>
       <p>После сохранения категорий в банке проверьте результат и экспортируйте новый JSON в CashFlow. До подтверждения категории не учитываются в активном кешбэке.</p>
-      <button type="button" onClick={() => void collect(false)} disabled={busy}>Проверить подтверждение в банках</button>
+      <button type="button" onClick={() => void collect(true)} disabled={busy}>Проверить подтверждение в банках</button>
       {selectionPlan.banks.map((planBank) => {
         const view = views[planBank.bankId];
         const ready = view?.status === 'ready';
@@ -544,6 +540,7 @@ function App() {
           {view.status === 'ready' && 'Готово'}{view.status === 'auth' && 'Нужен вход'}{view.status === 'collecting' && 'Сбор…'}{view.status === 'waiting' && 'Ожидание'}{view.status === 'error' && 'Ошибка'}
         </span></div><button type="button" className="link-button" onClick={() => void openBank(id)}>Открыть</button></div>
         {view.message && <p className="message">{view.message}</p>}
+        {!!view.retainedCount && <p className="message">Ещё {view.retainedCount} из прошлых проверок сохранены — последняя проверка их не показала («Собрать заново» сбросит)</p>}
         <ExtendedStatus freshness={fresh} thisSession={extendedUpdatedNow.has(id)} />
         {extra && fresh.state === 'fresh' && <details><summary>Расширенные предложения ({fresh.offers.length})</summary>
           <p className="summary">В каталоге банка: {extra.previewCount} · Из истории: {extra.reusedCount} · Открыто: {extra.openedCount} · Только превью: {extra.previewOnlyCount}</p>

@@ -1,43 +1,27 @@
 import { extractSberCashbackCategories } from '../adapters/sber/cashback';
-import { buildPageProbe } from '../adapters/page-probe';
-import {
-  findSberCategoriesControl,
-  findSberLoyaltyControl,
-} from '../adapters/sber/navigation';
-import type { PageProbe } from '../adapters/types';
-
-type PageProbeRequest = {
-  type: 'cashflow:probe-page';
-};
+import { findSberCategoriesControl, findSberLoyaltyControl } from '../adapters/sber/navigation';
+import { registerProbeListener } from '../adapters/probe-runner';
 
 export default defineContentScript({
   matches: ['https://online.sberbank.ru/*'],
   runAt: 'document_idle',
   main() {
-    browser.runtime.onMessage.addListener(
-      (message: PageProbeRequest): Promise<PageProbe> | undefined => {
-        if (message.type !== 'cashflow:probe-page') return undefined;
-        return (async () => {
-
-        const categories = extractSberCashbackCategories();
-        if (categories.length) return buildPageProbe('sber', categories);
-
-        if (
-          window.location.hostname === 'online.sberbank.ru' &&
-          window.location.pathname.startsWith('/app/') &&
-          !window.location.pathname.includes('/loyalty/')
-        ) {
-          findSberLoyaltyControl()?.click();
-        } else if (
-          window.location.pathname === '/app/loyalty/main' ||
-          window.location.pathname === '/app/loyalty/main/categories'
-        ) {
-          findSberCategoriesControl()?.click();
+    registerProbeListener({
+      bankId: 'sber',
+      read: () => extractSberCashbackCategories(),
+      advance: (collected) => {
+        if (collected.length) return false;
+        const { hostname, pathname } = window.location;
+        let control: HTMLElement | null = null;
+        if (hostname === 'online.sberbank.ru' && pathname.startsWith('/app/') && !pathname.includes('/loyalty/')) {
+          control = findSberLoyaltyControl();
+        } else if (pathname === '/app/loyalty/main' || pathname === '/app/loyalty/main/categories') {
+          control = findSberCategoriesControl();
         }
-
-        return buildPageProbe('sber', []);
-        })();
+        control?.click();
+        return Boolean(control);
       },
-    );
+      scrollLazyContent: true,
+    });
   },
 });

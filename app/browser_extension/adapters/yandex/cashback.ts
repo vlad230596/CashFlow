@@ -193,3 +193,15 @@ export function extractYandexCashbackCategories(
 
   return [...categories.values()];
 }
+
+/**
+ * The current-month page initially shows a few categories and an
+ * "Ещё N категорий" control. Returns true when the control was clicked.
+ */
+export function expandYandexCategories(root: ParentNode = document): boolean {
+  if (typeof location !== 'undefined' && location.pathname !== '/cashback/current') return false;
+  const more = [...root.querySelectorAll<HTMLElement>('button, [role="button"]')]
+    .find((element) => /Ещ[её]\s+\d+\s+категори/i.test((element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim()));
+  more?.click();
+  return Boolean(more);
+}

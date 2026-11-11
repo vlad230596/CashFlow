@@ -1,30 +1,23 @@
-import { buildPageProbe } from '../adapters/page-probe';
-import { extractAlfaCashbackCategoriesWithDetails } from '../adapters/alfa/cashback';
-import type { PageProbe } from '../adapters/types';
-
-type PageProbeRequest = { type: 'cashflow:probe-page' };
+import {
+  enrichAlfaDescriptions,
+  extractAlfaCashbackCategories,
+  hasAlfaCategoryList,
+  openAlfaCategoryProgram,
+} from '../adapters/alfa/cashback';
+import { registerProbeListener } from '../adapters/probe-runner';
 
 export default defineContentScript({
   matches: ['https://web.alfabank.ru/*', 'https://private.auth.alfabank.ru/*'],
   runAt: 'document_idle',
   main() {
-    browser.runtime.onMessage.addListener(
-      (message: PageProbeRequest): Promise<PageProbe> | undefined => {
-        if (message.type !== 'cashflow:probe-page') return undefined;
-        return (async () => {
-        if (!document.querySelector('[data-test-id="chosen-category-item"], [data-test-id^="checkbox-select-cashback-"]')) {
-          const title = [...document.querySelectorAll<HTMLElement>(
-            '[data-test-id="cashback-programs-item-title"]',
-          )].find((element) => /^(?:Выберите категории|Категории\s+в\s+)/i.test(element.textContent?.trim() ?? ''));
-          (title?.closest<HTMLElement>('[data-test-id="cashback-programs-item"]') ?? title)?.click();
-          return buildPageProbe('alfa', []);
-        }
-        return buildPageProbe(
-          'alfa',
-          await extractAlfaCashbackCategoriesWithDetails(),
-        );
-        })();
-      },
-    );
+    registerProbeListener({
+      bankId: 'alfa',
+      // The program summary also shows stackable bonuses; categories are read
+      // only once the monthly list itself is open.
+      read: () => hasAlfaCategoryList() ? extractAlfaCashbackCategories() : [],
+      advance: (collected) => !collected.length && openAlfaCategoryProgram(),
+      enrich: (categories) => enrichAlfaDescriptions(categories),
+      scrollLazyContent: true,
+    });
   },
 });

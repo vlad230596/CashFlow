@@ -52,6 +52,8 @@ export type ExtendedBankResult = {
   runStatus?: ExtendedRunStatus;
   /** Preview IDs seen in the bank catalogue during this run. */
   catalogIds?: string[];
+  /** Latest failed attempt that left this (earlier) collection in place. */
+  lastFailure?: { at: string; error: string };
 };
 
 export type ExtendedRunStatus = 'running' | 'partial' | 'failed' | 'complete';

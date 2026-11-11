@@ -179,29 +179,40 @@ function waitForDetail(name: string, timeoutMs = 1200): Promise<string | null> {
   });
 }
 
-export async function extractOzonCashbackCategoriesWithDetails(): Promise<
-  OzonCashbackCategory[]
-> {
-  const categories = extractOzonCashbackCategories();
-  if (document.querySelector('[data-testid="favorite-category-list"]')) return categories;
-  const items = [
-    ...document.querySelectorAll<HTMLElement>(
-      '[data-testid="categories-container"] [data-testid="carousel-item"]',
-    ),
-  ];
-
-  for (const [index, category] of categories.entries()) {
-    const cachedDescription = detailTextForCategory(category.name);
-    if (cachedDescription) {
-      category.description = cachedDescription;
+/**
+ * Fills descriptions from the carousel's detail sheets. Each sheet is opened
+ * at most once per page: `cache` keeps the text for later probes.
+ */
+export async function enrichOzonDescriptions(
+  categories: OzonCashbackCategory[],
+  cache: Map<string, string> = new Map(),
+): Promise<OzonCashbackCategory[]> {
+  const result = categories.map((category) => ({ ...category }));
+  if (document.querySelector('[data-testid="favorite-category-list"]')) return result;
+  const items = [...document.querySelectorAll<HTMLElement>(
+    '[data-testid="categories-container"] [data-testid="carousel-item"]',
+  )];
+  for (const category of result) {
+    const cached = cache.get(category.name) ?? detailTextForCategory(category.name);
+    if (cached) {
+      cache.set(category.name, cached);
+      category.description = cached;
       continue;
     }
-
-    const infoButton = items[index]?.querySelector<HTMLElement>('[role="button"]');
+    // Match the carousel item by its own title rather than by position.
+    const item = items.find((candidate) => [...candidate.querySelectorAll<HTMLElement>('div, span')]
+      .some((element) => {
+        const parsed = parseOzonCategoryTitle(element.textContent ?? '');
+        return parsed?.name === category.name && parsed.percentLabel === category.percentLabel;
+      }));
+    const infoButton = item?.querySelector<HTMLElement>('[role="button"]');
     if (!infoButton) continue;
     infoButton.click();
-    category.description = await waitForDetail(category.name);
-
+    const description = await waitForDetail(category.name);
+    if (description) {
+      cache.set(category.name, description);
+      category.description = description;
+    }
     const sheet = [...document.querySelectorAll<HTMLElement>('[class*="bottom-sheet-main"]')]
       .reverse()
       .find((candidate) => normalizeText(candidate.innerText).startsWith(category.name));
@@ -210,6 +221,11 @@ export async function extractOzonCashbackCategoriesWithDetails(): Promise<
     );
     closeButton?.click();
   }
+  return result;
+}
 
-  return categories;
+export async function extractOzonCashbackCategoriesWithDetails(): Promise<
+  OzonCashbackCategory[]
+> {
+  return enrichOzonDescriptions(extractOzonCashbackCategories());
 }

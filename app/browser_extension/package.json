@@ -24,6 +24,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@wxt-dev/module-react": "^1.2.2",
+    "happy-dom": "21.0.4",
     "rollup": "^4.62.4",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11",

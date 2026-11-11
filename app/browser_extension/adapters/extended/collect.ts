@@ -130,15 +130,21 @@ export async function collectExtendedBank(
   };
   // The stored record keeps earlier offers for detail reuse; catalogIds tells
   // the panel which of them the bank actually listed during this run.
+  // While the catalogue is still being scanned, catalogIds is incomplete; a
+  // stored record would hide most previously collected offers if the run were
+  // interrupted, so progress is only reported, not persisted, in that phase.
+  let catalogueComplete = false;
   const save = async (runStatus: ExtendedRunStatus = 'running') => {
     result.collectedAt = new Date().toISOString();
     result.runStatus = runStatus;
     result.catalogIds = [...previewMap.keys()];
     result.previewCount = previewMap.size;
     result.previewOnlyCount = result.offers.filter((offer) => offer.detailsStatus === 'preview_only').length;
-    const merged = new Map(previous?.offers.map((offer) => [offer.id, offer]) || []);
-    for (const offer of result.offers) merged.set(offer.id, offer);
-    await browser.storage.local.set({ [historyKey(bankId)]: { ...result, offers: [...merged.values()] } });
+    if (catalogueComplete) {
+      const merged = new Map(previous?.offers.map((offer) => [offer.id, offer]) || []);
+      for (const offer of result.offers) merged.set(offer.id, offer);
+      await browser.storage.local.set({ [historyKey(bankId)]: { ...result, offers: [...merged.values()] } });
+    }
     progress?.({ ...result, offers: [...result.offers], errors: [...result.errors] });
   };
 
@@ -190,9 +196,19 @@ export async function collectExtendedBank(
   // This allows the previous snapshot to be compared before any card is opened.
   const previews = uniquePreviews([...previewMap.values()]);
   if (!previews.length) {
-    await save('failed');
-    throw new Error(result.errors.join('; ') || `Каталог ${findBank(bankId).name} пуст или недоступен`);
+    const message = result.errors.join('; ') || `Каталог ${findBank(bankId).name} пуст или недоступен`;
+    // A failed retry must not replace a usable earlier collection: keep it and
+    // only record the failure next to it.
+    const lastFailure = { at: new Date().toISOString(), error: message };
+    if (previous && previous.runStatus !== 'failed' && previous.offers.length) {
+      await browser.storage.local.set({ [historyKey(bankId)]: { ...previous, lastFailure } });
+    } else {
+      catalogueComplete = true;
+      await save('failed');
+    }
+    throw new Error(message);
   }
+  catalogueComplete = true;
   for (const item of previews) {
     const reused = reuseOffer(item, old.get(item.id));
     if (reused) {

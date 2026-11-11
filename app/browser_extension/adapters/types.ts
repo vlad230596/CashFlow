@@ -33,6 +33,19 @@ export type CashbackSelection = {
   groups: string[];
 };
 
+/** `passive` for automatic background probes, `thorough` for a user click. */
+export type ProbeMode = 'passive' | 'thorough';
+
+/** How the content script obtained the categories. */
+export type ProbeCapture = {
+  mode: ProbeMode;
+  /** The list stayed unchanged for the quiet period before it was returned. */
+  stable: boolean;
+  waitedMs: number;
+  reads: number;
+  advances: number;
+};
+
 export type PageProbe = {
   bankId: BankId;
   title: string;
@@ -41,6 +54,7 @@ export type PageProbe = {
   authenticationStatus: AuthenticationStatus;
   selection: CashbackSelection;
   categories: CashbackCategory[];
+  capture?: ProbeCapture;
 };
 
 export type CollectionStatus = 'waiting' | 'collecting' | 'ready' | 'auth' | 'error';

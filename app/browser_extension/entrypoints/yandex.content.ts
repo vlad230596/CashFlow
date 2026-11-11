@@ -1,31 +1,15 @@
-import { extractYandexCashbackCategories } from '../adapters/yandex/cashback';
-import { buildPageProbe } from '../adapters/page-probe';
-import type { PageProbe } from '../adapters/types';
-
-type PageProbeRequest = {
-  type: 'cashflow:probe-page';
-};
+import { expandYandexCategories, extractYandexCashbackCategories } from '../adapters/yandex/cashback';
+import { registerProbeListener } from '../adapters/probe-runner';
 
 export default defineContentScript({
   matches: ['https://bank.yandex.ru/*', 'https://sp.yandex.ru/*'],
   runAt: 'document_idle',
   main() {
-    browser.runtime.onMessage.addListener(
-      (message: PageProbeRequest): Promise<PageProbe> | undefined => {
-        if (message.type !== 'cashflow:probe-page') return undefined;
-        return (async () => {
-
-        const categories = extractYandexCashbackCategories();
-        if (categories.length) return buildPageProbe('yandex', categories);
-
-        if (window.location.pathname === '/cashback/current') {
-          const more = [...document.querySelectorAll<HTMLElement>('button, [role="button"]')]
-            .find((element) => /Ещё\s+5\s+категори/i.test(element.innerText));
-          more?.click();
-        }
-        return buildPageProbe('yandex', []);
-        })();
-      },
-    );
+    registerProbeListener({
+      bankId: 'yandex',
+      read: () => extractYandexCashbackCategories(),
+      advance: () => expandYandexCategories(),
+      scrollLazyContent: true,
+    });
   },
 });

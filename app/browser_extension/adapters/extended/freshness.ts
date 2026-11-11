@@ -5,7 +5,7 @@ export const EXTENDED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 export type ExtendedFreshness =
   | { state: 'missing' }
-  | { state: 'stale'; collectedAt: Date; age: string }
+  | { state: 'stale'; collectedAt: Date; age: string; lastFailure: ExtendedBankResult['lastFailure'] | null }
   | { state: 'failed'; collectedAt: Date; age: string; error: string | null }
   | {
     state: 'fresh';
@@ -14,6 +14,8 @@ export type ExtendedFreshness =
     /** `running` is reported only while this panel is collecting the bank. */
     run: 'running' | 'interrupted' | 'partial' | 'complete' | 'unknown';
     offers: ExtendedOffer[];
+    /** A later attempt failed and left this collection in place. */
+    lastFailure: ExtendedBankResult['lastFailure'] | null;
   };
 
 export function ageLabel(ms: number): string {
@@ -44,9 +46,10 @@ export function extendedFreshness(
   if (result.runStatus === 'failed') {
     return { state: 'failed', collectedAt, age, error: result.errors[0] ?? null };
   }
-  if (ageMs > EXTENDED_MAX_AGE_MS) return { state: 'stale', collectedAt, age };
+  const lastFailure = result.lastFailure ?? null;
+  if (ageMs > EXTENDED_MAX_AGE_MS) return { state: 'stale', collectedAt, age, lastFailure };
   const run = result.runStatus === 'running'
     ? (collectingNow ? 'running' : 'interrupted')
     : result.runStatus ?? 'unknown';
-  return { state: 'fresh', collectedAt, age, run, offers: currentOffers(result) };
+  return { state: 'fresh', collectedAt, age, run, offers: currentOffers(result), lastFailure };
 }

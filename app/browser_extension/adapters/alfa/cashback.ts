@@ -215,18 +215,45 @@ function visibleTooltipText(): string | null {
   return normalizeText(tooltip?.innerText) || null;
 }
 
-export async function extractAlfaCashbackCategoriesWithDetails(): Promise<AlfaCashbackCategory[]> {
-  const categories = extractAlfaCashbackCategories();
-  const items = [...document.querySelectorAll<HTMLElement>(savedItemSelector)];
-  for (const [index, category] of categories.filter((item) => item.type === 'standard').entries()) {
-    const target = items[index]?.querySelector<HTMLElement>(
-      '[data-test-id="tooltip-category-info-target"]',
-    );
-    if (!target) continue;
+/**
+ * Reads each saved category's tooltip. Tooltips are matched to categories by
+ * their own title: the saved items are a subset of all standard categories, so
+ * matching by position attached descriptions to the wrong categories.
+ */
+export async function enrichAlfaDescriptions(
+  categories: AlfaCashbackCategory[],
+): Promise<AlfaCashbackCategory[]> {
+  const result = categories.map((category) => ({ ...category }));
+  const byTitle = new Map(result
+    .filter((category) => category.type === 'standard')
+    .map((category) => [`${category.percentLabel}\u0000${category.name}`, category]));
+  for (const item of document.querySelectorAll<HTMLElement>(savedItemSelector)) {
+    const parsed = categoryFromItem(item);
+    const category = parsed ? byTitle.get(`${parsed.percentLabel}\u0000${parsed.name}`) : undefined;
+    const target = item.querySelector<HTMLElement>('[data-test-id="tooltip-category-info-target"]');
+    if (!category || !target) continue;
     target.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 100));
     category.description = visibleTooltipText() ?? category.description;
     target.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
   }
-  return categories;
+  return result;
+}
+
+export async function extractAlfaCashbackCategoriesWithDetails(): Promise<AlfaCashbackCategory[]> {
+  return enrichAlfaDescriptions(extractAlfaCashbackCategories());
+}
+
+/** Alfa shows categories only after the monthly program card is opened. */
+export function hasAlfaCategoryList(root: ParentNode = document): boolean {
+  return Boolean(root.querySelector('[data-test-id="chosen-category-item"], [data-test-id^="checkbox-select-cashback-"]'));
+}
+
+export function openAlfaCategoryProgram(root: ParentNode = document): boolean {
+  if (hasAlfaCategoryList(root)) return false;
+  const title = [...root.querySelectorAll<HTMLElement>('[data-test-id="cashback-programs-item-title"]')]
+    .find((element) => /^(?:Выберите категории|Категории\s+в\s+)/i.test(element.textContent?.trim() ?? ''));
+  const target = title?.closest<HTMLElement>('[data-test-id="cashback-programs-item"]') ?? title;
+  target?.click();
+  return Boolean(target);
 }
