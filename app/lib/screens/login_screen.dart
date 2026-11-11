@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/data_provider.dart';
@@ -51,8 +50,13 @@ class _LoginScreenState extends State<LoginScreen> {
       _validationSummary = null;
     });
     final provider = context.read<DataProvider>();
-    final loggedIn = await provider.login(username, password);
-    if (loggedIn) TextInput.finishAutofillContext();
+    // No TextInput.finishAutofillContext() here: login() resolves only after
+    // the whole initial refresh, long after the shell replaced this screen.
+    // Called then, it closes whatever input the user is typing into (on web
+    // the Benefit search lost its first characters). The native AutofillGroup
+    // commits the credentials when this screen is disposed; on web the HTML
+    // login form is saved by the browser itself.
+    await provider.login(username, password);
     if (mounted) setState(() => _submitting = false);
   }
 
