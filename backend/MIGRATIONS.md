@@ -2,7 +2,13 @@
 
 Schema changes are managed by Alembic. Runtime startup never creates or alters tables.
 
-Current repository head: `0011_bank_identity` (2026-10-14). It adds a nullable, unique
+Current repository head: `0012_planned_payments` (2026-11-11). It adds the personal
+`planned_payment` table (recurring payments anchored to `anchor_date`, one-off payments
+completed by `completed_at`; optional card with `ON DELETE SET NULL`) and
+`planned_payment_record` (one confirmation per due date). Like every revision it must be
+applied by the explicit deployment migration.
+
+Previous head `0011_bank_identity` (2026-10-14) adds a nullable, unique
 `bank.bank_key` for supported integration identities. Known legacy names are backfilled
 using exact normalized aliases; custom banks remain null. If several old rows name the
 same integration, only the lowest ID receives the key. Icons never determine identity.

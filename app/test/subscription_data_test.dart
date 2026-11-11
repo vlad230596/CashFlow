@@ -2,43 +2,13 @@ import 'dart:convert';
 
 import 'package:cashflow/models/subscription_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
-import 'package:cashflow/services/subscription_notification_service.dart';
+import 'package:cashflow/services/reminder_notification_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/fake_reminders.dart';
 import 'support/mcc_test_cache.dart';
-
-class _FakeNotifications implements SubscriptionNotificationService {
-  final synchronized = <List<SubscriptionModel>>[];
-  final canceled = <int>[];
-  var permissionRequests = 0;
-
-  @override
-  Stream<int> get notificationTaps => const Stream.empty();
-
-  @override
-  Future<void> initialize() async {}
-
-  @override
-  Future<bool> requestPermission() async {
-    permissionRequests++;
-    return true;
-  }
-
-  @override
-  Future<void> synchronize(Iterable<SubscriptionModel> subscriptions) async {
-    synchronized.add(subscriptions.toList());
-  }
-
-  @override
-  Future<void> cancelSubscription(int subscriptionId) async {
-    canceled.add(subscriptionId);
-  }
-
-  @override
-  int? consumePendingSubscriptionId() => null;
-}
 
 Map<String, dynamic> _subscriptionJson({
   int id = 12,
@@ -115,11 +85,11 @@ void main() {
   });
 
   test('fetches wrapped subscription list and caches it', () async {
-    final notifications = _FakeNotifications();
+    final notifications = FakeReminders();
     final provider = DataProvider(
       mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
-      subscriptionNotificationService: notifications,
+      reminderNotificationService: notifications,
       httpClient: MockClient((request) async {
         expect(request.url.path, '/api/subscriptions');
         expect(request.url.queryParameters['status'], 'all');
@@ -139,7 +109,7 @@ void main() {
 
     expect(await provider.fetchSubscriptions(), isTrue);
     expect(provider.activeSubscriptions.single.name, 'Cloud storage');
-    expect(notifications.synchronized.last, hasLength(1));
+    expect(notifications.lastSpecs(ReminderKind.subscription), hasLength(1));
     expect(
       (await SharedPreferences.getInstance())
           .getString('data:v1:https%3A%2F%2Fcashflow.test:7:subscriptions'),
@@ -149,12 +119,12 @@ void main() {
 
   test('creates and archives a subscription and updates notifications',
       () async {
-    final notifications = _FakeNotifications();
+    final notifications = FakeReminders();
     final requests = <http.Request>[];
     final provider = DataProvider(
       mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
-      subscriptionNotificationService: notifications,
+      reminderNotificationService: notifications,
       httpClient: MockClient((request) async {
         requests.add(request);
         if (request.url.path.endsWith('/archive')) {
@@ -194,15 +164,16 @@ void main() {
 
     await provider.archiveSubscription(12);
     expect(provider.archivedSubscriptions.single.id, 12);
-    expect(notifications.canceled, [12]);
+    expect(notifications.canceled,
+        [const ReminderTarget(ReminderKind.subscription, 12)]);
   });
 
   test('notification permission is only requested after first save', () async {
-    final notifications = _FakeNotifications();
+    final notifications = FakeReminders();
     final provider = DataProvider(
       mccCacheStore: isolatedMccCache(),
       apiBaseUrl: 'https://cashflow.test',
-      subscriptionNotificationService: notifications,
+      reminderNotificationService: notifications,
       httpClient: MockClient((_) async => http.Response('{}', 500)),
     );
 

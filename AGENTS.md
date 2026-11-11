@@ -88,8 +88,8 @@ the original SQLite deployment, recovery work, tests, or migrations. They are
 not replicas of production and may have old dates, old rows, and an old Alembic
 revision. In particular, the workspace copy observed on 2026-09-30 was at
 `0002_authentication`, while the repository migration head was
-`0009_identity_icons`. The current repository head is `0011_bank_identity`
-(since 2026-10-14; this does not imply deployed environments have been migrated).
+`0009_identity_icons`. The current repository head is `0012_planned_payments`
+(since 2026-11-11; this does not imply deployed environments have been migrated).
 
 The `sqlite:///cards.db` fallback in `backend/main.py` exists for explicitly
 local development. Its presence never means that a nearby `cards.db` is the

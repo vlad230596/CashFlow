@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/planned_payment_model.dart';
 import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
 import 'cashback_screen.dart';
 import 'monthly_cashback_screen.dart';
 import 'more_screen.dart';
 import 'partner_offers_screen.dart';
-import 'subscriptions_screen.dart';
+import 'payments_hub_screen.dart';
 import 'widgets/keyboard_first_back.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,7 +24,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   final List<int> _tabHistory = [];
   bool _benefitHasInternalDetail = false;
-  final _subscriptionsKey = GlobalKey<SubscriptionsScreenState>();
+  static const _paymentsIndex = 3;
+  final _paymentsKey = GlobalKey<PaymentsHubScreenState>();
   DataProvider? _dataProvider;
 
   late final List<Widget> _screens = [
@@ -38,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onShellDestinationSelected: _selectDestination,
     ),
     const PartnerOffersScreen(),
-    SubscriptionsScreen(key: _subscriptionsKey),
+    PaymentsHubScreen(key: _paymentsKey),
     MoreScreen(
       sessionType: widget.sessionType ?? detectAppSessionType(),
       onShellDestinationSelected: _selectDestination,
@@ -75,13 +77,26 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleProviderChange() {
-    final id = _dataProvider?.consumePendingSubscriptionNotificationId();
-    if (id == null || !mounted) return;
+    final provider = _dataProvider;
+    final target = provider?.consumePendingReminderTarget();
+    if (provider == null || target == null || !mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _selectDestination(3);
+      _selectDestination(_paymentsIndex);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _subscriptionsKey.currentState?.openSubscription(id);
+        final hub = _paymentsKey.currentState;
+        if (hub == null) return;
+        final id = target.entityId;
+        switch (target.kind.key) {
+          case 'subscription':
+            hub.openSubscription(id);
+          case 'payment':
+            final kind = provider.plannedPayments
+                .where((payment) => payment.id == id)
+                .firstOrNull
+                ?.kind;
+            hub.openPayment(id, kind ?? PlannedPaymentKind.recurring);
+        }
       });
     });
   }
@@ -109,9 +124,9 @@ class _HomeScreenState extends State<HomeScreen> {
       Icons.local_offer_rounded,
     ),
     _ShellDestination(
-      'Подписки',
-      Icons.autorenew_outlined,
-      Icons.autorenew_rounded,
+      'Платежи',
+      Icons.event_repeat_outlined,
+      Icons.event_repeat_rounded,
     ),
     _ShellDestination('Ещё', Icons.more_horiz, Icons.more_horiz),
   ];

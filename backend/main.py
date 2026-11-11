@@ -22,9 +22,11 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+import payment_schedule
 from bank_identity import BANK_IMPORT_NAMES, bank_key_for_name, validated_bank_key
 from business_time import MOSCOW, utc_naive_now
 from business_time import as_utc as _as_utc
+from business_time import business_today as _business_today_moscow
 from business_time import iso_datetime as _iso_datetime
 from business_time import utc_now as _utc_now
 from canonical_categories import (
@@ -553,6 +555,87 @@ class SubscriptionActivePeriod(db.Model):
     ended_at = db.Column(db.DateTime(timezone=True))
 
 
+class PlannedPayment(db.Model):
+    """A personal payment obligation: recurring (anchored) or one-off."""
+
+    __tablename__ = 'planned_payment'
+    __table_args__ = (
+        db.CheckConstraint(
+            "kind IN ('recurring', 'one_off')",
+            name='ck_planned_payment_kind',
+        ),
+        db.CheckConstraint(
+            "(kind = 'one_off' AND interval_count IS NULL AND interval_unit IS NULL)"
+            " OR (kind = 'recurring' AND interval_count > 0"
+            " AND interval_unit IN ('day', 'week', 'month', 'year'))",
+            name='ck_planned_payment_interval',
+        ),
+        db.CheckConstraint('expected_amount > 0', name='ck_planned_payment_amount'),
+        db.CheckConstraint(
+            'anchor_date <= next_due_date',
+            name='ck_planned_payment_anchor_order',
+        ),
+        db.Index('ix_planned_payment_owner_archived', 'auth_user_id', 'archived_at'),
+        db.Index('ix_planned_payment_owner_next_due', 'auth_user_id', 'next_due_date'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    auth_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey('auth_user.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    name = db.Column(db.String(200), nullable=False)
+    kind = db.Column(db.String(16), nullable=False)
+    expected_amount = db.Column(db.Numeric(18, 2), nullable=False)
+    currency = db.Column(db.String(3), nullable=False)
+    card_id = db.Column(
+        db.Integer,
+        db.ForeignKey('bank_card.id', ondelete='SET NULL'),
+    )
+    note = db.Column(db.Text)
+    interval_count = db.Column(db.Integer)
+    interval_unit = db.Column(db.String(8))
+    anchor_date = db.Column(db.Date, nullable=False)
+    next_due_date = db.Column(db.Date, nullable=False)
+    reminder_days_json = db.Column(db.Text, nullable=False, default='[1]')
+    completed_at = db.Column(db.DateTime(timezone=True))
+    archived_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
+class PlannedPaymentRecord(db.Model):
+    """A confirmed payment covering one due date of a planned payment."""
+
+    __tablename__ = 'planned_payment_record'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'payment_id',
+            'due_date',
+            name='uq_planned_payment_record_payment_due',
+        ),
+        db.CheckConstraint('amount > 0', name='ck_planned_payment_record_amount'),
+        db.Index('ix_planned_payment_record_payment_paid', 'payment_id', 'paid_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    payment_id = db.Column(
+        db.Integer,
+        db.ForeignKey('planned_payment.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    due_date = db.Column(db.Date, nullable=False)
+    paid_at = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Numeric(18, 2), nullable=False)
+    currency = db.Column(db.String(3), nullable=False)
+    card_id = db.Column(
+        db.Integer,
+        db.ForeignKey('bank_card.id', ondelete='SET NULL'),
+    )
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False)
+
+
 class AuthLoginAttempt(db.Model):
     __tablename__ = 'auth_login_attempt'
 
@@ -885,9 +968,10 @@ def _required_role():
         or request.path.startswith('/api/partner-offers/hide-rules')
     ):
         return 'viewer'
-    if request.path.startswith('/api/subscriptions'):
-        # Subscriptions are personal resources and every query below is scoped
-        # to the authenticated user, so viewers may manage their own records.
+    if request.path.startswith(('/api/subscriptions', '/api/payments')):
+        # Subscriptions and planned payments are personal resources and every
+        # query below is scoped to the authenticated user, so viewers may
+        # manage their own records.
         return 'viewer'
     if request.method in ('GET', 'HEAD'):
         return 'viewer'
@@ -1452,6 +1536,11 @@ def cashback_category_detail(category_id):
         return jsonify({'message': 'Cashback category deleted successfully'}), 200
 
 
+def _business_today():
+    """Today's civil date in Europe/Moscow; tests replace this hook."""
+    return _business_today_moscow()
+
+
 SUBSCRIPTION_KINDS = {'subscription', 'trial'}
 SUBSCRIPTION_INTERVAL_UNITS = {'day', 'week', 'month', 'year'}
 
@@ -1680,7 +1769,7 @@ def subscriptions():
         last_card = None
         if last_payload is not None:
             last_paid_at = _subscription_date(last_payload.get('paid_at'), 'last_payment.paid_at')
-            if last_paid_at > date.today():
+            if last_paid_at > _business_today():
                 raise ValueError('last_payment.paid_at cannot be in the future')
             last_amount = _subscription_amount(
                 last_payload.get('amount', amount),
@@ -1862,7 +1951,7 @@ def confirm_subscription_payment(subscription_id):
         return error_response
     try:
         paid_at = _subscription_date(payload.get('paid_at'), 'paid_at')
-        if paid_at > date.today():
+        if paid_at > _business_today():
             raise ValueError('paid_at cannot be in the future')
         amount = _subscription_amount(
             payload.get('amount', subscription.expected_amount),
@@ -1913,6 +2002,490 @@ def confirm_subscription_payment(subscription_id):
             return jsonify({'error': 'Payment for this date already exists'}), 409
         raise
     return jsonify(_subscription_to_dict(subscription, include_history=True)), 201
+
+
+# Planned payments: recurring obligations anchored to a due day ("by the 25th
+# every month") and one-off obligations ("once, by 13 November").
+
+PLANNED_PAYMENT_KINDS = {'recurring', 'one_off'}
+PLANNED_PAYMENT_DEFAULT_REMINDERS = [1]
+PLANNED_PAYMENT_UPCOMING_MAX_DAYS = 732
+PLANNED_PAYMENT_UPCOMING_LIMIT = 5000
+
+
+def _planned_payment_name(value):
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 200:
+        raise ValueError('name must contain 1 to 200 characters')
+    return value.strip()
+
+
+def _planned_payment_note(value):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('note must be a string or null')
+    value = value.strip()
+    if len(value) > 2000:
+        raise ValueError('note cannot exceed 2000 characters')
+    return value or None
+
+
+def _planned_payment_card(card_id, field_name='card_id'):
+    if card_id is None:
+        return None
+    return _subscription_card(card_id, field_name).id
+
+
+def _planned_payment_interval(kind, value):
+    if kind == 'one_off':
+        if value is not None:
+            raise ValueError('one-off payments cannot have an interval')
+        return None, None
+    if not isinstance(value, dict):
+        raise ValueError('interval must contain count and unit')
+    count = value.get('count')
+    unit = value.get('unit')
+    if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 1000:
+        raise ValueError('interval.count must be an integer from 1 to 1000')
+    if unit not in payment_schedule.INTERVAL_UNITS:
+        raise ValueError('interval.unit must be day, week, month, or year')
+    return count, unit
+
+
+def _planned_payment_reminders(value):
+    if value is None:
+        return list(PLANNED_PAYMENT_DEFAULT_REMINDERS)
+    # Validation is shared with subscriptions; defaults never apply here.
+    return _subscription_reminder_days(
+        value, kind='payment', interval_count=1, interval_unit='month',
+    )
+
+
+def _planned_payment_anchor(kind, count, unit, next_due, anchor, *, explicit):
+    """Resolve the schedule anchor for a (possibly changed) next due date.
+
+    An explicit anchor must precede next_due and next_due must lie on its
+    schedule. An inherited anchor that no longer fits is replaced by next_due.
+    """
+    if kind == 'one_off' or anchor is None:
+        return next_due
+    if anchor > next_due:
+        if explicit:
+            raise ValueError('anchor_date cannot be later than next_due_date')
+        return next_due
+    if payment_schedule.is_occurrence(anchor, count, unit, next_due):
+        return anchor
+    if explicit:
+        raise ValueError('next_due_date must fall on the schedule anchored at anchor_date')
+    return next_due
+
+
+def _planned_payment_record_to_dict(record):
+    return {
+        'id': record.id,
+        'payment_id': record.payment_id,
+        'due_date': record.due_date.isoformat(),
+        'paid_at': record.paid_at.isoformat(),
+        'amount': _money_json(record.amount),
+        'currency': record.currency,
+        'card_id': record.card_id,
+        'created_at': _iso_datetime(record.created_at),
+    }
+
+
+def _planned_payment_records(payment):
+    return PlannedPaymentRecord.query.filter_by(payment_id=payment.id).order_by(
+        PlannedPaymentRecord.due_date.desc(),
+        PlannedPaymentRecord.id.desc(),
+    )
+
+
+def _planned_payment_to_dict(payment, *, include_history=False):
+    last_record = _planned_payment_records(payment).first()
+    result = {
+        'id': payment.id,
+        'name': payment.name,
+        'kind': payment.kind,
+        'expected_amount': _money_json(payment.expected_amount),
+        'currency': payment.currency,
+        'card_id': payment.card_id,
+        'note': payment.note,
+        'interval': (
+            None if payment.kind == 'one_off' else {
+                'count': payment.interval_count,
+                'unit': payment.interval_unit,
+            }
+        ),
+        'anchor_date': payment.anchor_date.isoformat(),
+        'next_due_date': payment.next_due_date.isoformat(),
+        'reminder_days': json.loads(payment.reminder_days_json),
+        'is_completed': payment.completed_at is not None,
+        'completed_at': _iso_datetime(payment.completed_at),
+        'is_archived': payment.archived_at is not None,
+        'archived_at': _iso_datetime(payment.archived_at),
+        'created_at': _iso_datetime(payment.created_at),
+        'updated_at': _iso_datetime(payment.updated_at),
+        'last_record': (
+            _planned_payment_record_to_dict(last_record) if last_record else None
+        ),
+    }
+    if include_history:
+        result['records'] = [
+            _planned_payment_record_to_dict(record)
+            for record in _planned_payment_records(payment).all()
+        ]
+    return result
+
+
+def _owned_planned_payment(payment_id):
+    return PlannedPayment.query.filter_by(
+        id=payment_id,
+        auth_user_id=g.auth_user.id,
+    ).first()
+
+
+def _planned_payment_not_found():
+    return jsonify({'error': 'Payment not found'}), 404
+
+
+@app.route('/api/payments', methods=['GET', 'POST'])
+def planned_payments():
+    if request.method == 'GET':
+        status = request.args.get('status', 'active')
+        if status not in {'active', 'archived', 'completed', 'all'}:
+            return jsonify({
+                'error': 'status must be active, archived, completed, or all',
+            }), 400
+        kind = request.args.get('kind')
+        if kind is not None and kind not in PLANNED_PAYMENT_KINDS:
+            return jsonify({'error': 'kind must be recurring or one_off'}), 400
+        query = PlannedPayment.query.filter_by(auth_user_id=g.auth_user.id)
+        if kind is not None:
+            query = query.filter(PlannedPayment.kind == kind)
+        if status == 'active':
+            query = query.filter(
+                PlannedPayment.archived_at.is_(None),
+                PlannedPayment.completed_at.is_(None),
+            )
+        elif status == 'archived':
+            query = query.filter(PlannedPayment.archived_at.is_not(None))
+        elif status == 'completed':
+            query = query.filter(PlannedPayment.completed_at.is_not(None))
+        items = query.order_by(PlannedPayment.next_due_date, PlannedPayment.name).all()
+        return jsonify({
+            'items': [_planned_payment_to_dict(item) for item in items],
+            'total': len(items),
+        })
+
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        name = _planned_payment_name(payload.get('name'))
+        kind = payload.get('kind')
+        if kind not in PLANNED_PAYMENT_KINDS:
+            raise ValueError('kind must be recurring or one_off')
+        amount = _subscription_amount(payload.get('expected_amount'))
+        currency = _subscription_currency(payload.get('currency', 'RUB'))
+        card_id = _planned_payment_card(payload.get('card_id'))
+        note = _planned_payment_note(payload.get('note'))
+        count, unit = _planned_payment_interval(kind, payload.get('interval'))
+        next_due = _subscription_date(payload.get('next_due_date'), 'next_due_date')
+        explicit_anchor = payload.get('anchor_date') is not None
+        anchor = (
+            _subscription_date(payload['anchor_date'], 'anchor_date')
+            if explicit_anchor else None
+        )
+        anchor = _planned_payment_anchor(
+            kind, count, unit, next_due, anchor, explicit=explicit_anchor,
+        )
+        reminders = _planned_payment_reminders(payload.get('reminder_days'))
+    except LookupError as error:
+        return jsonify({'error': str(error)}), 404
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+
+    now = _utc_now()
+    payment = PlannedPayment(
+        auth_user_id=g.auth_user.id,
+        name=name,
+        kind=kind,
+        expected_amount=amount,
+        currency=currency,
+        card_id=card_id,
+        note=note,
+        interval_count=count,
+        interval_unit=unit,
+        anchor_date=anchor,
+        next_due_date=next_due,
+        reminder_days_json=json.dumps(reminders),
+        created_at=now,
+        updated_at=now,
+    )
+    db.session.add(payment)
+    db.session.commit()
+    return jsonify(_planned_payment_to_dict(payment, include_history=True)), 201
+
+
+@app.get('/api/payments/upcoming')
+def upcoming_planned_payments():
+    """Expanded unpaid due dates of active payments up to `until` (inclusive).
+
+    Overdue obligations are included from their current due date, so the
+    result is the outstanding schedule a spending forecast can sum up.
+    """
+    today = _business_today()
+    try:
+        until_value = request.args.get('until')
+        until = (
+            _subscription_date(until_value, 'until')
+            if until_value is not None else today + timedelta(days=30)
+        )
+        if until < today:
+            raise ValueError('until cannot be earlier than today')
+        if (until - today).days > PLANNED_PAYMENT_UPCOMING_MAX_DAYS:
+            raise ValueError(
+                f'until cannot be more than {PLANNED_PAYMENT_UPCOMING_MAX_DAYS} days ahead'
+            )
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    payments = PlannedPayment.query.filter(
+        PlannedPayment.auth_user_id == g.auth_user.id,
+        PlannedPayment.archived_at.is_(None),
+        PlannedPayment.completed_at.is_(None),
+        PlannedPayment.next_due_date <= until,
+    ).all()
+    items = []
+    for payment in payments:
+        if payment.kind == 'one_off':
+            due_dates = [payment.next_due_date]
+        else:
+            due_dates = payment_schedule.occurrences_between(
+                payment.anchor_date,
+                payment.interval_count,
+                payment.interval_unit,
+                payment.next_due_date,
+                until,
+                limit=PLANNED_PAYMENT_UPCOMING_LIMIT,
+            )
+        for due_date in due_dates:
+            items.append({
+                'payment_id': payment.id,
+                'name': payment.name,
+                'kind': payment.kind,
+                'due_date': due_date.isoformat(),
+                'expected_amount': _money_json(payment.expected_amount),
+                'currency': payment.currency,
+                'card_id': payment.card_id,
+                'is_overdue': due_date < today,
+            })
+    items.sort(key=lambda item: (item['due_date'], item['name'], item['payment_id']))
+    items = items[:PLANNED_PAYMENT_UPCOMING_LIMIT]
+    return jsonify({
+        'items': items,
+        'total': len(items),
+        'today': today.isoformat(),
+        'until': until.isoformat(),
+    })
+
+
+@app.route('/api/payments/<int:payment_id>', methods=['GET', 'PUT', 'DELETE'])
+def planned_payment_detail(payment_id):
+    payment = _owned_planned_payment(payment_id)
+    if payment is None:
+        return _planned_payment_not_found()
+    if request.method == 'GET':
+        return jsonify(_planned_payment_to_dict(payment, include_history=True))
+    if request.method == 'DELETE':
+        PlannedPaymentRecord.query.filter_by(payment_id=payment.id).delete()
+        db.session.delete(payment)
+        db.session.commit()
+        return '', 204
+
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        if 'kind' in payload and payload['kind'] != payment.kind:
+            raise ValueError('kind cannot be changed')
+        if 'name' in payload:
+            payment.name = _planned_payment_name(payload['name'])
+        if 'expected_amount' in payload:
+            payment.expected_amount = _subscription_amount(payload['expected_amount'])
+        if 'currency' in payload:
+            payment.currency = _subscription_currency(payload['currency'])
+        if 'card_id' in payload:
+            payment.card_id = _planned_payment_card(payload['card_id'])
+        if 'note' in payload:
+            payment.note = _planned_payment_note(payload['note'])
+        if 'reminder_days' in payload:
+            payment.reminder_days_json = json.dumps(
+                _planned_payment_reminders(payload['reminder_days'])
+            )
+        count, unit = payment.interval_count, payment.interval_unit
+        if 'interval' in payload:
+            count, unit = _planned_payment_interval(payment.kind, payload['interval'])
+        next_due = payment.next_due_date
+        if 'next_due_date' in payload:
+            next_due = _subscription_date(payload['next_due_date'], 'next_due_date')
+        explicit_anchor = payload.get('anchor_date') is not None
+        if explicit_anchor:
+            anchor = _subscription_date(payload['anchor_date'], 'anchor_date')
+        elif next_due != payment.next_due_date:
+            # A new due date re-anchors the schedule ("now by the 10th").
+            anchor = next_due
+        else:
+            anchor = payment.anchor_date
+        payment.anchor_date = _planned_payment_anchor(
+            payment.kind, count, unit, next_due, anchor, explicit=explicit_anchor,
+        )
+        payment.interval_count, payment.interval_unit = count, unit
+        payment.next_due_date = next_due
+    except LookupError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 404
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
+    payment.updated_at = _utc_now()
+    db.session.commit()
+    return jsonify(_planned_payment_to_dict(payment, include_history=True))
+
+
+@app.post('/api/payments/<int:payment_id>/archive')
+def archive_planned_payment(payment_id):
+    payment = _owned_planned_payment(payment_id)
+    if payment is None:
+        return _planned_payment_not_found()
+    if payment.archived_at is not None:
+        return jsonify({'error': 'Payment is already archived'}), 409
+    now = _utc_now()
+    payment.archived_at = now
+    payment.updated_at = now
+    db.session.commit()
+    return jsonify(_planned_payment_to_dict(payment, include_history=True))
+
+
+@app.post('/api/payments/<int:payment_id>/restore')
+def restore_planned_payment(payment_id):
+    payment = _owned_planned_payment(payment_id)
+    if payment is None:
+        return _planned_payment_not_found()
+    if payment.archived_at is None:
+        return jsonify({'error': 'Payment is already active'}), 409
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        if payload.get('next_due_date') is not None:
+            next_due = _subscription_date(payload['next_due_date'], 'next_due_date')
+            payment.anchor_date = _planned_payment_anchor(
+                payment.kind,
+                payment.interval_count,
+                payment.interval_unit,
+                next_due,
+                payment.anchor_date,
+                explicit=False,
+            )
+            payment.next_due_date = next_due
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
+    now = _utc_now()
+    payment.archived_at = None
+    payment.updated_at = now
+    db.session.commit()
+    return jsonify(_planned_payment_to_dict(payment, include_history=True))
+
+
+@app.post('/api/payments/<int:payment_id>/records')
+def confirm_planned_payment(payment_id):
+    """Mark the current due date paid and advance to the next anchored date."""
+    payment = _owned_planned_payment(payment_id)
+    if payment is None:
+        return _planned_payment_not_found()
+    if payment.archived_at is not None:
+        return jsonify({'error': 'Archived payment cannot be marked paid'}), 409
+    if payment.completed_at is not None:
+        return jsonify({'error': 'Payment is already completed'}), 409
+    payload, error_response = _subscription_json_payload()
+    if error_response:
+        return error_response
+    try:
+        today = _business_today()
+        paid_at = (
+            _subscription_date(payload['paid_at'], 'paid_at')
+            if payload.get('paid_at') is not None else today
+        )
+        if paid_at > today:
+            raise ValueError('paid_at cannot be in the future')
+        amount = _subscription_amount(
+            payload.get('amount', payment.expected_amount), 'amount',
+        )
+        currency = _subscription_currency(payload.get('currency', payment.currency))
+        card_id = _planned_payment_card(payload.get('card_id', payment.card_id))
+    except LookupError as error:
+        return jsonify({'error': str(error)}), 404
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    due_date = payment.next_due_date
+    if PlannedPaymentRecord.query.filter_by(
+        payment_id=payment.id, due_date=due_date,
+    ).first() is not None:
+        return jsonify({'error': 'This due date is already paid'}), 409
+    now = _utc_now()
+    db.session.add(PlannedPaymentRecord(
+        payment_id=payment.id,
+        due_date=due_date,
+        paid_at=paid_at,
+        amount=amount,
+        currency=currency,
+        card_id=card_id,
+        created_at=now,
+    ))
+    if payment.kind == 'one_off':
+        payment.completed_at = now
+    else:
+        payment.next_due_date = payment_schedule.next_occurrence_after(
+            payment.anchor_date,
+            payment.interval_count,
+            payment.interval_unit,
+            due_date,
+        )
+    payment.updated_at = now
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': 'This due date is already paid'}), 409
+    return jsonify(_planned_payment_to_dict(payment, include_history=True)), 201
+
+
+@app.delete('/api/payments/<int:payment_id>/records/<int:record_id>')
+def undo_planned_payment_record(payment_id, record_id):
+    """Undo the latest confirmation, returning to the due date it covered."""
+    payment = _owned_planned_payment(payment_id)
+    if payment is None:
+        return _planned_payment_not_found()
+    if payment.archived_at is not None:
+        return jsonify({'error': 'Archived payment cannot be changed'}), 409
+    latest = _planned_payment_records(payment).first()
+    if latest is None or latest.id != record_id:
+        record = PlannedPaymentRecord.query.filter_by(
+            id=record_id, payment_id=payment.id,
+        ).first()
+        if record is None:
+            return jsonify({'error': 'Payment record not found'}), 404
+        return jsonify({'error': 'Only the latest payment record can be undone'}), 409
+    payment.next_due_date = latest.due_date
+    if latest.due_date < payment.anchor_date:
+        # The schedule was re-anchored after this record; keep it consistent.
+        payment.anchor_date = latest.due_date
+    payment.completed_at = None
+    payment.updated_at = _utc_now()
+    db.session.delete(latest)
+    db.session.commit()
+    return jsonify(_planned_payment_to_dict(payment, include_history=True))
 
 
 MCC_PATTERN = re.compile(r'^\d{4}$')

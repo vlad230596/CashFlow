@@ -22,3 +22,8 @@ def as_utc(value):
 
 def iso_datetime(value):
     return as_utc(value).isoformat() if value is not None else None
+
+
+def business_today():
+    """Current civil date in the Europe/Moscow business calendar."""
+    return utc_now().astimezone(MOSCOW).date()

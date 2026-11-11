@@ -17,7 +17,7 @@ void main() {
     await tester.pumpWidget(_app(_TestDataProvider(), const HomeScreen()));
 
     expect(
-      find.byKey(const ValueKey('shell-destination-Подписки')),
+      find.byKey(const ValueKey('shell-destination-Платежи')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);

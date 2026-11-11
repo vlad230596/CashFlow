@@ -14,8 +14,11 @@ import '../models/cashback_category_model.dart';
 import '../models/mcc_lookup_model.dart';
 import '../models/mcc_rule_model.dart';
 import '../models/partner_offer_model.dart';
+import '../models/planned_payment_model.dart';
 import '../models/subscription_model.dart';
-import '../services/subscription_notification_service.dart';
+import '../services/planned_payment_api.dart';
+import '../services/reminder_notification_service.dart';
+import '../services/reminder_sources.dart';
 import '../services/mcc_cache_store.dart';
 import '../services/mcc_repository.dart';
 import '../services/api_client.dart';
@@ -59,7 +62,7 @@ class DataProvider with ChangeNotifier {
     http.Client? httpClient,
     BusinessClock? businessClock,
     MccCacheStore? mccCacheStore,
-    SubscriptionNotificationService? subscriptionNotificationService,
+    ReminderNotificationService? reminderNotificationService,
     Future<void> Function()? afterFirstFrame,
   })  : apiBaseUrl = apiBaseUrl ?? defaultApiBaseUrl,
         _afterFirstFrame = afterFirstFrame,
@@ -68,8 +71,8 @@ class DataProvider with ChangeNotifier {
             const FlutterSecureStorage(
               aOptions: AndroidOptions(migrateWithBackup: true),
             ),
-        _subscriptionNotifications = subscriptionNotificationService ??
-            LocalSubscriptionNotificationService() {
+        _reminders =
+            reminderNotificationService ?? LocalReminderNotificationService() {
     final innerClient = TimeoutClient(
       httpClient ?? http.Client(),
       onFinished: _logRequest,
@@ -90,9 +93,9 @@ class DataProvider with ChangeNotifier {
         notifyListeners();
       },
     );
-    _notificationTapSubscription =
-        _subscriptionNotifications.notificationTaps.listen((id) {
-      pendingSubscriptionNotificationId = id;
+    _paymentsApi = PlannedPaymentApi(_client, _apiUri);
+    _notificationTapSubscription = _reminders.notificationTaps.listen((target) {
+      pendingReminderTarget = target;
       notifyListeners();
     });
   }
@@ -113,8 +116,9 @@ class DataProvider with ChangeNotifier {
   final FlutterSecureStorage _secureStorage;
   late final http.Client _rawClient;
   late final http.Client _client;
-  final SubscriptionNotificationService _subscriptionNotifications;
-  late final StreamSubscription<int> _notificationTapSubscription;
+  final ReminderNotificationService _reminders;
+  late final PlannedPaymentApi _paymentsApi;
+  late final StreamSubscription<ReminderTarget> _notificationTapSubscription;
   String? _accessToken;
   DateTime? _sessionExpiresAt;
   final Map<int, int> _selectionMutationVersions = {};
@@ -123,6 +127,7 @@ class DataProvider with ChangeNotifier {
   int _primaryLoadVersion = 0;
   int _partnerLoadVersion = 0;
   int _subscriptionLoadVersion = 0;
+  int _paymentLoadVersion = 0;
   bool _isCurrentSession(int generation) => generation == _sessionGeneration;
 
   AuthIdentity? currentAuthUser;
@@ -157,6 +162,7 @@ class DataProvider with ChangeNotifier {
   bool _disposed = false;
   List<PartnerOffer> partnerOffers = [];
   List<SubscriptionModel> subscriptions = [];
+  List<PlannedPaymentModel> plannedPayments = [];
   PrimaryDataPhase primaryDataPhase = PrimaryDataPhase.initialLoading;
   String? primaryDataError;
   DateTime? dataSnapshotUpdatedAt;
@@ -164,7 +170,11 @@ class DataProvider with ChangeNotifier {
   String? partnerOffersError;
   bool subscriptionsLoading = false;
   String? subscriptionsError;
-  int? pendingSubscriptionNotificationId;
+  bool plannedPaymentsLoading = false;
+  String? plannedPaymentsError;
+
+  /// The item a tapped reminder points at, until the shell consumes it.
+  ReminderTarget? pendingReminderTarget;
   String? _partnerOffersRating;
   String? lastUpdated;
   DateTime? _cashbackDateOverride;
@@ -187,6 +197,23 @@ class DataProvider with ChangeNotifier {
       .where((subscription) => subscription.isArchived)
       .toList(growable: false);
 
+  /// Open (unpaid, not archived) payments of [kind], earliest due first.
+  List<PlannedPaymentModel> openPayments(PlannedPaymentKind kind) =>
+      plannedPayments
+          .where((payment) => payment.kind == kind && payment.isOpen)
+          .toList(growable: false)
+        ..sort((left, right) => left.nextDueDate.compareTo(right.nextDueDate));
+
+  /// Archived payments and completed one-off payments of [kind].
+  List<PlannedPaymentModel> closedPayments(PlannedPaymentKind kind) =>
+      plannedPayments
+          .where((payment) => payment.kind == kind && !payment.isOpen)
+          .toList(growable: false)
+        ..sort((left, right) => right.nextDueDate.compareTo(left.nextDueDate));
+
+  /// Civil date in the Europe/Moscow business calendar.
+  DateTime get businessToday => _businessClock.today;
+
   static void _logRequest(http.BaseRequest request, int? statusCode,
       Duration elapsed, Object? error) {
     // Path only: query strings and bodies are not diagnostic log material.
@@ -206,6 +233,7 @@ class DataProvider with ChangeNotifier {
     // A late 401 from an old request must not erase a newer login.
     if (token != null && token != _accessToken) return;
     final subscriptionsCacheKey = _subscriptionsCacheKey;
+    final paymentsCacheKey = _plannedPaymentsCacheKey;
     _sessionGeneration++;
     _accessToken = null;
     _sessionExpiresAt = null;
@@ -223,6 +251,9 @@ class DataProvider with ChangeNotifier {
     partnerOffersError = null;
     subscriptions = [];
     subscriptionsError = null;
+    plannedPayments = [];
+    plannedPaymentsError = null;
+    pendingReminderTarget = null;
     try {
       await Future.wait([
         _secureStorage.delete(key: _accessTokenKey),
@@ -230,7 +261,9 @@ class DataProvider with ChangeNotifier {
         _secureStorage.delete(key: _sessionExpiresAtKey),
         if (subscriptionsCacheKey != null)
           _removeSubscriptionsCache(subscriptionsCacheKey),
-        _synchronizeSubscriptionNotifications(),
+        if (paymentsCacheKey != null)
+          _removeSubscriptionsCache(paymentsCacheKey),
+        _synchronizeReminders(),
       ]);
     } finally {
       notifyListeners();
@@ -364,6 +397,7 @@ class DataProvider with ChangeNotifier {
       await _persistAuthentication();
       await loadLocalData();
       await _loadSubscriptionsCache();
+      await _loadPlannedPaymentsCache();
       await _loadPartnerOffersCache();
       await _loadMccCache();
       notifyListeners();
@@ -618,21 +652,22 @@ class DataProvider with ChangeNotifier {
     authReady = false;
     log.event('startup: initialize');
     try {
-      await _subscriptionNotifications.initialize();
+      await _reminders.initialize();
     } catch (error) {
-      debugPrint('Could not initialize subscription notifications: $error');
+      debugPrint('Could not initialize reminder notifications: $error');
     }
     log.event('startup: notifications initialized');
     await loadLocalData();
-    await _synchronizeSubscriptionNotifications();
+    await _synchronizeReminders();
     log.event('startup: local data loaded');
     final restored = await _restoreAuthentication();
     log.event('startup: session restored=$restored');
     if (restored) {
       await loadLocalData();
       await _loadSubscriptionsCache();
+      await _loadPlannedPaymentsCache();
       await _loadPartnerOffersCache();
-      await _synchronizeSubscriptionNotifications();
+      await _synchronizeReminders();
       log.event('startup: account caches loaded '
           'snapshot=${hasUsableDataSnapshot ? dataSnapshotUpdatedAt : 'none'}');
     }
@@ -786,8 +821,10 @@ class DataProvider with ChangeNotifier {
       if (!current()) return false;
       await _saveDataLocally();
       if (!current()) return false;
-      await _synchronizeSubscriptionNotifications();
+      await _synchronizeReminders();
       await fetchSubscriptions();
+      if (!current()) return false;
+      await fetchPlannedPayments();
       if (!current()) return false;
       await fetchPartnerOffers();
       if (!current()) return false;
@@ -992,6 +1029,9 @@ class DataProvider with ChangeNotifier {
       if (_subscriptionsCacheKey != null)
         _subscriptionsCacheKey!:
             json.encode(subscriptions.map((item) => item.toJson()).toList()),
+      if (_plannedPaymentsCacheKey != null)
+        _plannedPaymentsCacheKey!:
+            json.encode(plannedPayments.map((item) => item.toJson()).toList()),
       if (dataSnapshotUpdatedAt != null)
         _dataCacheKey('dataSnapshotUpdatedAt'):
             dataSnapshotUpdatedAt!.toIso8601String(),
@@ -1152,7 +1192,7 @@ class DataProvider with ChangeNotifier {
       json.decode(response.body) as Map<String, dynamic>,
     );
     await _storeSubscription(archived);
-    await _subscriptionNotifications.cancelSubscription(id);
+    await _reminders.cancel(ReminderKind.subscription, id);
     return archived;
   }
 
@@ -1219,13 +1259,12 @@ class DataProvider with ChangeNotifier {
     if (!subscriptions.any((subscription) => subscription.id != null)) {
       return false;
     }
-    return _subscriptionNotifications.requestPermission();
+    return _reminders.requestPermission();
   }
 
-  int? consumePendingSubscriptionNotificationId() {
-    final result = pendingSubscriptionNotificationId ??
-        _subscriptionNotifications.consumePendingSubscriptionId();
-    pendingSubscriptionNotificationId = null;
+  ReminderTarget? consumePendingReminderTarget() {
+    final result = pendingReminderTarget ?? _reminders.consumePendingTarget();
+    pendingReminderTarget = null;
     if (result != null) notifyListeners();
     return result;
   }
@@ -1246,10 +1285,29 @@ class DataProvider with ChangeNotifier {
 
   Future<void> _synchronizeSubscriptionNotifications() async {
     try {
-      await _subscriptionNotifications.synchronize(subscriptions);
+      await _reminders.synchronize(
+        ReminderKind.subscription,
+        subscriptionReminderSpecs(subscriptions),
+      );
     } catch (error) {
       debugPrint('Could not schedule subscription notifications: $error');
     }
+  }
+
+  Future<void> _synchronizePaymentNotifications() async {
+    try {
+      await _reminders.synchronize(
+        ReminderKind.payment,
+        paymentReminderSpecs(plannedPayments),
+      );
+    } catch (error) {
+      debugPrint('Could not schedule payment notifications: $error');
+    }
+  }
+
+  Future<void> _synchronizeReminders() async {
+    await _synchronizeSubscriptionNotifications();
+    await _synchronizePaymentNotifications();
   }
 
   static String _subscriptionApiDate(DateTime value) {
@@ -1281,6 +1339,169 @@ class DataProvider with ChangeNotifier {
 
   Future<void> _removeSubscriptionsCache(String key) async {
     await (await SharedPreferences.getInstance()).remove(key);
+  }
+
+  // Planned payments ("Платежи": recurring and one-off obligations).
+
+  Future<bool> fetchPlannedPayments() async {
+    final session = _sessionGeneration;
+    final version = ++_paymentLoadVersion;
+    bool current() =>
+        _isCurrentSession(session) && version == _paymentLoadVersion;
+    plannedPaymentsLoading = true;
+    plannedPaymentsError = null;
+    notifyListeners();
+    try {
+      final fetched = await _paymentsApi.list(status: 'all');
+      if (!current()) return false;
+      plannedPayments =
+          fetched.map(_mergeCachedPaymentHistory).toList(growable: false);
+      await _saveDataLocally();
+      await _synchronizePaymentNotifications();
+      return true;
+    } catch (error) {
+      if (!current()) return false;
+      plannedPaymentsError = error.toString();
+      debugPrint('Error fetching planned payments: $error');
+      return false;
+    } finally {
+      if (current()) {
+        plannedPaymentsLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<PlannedPaymentModel> fetchPlannedPayment(int id) async {
+    final payment = await _paymentsApi.detail(id);
+    await _storePlannedPayment(payment);
+    return payment;
+  }
+
+  Future<PlannedPaymentModel> createPlannedPayment(
+    PlannedPaymentModel payment,
+  ) async {
+    final created = await _paymentsApi.create(payment);
+    await _storePlannedPayment(created);
+    return created;
+  }
+
+  Future<PlannedPaymentModel> updatePlannedPayment(
+    PlannedPaymentModel payment,
+  ) async {
+    final updated = await _paymentsApi.update(payment);
+    await _storePlannedPayment(updated);
+    return updated;
+  }
+
+  Future<PlannedPaymentModel> markPlannedPaymentPaid(
+    int id, {
+    required DateTime paidAt,
+    double? amount,
+    int? cardId,
+  }) async {
+    final updated = await _paymentsApi.markPaid(
+      id,
+      paidAt: paidAt,
+      amount: amount,
+      cardId: cardId,
+    );
+    await _storePlannedPayment(updated);
+    return updated;
+  }
+
+  Future<PlannedPaymentModel> undoPlannedPaymentRecord(
+    int id,
+    int recordId,
+  ) async {
+    final updated = await _paymentsApi.undoRecord(id, recordId);
+    await _storePlannedPayment(updated);
+    return updated;
+  }
+
+  Future<PlannedPaymentModel> archivePlannedPayment(int id) async {
+    final archived = await _paymentsApi.archive(id);
+    await _storePlannedPayment(archived);
+    return archived;
+  }
+
+  Future<PlannedPaymentModel> restorePlannedPayment(
+    int id, {
+    DateTime? nextDueDate,
+  }) async {
+    final restored = await _paymentsApi.restore(id, nextDueDate: nextDueDate);
+    await _storePlannedPayment(restored);
+    return restored;
+  }
+
+  Future<void> deletePlannedPayment(int id) async {
+    await _paymentsApi.delete(id);
+    plannedPayments = plannedPayments
+        .where((payment) => payment.id != id)
+        .toList(growable: false);
+    await _saveDataLocally();
+    await _synchronizePaymentNotifications();
+    notifyListeners();
+  }
+
+  /// Asks for notification permission once the user has something to remind.
+  Future<bool> requestPaymentNotificationPermission() async {
+    if (!plannedPayments.any((payment) => payment.id != null)) return false;
+    return _reminders.requestPermission();
+  }
+
+  bool get supportsReminders => _reminders.supportsReminders;
+
+  Future<bool> canScheduleExactReminders() =>
+      _reminders.canScheduleExactReminders();
+
+  /// Requests exact alarms and reschedules every kind with the new mode.
+  Future<bool> requestExactReminderPermission() async {
+    final granted = await _reminders.requestExactReminderPermission();
+    if (granted) await _synchronizeReminders();
+    return granted;
+  }
+
+  PlannedPaymentModel _mergeCachedPaymentHistory(PlannedPaymentModel payment) {
+    // List responses omit history; keep the cached detail history offline.
+    if (payment.records.isNotEmpty) return payment;
+    final existing =
+        plannedPayments.where((item) => item.id == payment.id).firstOrNull;
+    if (existing == null || existing.records.isEmpty) return payment;
+    if (existing.lastRecord?.id != payment.lastRecord?.id) return payment;
+    return payment.copyWith(records: existing.records);
+  }
+
+  Future<void> _storePlannedPayment(PlannedPaymentModel payment) async {
+    final id = payment.id;
+    if (id == null) return;
+    final index = plannedPayments.indexWhere((item) => item.id == id);
+    plannedPayments = index == -1
+        ? [...plannedPayments, payment]
+        : ([...plannedPayments]..[index] = payment);
+    await _saveDataLocally();
+    await _synchronizePaymentNotifications();
+    notifyListeners();
+  }
+
+  String? get _plannedPaymentsCacheKey {
+    final authUserId = currentAuthUser?.id;
+    return authUserId == null ? null : _dataCacheKey('plannedPayments');
+  }
+
+  Future<void> _loadPlannedPaymentsCache() async {
+    final key = _plannedPaymentsCacheKey;
+    if (key == null) return;
+    final cached = (await SharedPreferences.getInstance()).getString(key);
+    if (cached == null || key != _plannedPaymentsCacheKey) return;
+    try {
+      plannedPayments = (json.decode(cached) as List)
+          .map((item) =>
+              PlannedPaymentModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (error) {
+      debugPrint('Could not load planned payments cache: $error');
+    }
   }
 
   String? get _partnerOffersCacheKey {

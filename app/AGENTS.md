@@ -9,7 +9,8 @@ Main user flows:
 - View active cashback categories, sorted by cashback percent.
 - Build a manual monthly selection plan and confirm selections imported from banks.
 - Review and classify personal partner offers.
-- Track subscription renewals and confirmed payments; schedule local reminders on Android.
+- «Платежи»: track subscription renewals, recurring payments anchored to a due day and
+  one-off payments; mark them paid; schedule local reminders on Android.
 - Manage banks, users, and cards from settings screens.
 - Import and publish MCC rule revisions from administrative screens.
 
@@ -39,7 +40,15 @@ Main user flows:
   complete or partial and where to continue. Do not infer completion from extracted
   files alone; DataProvider and backend separation remain partial.
 - `lib/models/` contains plain model classes with `fromJson` factories and static `toJson` methods.
-- `lib/screens/home_screen.dart` defines the five-destination adaptive shell: Benefit, Plan, Offers, Subscriptions, and More.
+- `lib/screens/home_screen.dart` defines the five-destination adaptive shell: Benefit, Plan, Offers, Payments («Платежи»), and More.
+- `lib/screens/payments_hub_screen.dart` switches Подписки / Регулярные / Разовые;
+  `planned_payments_screen.dart` holds the payment list, details and editor.
+  Due-date math is `lib/services/payment_schedule.dart` (mirrors
+  `backend/payment_schedule.py`); dates use the Moscow business day.
+- `lib/services/reminder_notification_service.dart` schedules reminders for every
+  `ReminderKind` (own id block and `"<kind>:<id>"` payload; bare legacy ids mean a
+  subscription). `reminder_sources.dart` maps entities to specs. Add a new kind
+  there (block 3 is reserved for promo codes) instead of a new service.
 - `lib/screens/cashback_screen.dart` shows searchable active cashback categories and benefit states.
 - `lib/screens/monthly_cashback_screen.dart` handles monthly category selection and bulk category entry.
 - `lib/screens/partner_offers_screen.dart` shows the account-scoped partner offer catalogue;
@@ -141,6 +150,13 @@ Known endpoints:
 - `POST /api/subscriptions/{id}/archive`
 - `POST /api/subscriptions/{id}/restore`
 - `POST /api/subscriptions/{id}/payments`
+- `GET /api/payments?status=active|archived|completed|all&kind=`
+- `POST /api/payments`, `GET|PUT|DELETE /api/payments/{id}`
+- `POST /api/payments/{id}/archive`, `POST /api/payments/{id}/restore`
+- `POST /api/payments/{id}/records` (mark the current due date paid; recurring
+  payments advance to the next anchored date), `DELETE /api/payments/{id}/records/{record_id}`
+  (undo the latest record only)
+- `GET /api/payments/upcoming?until=` (unpaid due dates incl. overdue, for forecasts)
 - `GET /api/mcc` (code and title of every reference MCC; loaded once into
   `DataProvider.mccCatalog` for search)
 - `GET /api/mcc/offline-snapshot?schema=3&as_of=` (authenticated catalogue, normalized
@@ -217,7 +233,9 @@ When changing backend contracts or model nullability, update the model, provider
   Web data survives reload in IndexedDB, but a cold website launch without network
   requires a separately cached application shell; current `web/cache_reset.js` removes
   service workers and CacheStorage. Search works offline in an already loaded web app.
-- Subscription notifications are intentionally Android-only; web, iOS, and desktop still store subscription data but do not schedule local notifications.
+- Reminder notifications (subscriptions and payments) are intentionally Android-only;
+  other platforms store the data without scheduling. Exact alarms are used only when
+  `SCHEDULE_EXACT_ALARM` is granted; otherwise reminders are inexact.
 - The purchase-search UI is ahead of the backend domain model: operations, normalized merchants, MCC observations, and a universal recommendation endpoint do not exist yet.
 - `flutter analyze` and `flutter test` require Flutter/Dart to be available in PATH; the current sandbox shell may not have them configured.
 - Git may report dubious ownership in the sandbox for `D:/Projects/CashFlow`; avoid changing git config unless the user approves.

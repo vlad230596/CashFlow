@@ -26,7 +26,7 @@ COPY development_seed.py ./
 COPY mcc_catalog.py ./
 COPY canonical_categories.py ./
 COPY partner_validity.py ./
-COPY bank_identity.py business_time.py cashback_validation.py ./
+COPY bank_identity.py business_time.py cashback_validation.py payment_schedule.py ./
 COPY mcc_evaluation.py mcc_preview.py mcc_routes.py ./
 COPY mcc_snapshot.py mcc_snapshot_v3.py ./
 COPY data ./data

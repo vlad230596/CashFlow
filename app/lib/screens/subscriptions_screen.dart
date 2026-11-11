@@ -8,9 +8,19 @@ import '../models/card_model.dart';
 import '../models/subscription_model.dart';
 import '../providers/data_provider.dart';
 import 'widgets/keyboard_first_back.dart';
+import 'widgets/reminder_days_field.dart';
 
 class SubscriptionsScreen extends StatefulWidget {
-  const SubscriptionsScreen({super.key});
+  const SubscriptionsScreen({
+    super.key,
+    this.title = 'Подписки',
+    this.appBarBottom,
+  });
+
+  final String title;
+
+  /// Shown under the app bar, e.g. the «Платежи» section switch.
+  final PreferredSizeWidget? appBarBottom;
 
   @override
   State<SubscriptionsScreen> createState() => SubscriptionsScreenState();
@@ -62,7 +72,8 @@ class SubscriptionsScreenState extends State<SubscriptionsScreen> {
               final expanded = constraints.maxWidth >= 840;
               return Scaffold(
                 appBar: AppBar(
-                  title: const Text('Подписки'),
+                  title: Text(widget.title),
+                  bottom: widget.appBarBottom,
                   actions: [
                     IconButton(
                       tooltip:
@@ -668,6 +679,9 @@ class _SubscriptionEditScreenState extends State<SubscriptionEditScreen> {
   );
   late DateTime _nextDate;
   DateTime? _lastDate;
+  late List<int> _reminderDays;
+  // Until the user edits reminders, they follow the kind/interval defaults.
+  bool _remindersCustomized = false;
   bool _saving = false;
 
   @override
@@ -684,6 +698,14 @@ class _SubscriptionEditScreenState extends State<SubscriptionEditScreen> {
     _nextDate =
         item?.nextPaymentDate ?? DateTime.now().add(const Duration(days: 30));
     _lastDate = item?.lastPayment?.paidAt;
+    _remindersCustomized = item != null && item.reminderDays.isNotEmpty;
+    _reminderDays = item?.effectiveReminderDays.toList() ??
+        defaultSubscriptionReminderDays(_kind, _interval);
+  }
+
+  void _applyDefaultReminders() {
+    if (_remindersCustomized) return;
+    _reminderDays = defaultSubscriptionReminderDays(_kind, _interval);
   }
 
   @override
@@ -739,8 +761,10 @@ class _SubscriptionEditScreenState extends State<SubscriptionEditScreen> {
                       ),
                     ],
                     selected: {_kind},
-                    onSelectionChanged: (value) =>
-                        setState(() => _kind = value.first),
+                    onSelectionChanged: (value) => setState(() {
+                      _kind = value.first;
+                      _applyDefaultReminders();
+                    }),
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -858,14 +882,14 @@ class _SubscriptionEditScreenState extends State<SubscriptionEditScreen> {
                       if (value != null) setState(() => _nextDate = value);
                     },
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _kind == SubscriptionKind.trial
-                        ? 'Напомним за 3 и 1 день.'
-                        : _interval.unit == BillingIntervalUnit.years
-                            ? 'Напомним за 30, 7 и 1 день.'
-                            : 'Напомним за 7 и 1 день.',
-                    style: Theme.of(context).textTheme.bodySmall,
+                  const SizedBox(height: 20),
+                  ReminderDaysField(
+                    value: _reminderDays,
+                    allowEmpty: false,
+                    onChanged: (value) => setState(() {
+                      _reminderDays = value;
+                      _remindersCustomized = true;
+                    }),
                   ),
                   const SizedBox(height: 28),
                   FilledButton(
@@ -900,11 +924,7 @@ class _SubscriptionEditScreenState extends State<SubscriptionEditScreen> {
       cardId: _cardId!,
       billingInterval: _interval,
       nextPaymentDate: _nextDate,
-      reminderDays: _kind == SubscriptionKind.trial
-          ? const [3, 1]
-          : _interval.unit == BillingIntervalUnit.years
-              ? const [30, 7, 1]
-              : const [7, 1],
+      reminderDays: List.unmodifiable(_reminderDays),
       isArchived: previous?.isArchived ?? false,
       archivedAt: previous?.archivedAt,
       createdAt: previous?.createdAt,
@@ -943,6 +963,7 @@ class _SubscriptionEditScreenState extends State<SubscriptionEditScreen> {
   void _setInterval(BillingInterval interval) {
     setState(() {
       _interval = interval;
+      _applyDefaultReminders();
       if (_lastDate != null) {
         _nextDate = _addInterval(_lastDate!, interval);
       }
@@ -1147,6 +1168,19 @@ class _IntervalChoice {
   final String label;
   final int count;
   final BillingIntervalUnit unit;
+}
+
+/// Server-side defaults (backend `_subscription_reminder_days`).
+List<int> defaultSubscriptionReminderDays(
+  SubscriptionKind kind,
+  BillingInterval interval,
+) {
+  if (kind == SubscriptionKind.trial) return [3, 1];
+  if (interval.unit == BillingIntervalUnit.years ||
+      (interval.unit == BillingIntervalUnit.months && interval.count >= 12)) {
+    return [30, 7, 1];
+  }
+  return [7, 1];
 }
 
 bool _isPresetInterval(BillingInterval interval) {
