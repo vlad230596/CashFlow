@@ -4364,11 +4364,13 @@ def get_offer_mcc_rules(offer_id):
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
     if as_of is None:
-        # Today when the offer is running, otherwise its first day.
+        # Today when the offer is running, otherwise midday of its first day:
+        # date-only rule validity is stored as UTC midnight, which is later than
+        # Moscow midnight, so the first instant of the offer would miss it.
         start = offer.start_date.replace(tzinfo=MOSCOW_TZ).astimezone(timezone.utc)
         end = offer.end_date.replace(tzinfo=MOSCOW_TZ).astimezone(timezone.utc)
         now = _utc_now()
-        as_of = now if start <= now < end else start
+        as_of = now if start <= now < end else start + timedelta(hours=12)
 
     name = normalize_category_name(offer.name)
     programs = BankCashbackProgram.query.filter_by(bank_id=card.bank_id).order_by(
