@@ -12,6 +12,10 @@ abstract interface class MccStorage {
 
 MccStorage createMccStorage() => platform.createStorage();
 
+/// Another record store with the same atomic-write guarantees, kept apart from
+/// the MCC records (its own application-support folder or IndexedDB database).
+MccStorage createNamedStorage(String name) => platform.createNamedStorage(name);
+
 /// Explicit test dependency. Production never silently falls back to memory.
 class MemoryMccStorage implements MccStorage {
   final Map<String, String> values = {};

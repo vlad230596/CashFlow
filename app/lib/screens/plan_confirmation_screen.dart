@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,21 +8,34 @@ import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
 import '../services/app_session_type.dart';
 import '../services/card_context.dart';
+import '../services/cashback_import_launcher.dart';
+import '../services/cashback_import_session.dart';
+import '../services/cashback_selection_plan.dart';
 import '../utils/cashback_period.dart';
 import '../utils/cashflow_formatters.dart';
-import '../services/cashback_import_launcher.dart';
+import 'widgets/cashback_json_import.dart';
 
-typedef CashbackFilePicker = Future<CashbackImportFile?> Function();
-typedef CashbackDocumentImporter = Future<CashbackImportResult> Function(
-  DataProvider provider,
-  String contents,
-  int userId,
-);
+export 'widgets/cashback_json_import.dart'
+    show CashbackFilePicker, CashbackDocumentImporter;
 
-/// Read-only proof stage that follows the manual monthly plan.
+/// Opens the browser profile, optionally with the selection plan checklist.
+typedef CashbackBrowserLauncher = Future<String?> Function(
+  CashbackImportProfile profile, {
+  String? selectionPlan,
+});
+
+/// Confirmation of the monthly plan, in two explicit stages:
 ///
-/// The screen deliberately never mutates `isSelected`: confirmation can only
-/// arrive through the existing bank snapshot import contract.
+/// 1. the owner selects categories in each bank (the browser profile opens
+///    with the plan as a checklist; the bank's own offer may differ);
+/// 2. «Проверить выбор» re-reads the bank: the downloaded JSON is imported
+///    through the shared import and the screen shows what the bank confirmed.
+///
+/// A category selected in the bank outside the plan is an accepted outcome:
+/// the import adds it to the plan and the screen says so neutrally. Planned
+/// categories the bank did not confirm can be dropped from the plan in one
+/// tap («Принять выбор банка»). Confirmation itself only ever comes from an
+/// imported bank snapshot.
 class PlanConfirmationScreen extends StatefulWidget {
   const PlanConfirmationScreen({
     super.key,
@@ -28,6 +43,7 @@ class PlanConfirmationScreen extends StatefulWidget {
     this.period,
     this.filePicker,
     this.documentImporter,
+    this.browserLauncher,
     this.sessionType,
     this.onShellDestinationSelected,
   });
@@ -36,6 +52,7 @@ class PlanConfirmationScreen extends StatefulWidget {
   final CashbackPeriod? period;
   final CashbackFilePicker? filePicker;
   final CashbackDocumentImporter? documentImporter;
+  final CashbackBrowserLauncher? browserLauncher;
   final AppSessionType? sessionType;
   final ValueChanged<int>? onShellDestinationSelected;
 
@@ -46,13 +63,28 @@ class PlanConfirmationScreen extends StatefulWidget {
 class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
   int? _selectedCardId;
   bool _showCompactDetails = false;
-  bool _importing = false;
-  bool _hasImportedSnapshot = false;
-  DateTime? _lastSuccessfulImport;
-  String? _importError;
+
+  /// Owner whose bank JSON is being imported right now.
+  int? _checkingUserId;
+  int? _launchingUserId;
+  final Set<int> _removingCategoryIds = {};
+
+  /// Owners re-read in this session, with the time of the last check.
+  final Map<int, DateTime> _checkedAt = {};
+
+  /// Planned category ids per card before the first check of this session;
+  /// what the bank confirmed beyond them was chosen there on the spot.
+  final Map<int, Set<int>> _plannedBeforeCheck = {};
+  String? _checkError;
+  int? _checkErrorUserId;
   final FocusNode _errorFocusNode = FocusNode();
   final ScrollController _overviewController = ScrollController();
   final ScrollController _detailsController = ScrollController();
+
+  CashbackPeriod get _period =>
+      widget.period ?? CashbackPeriod.month(DateTime.now());
+
+  AppSessionType get _session => widget.sessionType ?? detectAppSessionType();
 
   @override
   void dispose() {
@@ -85,22 +117,21 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
   }
 
   List<_ConfirmationCard> _plannedCards(DataProvider provider) {
-    final grouped = selectedCategoriesByCard(provider.cashbackCategories,
-        widget.period ?? CashbackPeriod.month(DateTime.now()));
-
+    final grouped =
+        selectedCategoriesByCard(provider.cashbackCategories, _period);
     final contexts = CardContextCatalog(
         cards: provider.cards, banks: provider.banks, users: provider.users);
     final cards = grouped.entries.map((entry) {
       final context = contexts.forId(entry.key);
       final card = context.card;
-      final bankName = context.bankName;
-      final userName = context.ownerName;
-      final categories = [...entry.value];
       return _ConfirmationCard(
         card: card,
-        bankName: bankName ?? 'Неизвестный банк',
-        userName: userName ?? 'Владелец не указан',
-        categories: categories,
+        bankName: context.bankName ?? 'Неизвестный банк',
+        userName: context.ownerName ?? 'Владелец не указан',
+        categories: [...entry.value]
+          ..sort((a, b) => b.cashbackPercent.compareTo(a.cashbackPercent)),
+        plannedBeforeCheck: _plannedBeforeCheck[entry.key],
+        checkedAt: _checkedAt[card.userId],
       );
     }).toList();
 
@@ -128,50 +159,149 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
     );
   }
 
-  Future<void> _importSnapshot(
+  CashbackImportProfile? _profileFor(DataProvider provider, int? userId) {
+    if (userId == null) return null;
+    for (final profile in cashbackImportProfiles) {
+      if (cashbackImportProfileUser(profile, provider.users)?.id == userId) {
+        return profile;
+      }
+    }
+    return null;
+  }
+
+  /// Stage 1 (and the first half of stage 2): the owner's browser profile
+  /// with the plan as a checklist. Launching an already open profile only
+  /// brings it forward.
+  Future<void> _openBrowser(
     DataProvider provider,
     _ConfirmationCard card,
   ) async {
     final userId = card.card.userId;
-    if (userId == null || _importing) return;
+    final profile = _profileFor(provider, userId);
+    if (profile == null || _launchingUserId != null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _launchingUserId = userId);
+    String? error;
+    try {
+      await CashbackImportSession.rememberProfile(profile);
+      final plan = buildCashbackSelectionPlan(
+        now: DateTime.now(),
+        period: _period,
+        banks: provider.banks,
+        users: provider.users,
+        cards: provider.cards,
+        categories: provider.cashbackCategories,
+        requestedBankIds: profile.banks,
+        userId: userId,
+      );
+      error = await (widget.browserLauncher ?? launchCashbackImport)(
+        profile,
+        selectionPlan: jsonEncode(plan),
+      );
+    } catch (exception) {
+      error = 'Не удалось открыть браузер: $exception';
+    }
+    if (!mounted) return;
+    setState(() => _launchingUserId = null);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          error ??
+              '${profile.label} открыт. Справа — чек-лист плана; выбирайте '
+                  'в банке то, что удобно.',
+        ),
+      ),
+    );
+  }
+
+  /// Stage 2: imports the JSON the profile downloaded and remembers what was
+  /// planned before, so the result can tell bank choices apart.
+  Future<void> _checkSelection(
+    DataProvider provider,
+    _ConfirmationCard card,
+  ) async {
+    final userId = card.card.userId;
+    if (userId == null || _checkingUserId != null) return;
+    final ownerCardIds = {
+      for (final item in provider.cards)
+        if (item.userId == userId && item.id != null) item.id!,
+    };
+    final plannedNow = {
+      for (final entry in selectedCategoriesByCard(
+        provider.cashbackCategories,
+        _period,
+      ).entries)
+        if (ownerCardIds.contains(entry.key))
+          entry.key: {for (final category in entry.value) category.id},
+    };
 
     setState(() {
-      _importing = true;
-      _importError = null;
+      _checkingUserId = userId;
+      _checkError = null;
+      _checkErrorUserId = null;
     });
     try {
-      final file = await (widget.filePicker ?? pickCashbackImportFile)();
-      if (file == null) {
-        if (mounted) setState(() => _importing = false);
-        return;
-      }
-      final importer = widget.documentImporter ??
-          (provider, contents, userId) =>
-              provider.importCashbackDocument(contents, userId);
-      final result = await importer(provider, file.contents, userId);
+      final result = await importCashbackJsonFile(
+        context,
+        provider,
+        userId: userId,
+        pickFile: widget.filePicker,
+        importer: widget.documentImporter,
+      );
       if (!mounted) return;
       setState(() {
-        _importing = false;
-        _hasImportedSnapshot = true;
-        _lastSuccessfulImport = DateTime.now();
+        _checkingUserId = null;
+        if (result != null) {
+          _checkedAt[userId] = DateTime.now();
+          for (final cardId in ownerCardIds) {
+            _plannedBeforeCheck.putIfAbsent(
+              cardId,
+              () => plannedNow[cardId] ?? <int>{},
+            );
+          }
+        }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Снимок импортирован: банков обновлено ${result.importedBanks}, '
-            'пропущено ${result.skippedBanks}',
-          ),
-        ),
-      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _importing = false;
-        _importError = _readableError(error);
+        _checkingUserId = null;
+        _checkError = _readableError(error);
+        _checkErrorUserId = userId;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _errorFocusNode.requestFocus();
       });
+    }
+  }
+
+  /// Follows the bank: drops planned categories it did not confirm.
+  Future<void> _removeFromPlan(
+    DataProvider provider,
+    Iterable<CashbackCategoryModel> categories,
+  ) async {
+    final ids = categories.map((category) => category.id).toList();
+    if (ids.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _removingCategoryIds.addAll(ids));
+    try {
+      for (final id in ids) {
+        await provider.toggleCategorySelection(id, false);
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            ids.length == 1
+                ? 'Категория убрана из плана'
+                : 'Убрано из плана: ${ids.length}',
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Не удалось изменить план: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _removingCategoryIds.removeAll(ids));
     }
   }
 
@@ -199,10 +329,6 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
       builder: (context, constraints) {
         final expanded = constraints.maxWidth >= 840;
         final gutter = expanded ? 24.0 : 12.0;
-        final period = cards
-            .expand((card) => card.categories)
-            .map((category) => category.startDate)
-            .firstOrNull;
         return PopScope(
           canPop: !_showCompactDetails,
           onPopInvokedWithResult: (didPop, result) {
@@ -247,19 +373,15 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
                   if (!expanded)
                     _MobileConfirmationHeader(
                       details: _showCompactDetails,
-                      period: period,
+                      period: _period.start,
                       canEdit: provider.canEdit,
                       onBack: _goBack,
                     ),
-                  if (expanded || !_showCompactDetails) ...[
+                  // On phones the banner scrolls with the card list.
+                  if (expanded) ...[
                     Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        gutter,
-                        expanded ? 12 : 14,
-                        gutter,
-                        0,
-                      ),
-                      child: _ProgressBanner(
+                      padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 0),
+                      child: _StagesBanner(
                         confirmed: confirmed,
                         total: total,
                       ),
@@ -271,17 +393,16 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
                     child: cards.isEmpty
                         ? const _EmptyPlan()
                         : expanded
-                            ? _buildExpanded(
-                                provider,
-                                cards,
-                                selected!,
-                                gutter,
-                              )
+                            ? _buildExpanded(provider, cards, selected!, gutter)
                             : _buildSequential(
                                 provider,
                                 cards,
                                 selected!,
                                 gutter,
+                                _StagesBanner(
+                                  confirmed: confirmed,
+                                  total: total,
+                                ),
                               ),
                   ),
                 ],
@@ -293,25 +414,45 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
     );
   }
 
+  Widget _details(
+    DataProvider provider,
+    _ConfirmationCard card, {
+    required EdgeInsets padding,
+    bool includeSummary = false,
+  }) {
+    final userId = card.card.userId;
+    return _CardDetails(
+      card: card,
+      canEdit: provider.canEdit,
+      canImport: _session.canImportCashbackFile,
+      canLaunchBrowser: _session.canLaunchCashbackBrowser &&
+          _profileFor(provider, userId) != null,
+      profileLabel: _profileFor(provider, userId)?.label,
+      checking: userId != null && _checkingUserId == userId,
+      launching: userId != null && _launchingUserId == userId,
+      removingCategoryIds: _removingCategoryIds,
+      checkError: _checkErrorUserId == userId ? _checkError : null,
+      errorFocusNode: _errorFocusNode,
+      onOpenBrowser: () => _openBrowser(provider, card),
+      onCheck: () => _checkSelection(provider, card),
+      onRemove: (categories) => _removeFromPlan(provider, categories),
+      scrollController: _detailsController,
+      padding: padding,
+      includeSummary: includeSummary,
+    );
+  }
+
   Widget _buildSequential(
     DataProvider provider,
     List<_ConfirmationCard> cards,
     _ConfirmationCard selected,
     double gutter,
+    Widget banner,
   ) {
     if (_showCompactDetails) {
-      return _CardDetails(
-        card: selected,
-        canEdit: provider.canEdit,
-        canImport: _canImport,
-        importing: _importing,
-        importError: _importError,
-        errorFocusNode: _errorFocusNode,
-        hasImportedSnapshot: _hasImportedSnapshot,
-        lastSuccessfulImport: _lastSuccessfulImport,
-        onImport: () => _importSnapshot(provider, selected),
-        onShowHelp: () => _showImportHelp(selected),
-        scrollController: _detailsController,
+      return _details(
+        provider,
+        selected,
         padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
         includeSummary: true,
       );
@@ -320,29 +461,30 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
       key: const PageStorageKey('confirmation-card-overview'),
       controller: _overviewController,
       padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
-      itemCount: cards.length + 1,
+      itemCount: cards.length + 2,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        if (index == cards.length) {
-          return _SnapshotNote(lastSuccessfulImport: _lastSuccessfulImport);
+        if (index == 0) return banner;
+        if (index == cards.length + 1) {
+          return _SnapshotNote(lastCheck: _lastCheck);
         }
-        final card = cards[index];
+        final card = cards[index - 1];
         return _CardOverviewTile(
           card: card,
-          onTap: () {
-            if (!card.isComplete && MediaQuery.sizeOf(context).width < 600) {
-              _showSnapshotSheet(provider, card);
-              return;
-            }
-            setState(() {
-              _selectedCardId = card.card.id;
-              _showCompactDetails = true;
-            });
-          },
+          onTap: () => setState(() {
+            _selectedCardId = card.card.id;
+            _showCompactDetails = true;
+          }),
         );
       },
     );
   }
+
+  DateTime? get _lastCheck => _checkedAt.values.fold<DateTime?>(
+        null,
+        (latest, time) =>
+            latest == null || time.isAfter(latest) ? time : latest,
+      );
 
   Widget _buildExpanded(
     DataProvider provider,
@@ -368,10 +510,7 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
                     card: card,
                     selected: card.card.id == selected.card.id,
                     dense: true,
-                    onTap: () => setState(() {
-                      _selectedCardId = card.card.id;
-                      _importError = null;
-                    }),
+                    onTap: () => setState(() => _selectedCardId = card.card.id),
                   );
                 },
               ),
@@ -380,18 +519,9 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: _Panel(
-              child: _CardDetails(
-                card: selected,
-                canEdit: provider.canEdit,
-                canImport: _canImport,
-                importing: _importing,
-                importError: _importError,
-                errorFocusNode: _errorFocusNode,
-                hasImportedSnapshot: _hasImportedSnapshot,
-                lastSuccessfulImport: _lastSuccessfulImport,
-                onImport: () => _importSnapshot(provider, selected),
-                onShowHelp: () => _showImportHelp(selected),
-                scrollController: _detailsController,
+              child: _details(
+                provider,
+                selected,
                 padding: const EdgeInsets.all(16),
               ),
             ),
@@ -400,152 +530,10 @@ class _PlanConfirmationScreenState extends State<PlanConfirmationScreen> {
           SizedBox(
             width: 244,
             child: _Panel(
-              child: _MonthSummary(
-                cards: cards,
-                hasImportedSnapshot: _hasImportedSnapshot,
-                lastSuccessfulImport: _lastSuccessfulImport,
-              ),
+              child: _MonthSummary(cards: cards, lastCheck: _lastCheck),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  bool get _canImport =>
-      (widget.sessionType ?? detectAppSessionType()).canImportCashbackFile;
-
-  void _showSnapshotSheet(
-    DataProvider provider,
-    _ConfirmationCard card,
-  ) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            18,
-            22,
-            18,
-            18 + MediaQuery.viewInsetsOf(sheetContext).bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Импортировать снимок',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Получите свежий JSON через существующий сценарий импорта '
-                'и выберите файл. CashFlow не активирует категории в '
-                'приложении банка.',
-                style: const TextStyle(color: _ConfirmationPalette.muted),
-              ),
-              const SizedBox(height: 14),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: _ConfirmationPalette.outline),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        card.title,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Подтверждено ${card.confirmed} из ${card.total}',
-                        style: const TextStyle(
-                          color: _ConfirmationPalette.muted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              FilledButton(
-                onPressed: provider.canEdit && _canImport && !_importing
-                    ? () {
-                        Navigator.pop(sheetContext);
-                        _importSnapshot(provider, card);
-                      }
-                    : null,
-                child: const Text('Выбрать JSON-файл'),
-              ),
-              if (!_canImport) ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'Выбор JSON-файла доступен в Windows-приложении.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _ConfirmationPalette.muted,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 8),
-              OutlinedButton(
-                onPressed: () => Navigator.pop(sheetContext),
-                child: const Text('Отмена'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showImportHelp(_ConfirmationCard card) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Как подтвердить выбор',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Экспортируйте свежий JSON-снимок через существующее '
-                'браузерное расширение, затем выберите файл здесь. CashFlow '
-                'не активирует категории в приложении банка.',
-              ),
-              const SizedBox(height: 12),
-              Text(card.title,
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => Navigator.pop(sheetContext),
-                child: const Text('Понятно'),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -557,17 +545,33 @@ class _ConfirmationCard {
     required this.bankName,
     required this.userName,
     required this.categories,
+    this.plannedBeforeCheck,
+    this.checkedAt,
   });
 
   final CardModel card;
   final String bankName;
   final String userName;
   final List<CashbackCategoryModel> categories;
+  final Set<int>? plannedBeforeCheck;
+  final DateTime? checkedAt;
 
   int get confirmed => categories.where((item) => item.isBankConfirmed).length;
   int get total => categories.length;
   bool get isComplete => total > 0 && confirmed == total;
+  bool get isChecked => checkedAt != null;
   String get title => '$bankName · ${card.lastFourDigits ?? '••••'}';
+
+  /// Selected in the bank on the spot and added to the plan by the check.
+  bool chosenInBank(CashbackCategoryModel category) =>
+      category.isBankConfirmed &&
+      plannedBeforeCheck != null &&
+      !plannedBeforeCheck!.contains(category.id);
+
+  List<CashbackCategoryModel> get unconfirmed =>
+      categories.where((item) => !item.isBankConfirmed).toList();
+
+  int get chosenInBankCount => categories.where(chosenInBank).length;
 }
 
 abstract final class _ConfirmationPalette {
@@ -579,8 +583,10 @@ abstract final class _ConfirmationPalette {
   static const successBackground = Color(0xFFE7F6EF);
   static const warning = Color(0xFF9A5700);
   static const warningBackground = Color(0xFFFFF3DC);
-  static const error = Color(0xFFB42318);
-  static const errorBackground = Color(0xFFFFF0EE);
+  static const info = Color(0xFF1D4F91);
+  static const infoBackground = Color(0xFFE8F0FC);
+  static const neutral = Color(0xFF475467);
+  static const neutralBackground = Color(0xFFEEF1F5);
   static const muted = Color(0xFF58708F);
   static const outline = Color(0xFFCFDAEA);
 }
@@ -594,7 +600,7 @@ class _MobileConfirmationHeader extends StatelessWidget {
   });
 
   final bool details;
-  final DateTime? period;
+  final DateTime period;
   final bool canEdit;
   final VoidCallback onBack;
 
@@ -628,7 +634,7 @@ class _MobileConfirmationHeader extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Text(
-                  details ? 'Подтверждения' : 'Подтверждение',
+                  details ? 'Выбор по карте' : 'Подтверждение',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: _ConfirmationPalette.navy,
                         fontWeight: FontWeight.w800,
@@ -639,7 +645,7 @@ class _MobileConfirmationHeader extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Text(
-                  '${period == null ? 'Текущий месяц' : _formatMonth(period!)} · '
+                  '${_formatMonth(period)} · '
                   '${canEdit ? 'редактор' : 'только просмотр'}',
                   style: const TextStyle(
                     color: _ConfirmationPalette.muted,
@@ -690,8 +696,9 @@ class _ConfirmationBottomNavigation extends StatelessWidget {
   }
 }
 
-class _ProgressBanner extends StatelessWidget {
-  const _ProgressBanner({required this.confirmed, required this.total});
+/// The two stages and the month's progress.
+class _StagesBanner extends StatelessWidget {
+  const _StagesBanner({required this.confirmed, required this.total});
 
   final int confirmed;
   final int total;
@@ -699,6 +706,7 @@ class _ProgressBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = total == 0 ? 0.0 : confirmed / total;
+    const stepStyle = TextStyle(color: Color(0xFFDEEBFF));
     return Semantics(
       liveRegion: true,
       label: '$confirmed из $total категорий подтверждено банком',
@@ -721,16 +729,23 @@ class _ProgressBanner extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'План — это ещё не активация',
+                    'Два шага: выбрать и проверить',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
                         ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Подтверждение появляется только после импорта снимка из банков.',
-                    style: const TextStyle(color: Color(0xFFDEEBFF)),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '1 · Выберите категории в банке. Можно и не по плану — '
+                    'выбор банка главнее.',
+                    style: stepStyle,
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '2 · «Проверить выбор» перечитает банк и покажет, что '
+                    'подтверждено.',
+                    style: stepStyle,
                   ),
                 ],
               );
@@ -779,6 +794,15 @@ class _ProgressBanner extends StatelessWidget {
   }
 }
 
+(String, _StatusKind) _cardStatus(_ConfirmationCard card) {
+  if (card.isComplete) return ('Подтверждено', _StatusKind.success);
+  if (card.isChecked) {
+    return ('Проверено · ${card.confirmed} из ${card.total}', _StatusKind.info);
+  }
+  if (card.confirmed > 0) return ('Подтверждено частично', _StatusKind.info);
+  return ('Ждёт проверки', _StatusKind.warning);
+}
+
 class _CardOverviewTile extends StatelessWidget {
   const _CardOverviewTile({
     required this.card,
@@ -795,23 +819,9 @@ class _CardOverviewTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final complete = card.isComplete;
-    final partial = !complete && card.confirmed > 0;
-    final status = complete
-        ? 'Готово'
-        : partial
-            ? 'Есть расхождение'
-            : 'Ждёт снимка';
-    final kind = complete
-        ? _StatusKind.success
-        : partial
-            ? _StatusKind.error
-            : _StatusKind.warning;
-    final action = complete
-        ? 'Посмотреть подтверждения'
-        : partial
-            ? 'Как обновить снимок'
-            : 'Импортировать снимок';
+    final (status, kind) = _cardStatus(card);
+    final action =
+        card.isComplete ? 'Посмотреть подтверждения' : 'Выбрать и проверить';
     return Card(
       margin: EdgeInsets.zero,
       color: selected ? scheme.secondaryContainer : null,
@@ -841,15 +851,13 @@ class _CardOverviewTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      _StatusPill(
-                        label: status,
-                        kind: kind,
-                      ),
+                      _StatusPill(label: status, kind: kind),
                     ],
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '${card.userName} · подтверждено ${card.confirmed} из ${card.total}',
+                    '${card.userName} · подтверждено ${card.confirmed} из '
+                    '${card.total}',
                     style: TextStyle(color: scheme.onSurfaceVariant),
                   ),
                 ],
@@ -890,13 +898,16 @@ class _CardDetails extends StatelessWidget {
     required this.card,
     required this.canEdit,
     required this.canImport,
-    required this.importing,
-    required this.importError,
+    required this.canLaunchBrowser,
+    required this.profileLabel,
+    required this.checking,
+    required this.launching,
+    required this.removingCategoryIds,
+    required this.checkError,
     required this.errorFocusNode,
-    required this.hasImportedSnapshot,
-    required this.lastSuccessfulImport,
-    required this.onImport,
-    required this.onShowHelp,
+    required this.onOpenBrowser,
+    required this.onCheck,
+    required this.onRemove,
     required this.scrollController,
     required this.padding,
     this.includeSummary = false,
@@ -905,13 +916,16 @@ class _CardDetails extends StatelessWidget {
   final _ConfirmationCard card;
   final bool canEdit;
   final bool canImport;
-  final bool importing;
-  final String? importError;
+  final bool canLaunchBrowser;
+  final String? profileLabel;
+  final bool checking;
+  final bool launching;
+  final Set<int> removingCategoryIds;
+  final String? checkError;
   final FocusNode errorFocusNode;
-  final bool hasImportedSnapshot;
-  final DateTime? lastSuccessfulImport;
-  final VoidCallback onImport;
-  final VoidCallback onShowHelp;
+  final VoidCallback onOpenBrowser;
+  final VoidCallback onCheck;
+  final ValueChanged<List<CashbackCategoryModel>> onRemove;
   final ScrollController scrollController;
   final EdgeInsets padding;
   final bool includeSummary;
@@ -919,6 +933,19 @@ class _CardDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final (status, kind) = _cardStatus(card);
+    final unconfirmed = card.unconfirmed;
+    final browserButton = OutlinedButton.icon(
+      key: const ValueKey('confirmation-open-browser'),
+      onPressed: canLaunchBrowser && !launching ? onOpenBrowser : null,
+      icon: launching
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.open_in_browser, size: 18),
+      label: Text(launching ? 'Открываем…' : 'Открыть браузер с планом'),
+    );
     return ListView(
       key: ValueKey('confirmation-details-${card.card.id}'),
       controller: scrollController,
@@ -933,10 +960,7 @@ class _CardDetails extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            _StatusPill(
-              label: card.isComplete ? 'Готово' : 'Есть расхождение',
-              kind: card.isComplete ? _StatusKind.success : _StatusKind.error,
-            ),
+            _StatusPill(label: status, kind: kind),
           ],
         ),
         const SizedBox(height: 4),
@@ -946,23 +970,105 @@ class _CardDetails extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         if (!canEdit)
-          _InfoBox(
+          const _InfoBox(
             icon: Icons.visibility_outlined,
             text: 'Только просмотр. У вашей учётной записи нет права '
-                'импортировать банковский снимок.',
+                'импортировать банковский снимок и менять план.',
           ),
-        _InfoBox(
-          icon: Icons.info_outline,
-          text: 'Категории ниже уже находятся в плане. Импорт снимка '
-              'подтверждает факт выбора, но не меняет план.',
+        _StageSection(
+          number: 1,
+          title: 'Выбрать категории в банке',
+          done: card.isComplete,
+          children: [
+            Text(
+              'Откройте браузер${profileLabel == null ? '' : ' «$profileLabel»'}'
+              ': справа появится чек-лист плана. Выбирайте в банке то, что '
+              'удобно. Если банк предложил другое и вы выбрали на месте — '
+              'это нормально, проверка добавит выбор банка в план.',
+            ),
+            const SizedBox(height: 10),
+            Align(alignment: Alignment.centerLeft, child: browserButton),
+            if (!canLaunchBrowser)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Браузер с планом открывается из Windows-приложения.',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+          ],
         ),
-        if (importError != null)
+        const SizedBox(height: 10),
+        _StageSection(
+          number: 2,
+          title: 'Проверить выбор',
+          done: card.isComplete,
+          children: [
+            const Text(
+              'Перечитайте банк: в расширении нажмите «Проверить '
+              'подтверждение в банках» и «Скачать JSON», затем «Проверить '
+              'выбор» здесь. Проверять можно сколько угодно раз.',
+            ),
+            if (card.checkedAt != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Последняя проверка: ${_formatTime(card.checkedAt!)}',
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            if (canEdit)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  key: const ValueKey('confirmation-check'),
+                  onPressed: canImport && !checking ? onCheck : null,
+                  icon: checking
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.fact_check_outlined, size: 18),
+                  label: Text(
+                    checking
+                        ? 'Проверяем…'
+                        : card.isChecked
+                            ? 'Проверить ещё раз'
+                            : 'Проверить выбор',
+                  ),
+                ),
+              ),
+            if (canEdit && !canImport)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Выбор JSON-файла доступен в Windows-приложении.',
+                  style: TextStyle(
+                    color: scheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        if (checkError != null) ...[
+          const SizedBox(height: 10),
           Semantics(
             liveRegion: true,
-            label: importError,
+            label: checkError,
             child: Focus(
               focusNode: errorFocusNode,
               child: Card(
+                margin: EdgeInsets.zero,
                 color: scheme.errorContainer,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -978,12 +1084,12 @@ class _CardDetails extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        importError!,
+                        checkError!,
                         style: TextStyle(color: scheme.onErrorContainer),
                       ),
                       if (canEdit && canImport)
                         TextButton(
-                          onPressed: onImport,
+                          onPressed: onCheck,
                           child: const Text('Выбрать файл снова'),
                         ),
                     ],
@@ -992,53 +1098,57 @@ class _CardDetails extends StatelessWidget {
               ),
             ),
           ),
-        const SizedBox(height: 4),
+        ],
+        const SizedBox(height: 16),
+        Text(
+          card.isChecked ? 'Результат проверки' : 'Категории в плане',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        if (card.isChecked && card.chosenInBankCount > 0)
+          _InfoBox(
+            icon: Icons.add_task,
+            text: 'Выбрано в банке на месте: ${card.chosenInBankCount}. '
+                'Эти категории уже добавлены в план.',
+          ),
         for (final category in card.categories) ...[
           _CategoryConfirmationTile(
             category: category,
-            hasImportedSnapshot: hasImportedSnapshot,
-            lastSuccessfulImport: lastSuccessfulImport,
+            checked: card.isChecked,
+            chosenInBank: card.chosenInBank(category),
+            canEdit: canEdit,
+            removing: removingCategoryIds.contains(category.id),
+            onRemove: () => onRemove([category]),
           ),
           const SizedBox(height: 10),
         ],
-        const SizedBox(height: 6),
-        if (canEdit) ...[
-          FilledButton(
-            onPressed: canImport && !importing ? onImport : null,
-            child: importing
-                ? const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('Импортируем…'),
-                    ],
-                  )
-                : const Text('Импортировать снимок'),
+        if (card.isChecked && canEdit && unconfirmed.isNotEmpty) ...[
+          _InfoBox(
+            icon: Icons.swap_horiz,
+            text: 'Банк не подтвердил ${unconfirmed.length} из плана. Если в '
+                'банке выбрано другое, примите выбор банка — эти категории '
+                'уйдут из плана, подтверждённые останутся.',
           ),
-          if (!canImport) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Выбор JSON-файла доступен в Windows-приложении.',
-              style: TextStyle(color: scheme.onSurfaceVariant),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              key: const ValueKey('confirmation-adopt-bank'),
+              onPressed: unconfirmed.any(
+                (category) => removingCategoryIds.contains(category.id),
+              )
+                  ? null
+                  : () => onRemove(unconfirmed),
+              icon: const Icon(Icons.done_all, size: 18),
+              label: const Text('Принять выбор банка'),
             ),
-          ],
-          const SizedBox(height: 8),
+          ),
         ],
-        OutlinedButton(
-          onPressed: onShowHelp,
-          child: const Text('Как получить JSON'),
-        ),
         if (includeSummary) ...[
           const SizedBox(height: 20),
           const _InfoBox(
             icon: Icons.history,
-            text: 'Подтверждение хранится отдельно от плана. Свежий '
-                'банковский снимок может обновить его, не меняя выбранные '
-                'категории.',
+            text: 'Подтверждение приходит только из импортированного '
+                'банковского снимка. Свежая проверка может обновить его.',
           ),
         ],
       ],
@@ -1046,36 +1156,121 @@ class _CardDetails extends StatelessWidget {
   }
 }
 
+class _StageSection extends StatelessWidget {
+  const _StageSection({
+    required this.number,
+    required this.title,
+    required this.done,
+    required this.children,
+  });
+
+  final int number;
+  final String title;
+  final bool done;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ExcludeSemantics(
+              child: CircleAvatar(
+                radius: 13,
+                backgroundColor: done
+                    ? _ConfirmationPalette.successBackground
+                    : _ConfirmationPalette.infoBackground,
+                child: done
+                    ? const Icon(
+                        Icons.check,
+                        size: 16,
+                        color: _ConfirmationPalette.success,
+                      )
+                    : Text(
+                        '$number',
+                        style: const TextStyle(
+                          color: _ConfirmationPalette.info,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Шаг $number. $title',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 6),
+                  ...children,
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _CategoryConfirmationTile extends StatelessWidget {
   const _CategoryConfirmationTile({
     required this.category,
-    required this.hasImportedSnapshot,
-    required this.lastSuccessfulImport,
+    required this.checked,
+    required this.chosenInBank,
+    required this.canEdit,
+    required this.removing,
+    required this.onRemove,
   });
 
   final CashbackCategoryModel category;
-  final bool hasImportedSnapshot;
-  final DateTime? lastSuccessfulImport;
+  final bool checked;
+  final bool chosenInBank;
+  final bool canEdit;
+  final bool removing;
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
     final confirmed = category.isBankConfirmed;
-    final mismatch = !confirmed && hasImportedSnapshot;
-    final status = confirmed
-        ? 'Подтверждено банком'
-        : mismatch
-            ? 'Не найдено в снимке'
-            : 'Ждёт снимка';
-    final kind = confirmed
-        ? _StatusKind.success
-        : mismatch
-            ? _StatusKind.error
-            : _StatusKind.warning;
-    final icon = confirmed
-        ? Icons.check
-        : mismatch
-            ? Icons.error_outline
-            : Icons.schedule;
+    final (status, kind, icon, note) = chosenInBank
+        ? (
+            'Выбрано в банке',
+            _StatusKind.info,
+            Icons.add_task,
+            'Выбрано на месте в банке и добавлено в план',
+          )
+        : confirmed
+            ? (
+                'Подтверждено банком',
+                _StatusKind.success,
+                Icons.check,
+                'Банк подтвердил выбор',
+              )
+            : checked
+                ? (
+                    'Банк не подтвердил',
+                    _StatusKind.neutral,
+                    Icons.remove,
+                    'В банке не выбрано или ещё ждёт подтверждения',
+                  )
+                : (
+                    'Ждёт проверки',
+                    _StatusKind.warning,
+                    Icons.schedule,
+                    'Выберите в банке, затем «Проверить выбор»',
+                  );
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -1091,15 +1286,7 @@ class _CategoryConfirmationTile extends StatelessWidget {
                 ),
                 child: SizedBox.square(
                   dimension: 24,
-                  child: Icon(
-                    icon,
-                    size: 16,
-                    color: switch (kind) {
-                      _StatusKind.success => _ConfirmationPalette.success,
-                      _StatusKind.warning => _ConfirmationPalette.warning,
-                      _StatusKind.error => _ConfirmationPalette.error,
-                    },
-                  ),
+                  child: Icon(icon, size: 16, color: kind.foreground),
                 ),
               ),
             ),
@@ -1115,25 +1302,30 @@ class _CategoryConfirmationTile extends StatelessWidget {
                     spacing: 6,
                     runSpacing: 6,
                     children: [
-                      const Chip(
+                      Chip(
                         visualDensity: VisualDensity.compact,
-                        label: Text('В плане'),
+                        label: Text(chosenInBank ? 'Из банка' : 'В плане'),
                       ),
                       _StatusPill(label: status, kind: kind),
                     ],
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    confirmed
-                        ? 'Банковский снимок подтвердил выбор'
-                        : mismatch
-                            ? 'Последний импорт не подтвердил выбор'
-                            : 'Импортируйте свежий банковский снимок',
+                    note,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: 12,
                     ),
                   ),
+                  if (checked && !confirmed && canEdit)
+                    TextButton(
+                      onPressed: removing ? null : onRemove,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: Text(removing ? 'Убираем…' : 'Убрать из плана'),
+                    ),
                 ],
               ),
             ),
@@ -1153,7 +1345,27 @@ class _CategoryConfirmationTile extends StatelessWidget {
   }
 }
 
-enum _StatusKind { success, warning, error }
+/// No kind means «wrong»: a bank choice that differs from the plan is neutral.
+enum _StatusKind {
+  success(
+    _ConfirmationPalette.successBackground,
+    _ConfirmationPalette.success,
+  ),
+  warning(
+    _ConfirmationPalette.warningBackground,
+    _ConfirmationPalette.warning,
+  ),
+  info(_ConfirmationPalette.infoBackground, _ConfirmationPalette.info),
+  neutral(
+    _ConfirmationPalette.neutralBackground,
+    _ConfirmationPalette.neutral,
+  );
+
+  const _StatusKind(this.background, this.foreground);
+
+  final Color background;
+  final Color foreground;
+}
 
 class _StatusPill extends StatelessWidget {
   const _StatusPill({
@@ -1166,25 +1378,11 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (background, foreground) = switch (kind) {
-      _StatusKind.success => (
-          _ConfirmationPalette.successBackground,
-          _ConfirmationPalette.success
-        ),
-      _StatusKind.warning => (
-          _ConfirmationPalette.warningBackground,
-          _ConfirmationPalette.warning
-        ),
-      _StatusKind.error => (
-          _ConfirmationPalette.errorBackground,
-          _ConfirmationPalette.error
-        ),
-    };
     return Semantics(
       label: label,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: background,
+          color: kind.background,
           borderRadius: BorderRadius.circular(999),
         ),
         child: Padding(
@@ -1195,7 +1393,7 @@ class _StatusPill extends StatelessWidget {
               label,
               softWrap: true,
               style: TextStyle(
-                color: foreground,
+                color: kind.foreground,
                 fontSize: 11,
                 fontWeight: FontWeight.w800,
               ),
@@ -1208,31 +1406,26 @@ class _StatusPill extends StatelessWidget {
 }
 
 class _MonthSummary extends StatelessWidget {
-  const _MonthSummary({
-    required this.cards,
-    required this.hasImportedSnapshot,
-    required this.lastSuccessfulImport,
-  });
+  const _MonthSummary({required this.cards, required this.lastCheck});
 
   final List<_ConfirmationCard> cards;
-  final bool hasImportedSnapshot;
-  final DateTime? lastSuccessfulImport;
+  final DateTime? lastCheck;
 
   @override
   Widget build(BuildContext context) {
     final total = cards.fold<int>(0, (sum, card) => sum + card.total);
     final confirmed = cards.fold<int>(0, (sum, card) => sum + card.confirmed);
-    final remaining = total - confirmed;
+    final chosenInBank =
+        cards.fold<int>(0, (sum, card) => sum + card.chosenInBankCount);
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
         Text('Сводка месяца', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
-        _Metric(label: 'Подтверждено снимком', value: confirmed),
-        _Metric(
-          label: hasImportedSnapshot ? 'Расхождения' : 'Ожидает снимка',
-          value: remaining,
-        ),
+        _Metric(label: 'Подтверждено банком', value: confirmed),
+        _Metric(label: 'Ждёт подтверждения', value: total - confirmed),
+        if (chosenInBank > 0)
+          _Metric(label: 'Выбрано в банке на месте', value: chosenInBank),
         const SizedBox(height: 12),
         const Divider(),
         const SizedBox(height: 8),
@@ -1240,10 +1433,11 @@ class _MonthSummary extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.w800)),
         const SizedBox(height: 6),
         const Text(
-          'Только успешно импортированный банковский снимок. План сам по себе не является доказательством.',
+          'Только импортированный банковский снимок. План сам по себе не '
+          'является доказательством, а выбор банка главнее плана.',
         ),
         const SizedBox(height: 12),
-        _SnapshotNote(lastSuccessfulImport: lastSuccessfulImport),
+        _SnapshotNote(lastCheck: lastCheck),
       ],
     );
   }
@@ -1270,19 +1464,18 @@ class _Metric extends StatelessWidget {
 }
 
 class _SnapshotNote extends StatelessWidget {
-  const _SnapshotNote({required this.lastSuccessfulImport});
+  const _SnapshotNote({required this.lastCheck});
 
-  final DateTime? lastSuccessfulImport;
+  final DateTime? lastCheck;
 
   @override
   Widget build(BuildContext context) {
     return _InfoBox(
       icon: Icons.history,
-      text: lastSuccessfulImport == null
-          ? 'В этой сессии ещё не было успешного импорта. Свежий снимок '
-              'может отозвать устаревшее подтверждение, но не изменит план.'
-          : 'Последний успешный импорт: ${_formatTime(lastSuccessfulImport!)}. '
-              'План сохранён отдельно от подтверждений.',
+      text: lastCheck == null
+          ? 'В этой сессии выбор ещё не проверяли. Проверка перечитывает '
+              'банк и может отозвать устаревшее подтверждение.'
+          : 'Последняя проверка: ${_formatTime(lastCheck!)}.',
     );
   }
 }

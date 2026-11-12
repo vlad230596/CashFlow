@@ -7,6 +7,12 @@ import 'mcc_cache_storage.dart';
 
 MccStorage createStorage() => FileMccStorage();
 
+MccStorage createNamedStorage(String name) =>
+    FileMccStorage(directory: () async {
+      final support = await getApplicationSupportDirectory();
+      return Directory('${support.path}${Platform.pathSeparator}$name');
+    });
+
 /// Immutable generations avoid replacing the only valid file on Windows.
 /// A new generation becomes visible only after its flushed temporary file is
 /// renamed to a unique final name. Old generations survive failed writes.

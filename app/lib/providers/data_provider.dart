@@ -25,6 +25,7 @@ import '../services/promo_text_fallback.dart';
 import '../services/reminder_notification_service.dart';
 import '../services/reminder_sources.dart';
 import '../services/mcc_cache_store.dart';
+import '../services/partner_offer_cache_store.dart';
 import '../services/mcc_repository.dart';
 import '../services/api_client.dart';
 import '../services/app_log.dart';
@@ -70,8 +71,10 @@ class DataProvider with ChangeNotifier {
     MccCacheStore? mccCacheStore,
     ReminderNotificationService? reminderNotificationService,
     Future<void> Function()? afterFirstFrame,
+    PartnerOfferCacheStore? partnerOfferCache,
   })  : apiBaseUrl = apiBaseUrl ?? defaultApiBaseUrl,
         _afterFirstFrame = afterFirstFrame,
+        _partnerOfferCache = partnerOfferCache ?? PartnerOfferCacheStore(),
         _businessClock = businessClock ?? BusinessClock(),
         _secureStorage = secureStorage ??
             const FlutterSecureStorage(
@@ -120,6 +123,8 @@ class DataProvider with ChangeNotifier {
 
   final String apiBaseUrl;
   final Future<void> Function()? _afterFirstFrame;
+  final PartnerOfferCacheStore _partnerOfferCache;
+  int _partnerOffersDownloaded = 0;
   final BusinessClock _businessClock;
   final FlutterSecureStorage _secureStorage;
   late final http.Client _rawClient;
@@ -437,7 +442,8 @@ class DataProvider with ChangeNotifier {
       await _loadPlannedPaymentsCache();
       await _loadPromosCache();
       await loadCardBalancesCache();
-      await _loadPartnerOffersCache();
+      // About 1 MB; the download below replaces it anyway.
+      unawaited(_loadCachedPartnerOffers());
       await _loadMccCache();
       notifyListeners();
       await fetchAllData();
@@ -706,7 +712,6 @@ class DataProvider with ChangeNotifier {
       await _loadPlannedPaymentsCache();
       await _loadPromosCache();
       await loadCardBalancesCache();
-      await _loadPartnerOffersCache();
       await _synchronizeReminders();
       log.event('startup: account caches loaded '
           'snapshot=${hasUsableDataSnapshot ? dataSnapshotUpdatedAt : 'none'}');
@@ -714,24 +719,38 @@ class DataProvider with ChangeNotifier {
     authReady = true;
     notifyListeners();
     if (restored) {
-      // The MCC snapshot can be large; reading it must not delay the first
-      // frame. Every MCC consumer awaits the same memoized load.
-      unawaited(_loadDeferredMccCache());
+      // The partner-offer and MCC caches can be large; reading them must not
+      // delay the first frame. Every MCC consumer awaits the same memoized load.
+      unawaited(_loadDeferredCaches());
       unawaited(_refreshRestoredSession());
     }
   }
 
-  Future<void> _loadDeferredMccCache() async {
+  Future<void> _loadDeferredCaches() async {
     final session = _sessionGeneration;
     try {
       await _afterFirstFrame?.call();
       if (_disposed || !_isCurrentSession(session)) return;
+      unawaited(_loadCachedPartnerOffers());
       await _loadMccCache();
       if (_disposed || !_isCurrentSession(session)) return;
       AppLog.instance.event('startup: MCC cache loaded');
       notifyListeners();
     } catch (error) {
       debugPrint('Could not load MCC cache: $error');
+    }
+  }
+
+  /// Shows cached offers unless a download already replaced them.
+  Future<void> _loadCachedPartnerOffers() async {
+    final session = _sessionGeneration;
+    try {
+      if (!await _loadPartnerOffersCache(onlyIfNotFetched: true)) return;
+      if (_disposed || !_isCurrentSession(session)) return;
+      AppLog.instance.event('partner offers cache loaded');
+      notifyListeners();
+    } catch (error) {
+      debugPrint('Could not load partner offers cache: $error');
     }
   }
 
@@ -1867,18 +1886,25 @@ class DataProvider with ChangeNotifier {
     return authUserId == null ? null : _dataCacheKey('partnerOffers');
   }
 
-  Future<void> _loadPartnerOffersCache() async {
+  /// Reads the offers from [PartnerOfferCacheStore] (not SharedPreferences).
+  /// With [onlyIfNotFetched] a download that finished meanwhile wins.
+  Future<bool> _loadPartnerOffersCache({bool onlyIfNotFetched = false}) async {
     final key = _partnerOffersCacheKey;
-    if (key == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getString(key);
-    if (cached == null || key != _partnerOffersCacheKey) return;
+    if (key == null) return false;
+    final downloads = _partnerOffersDownloaded;
+    final cached = await _partnerOfferCache.read(key);
+    if (cached == null || key != _partnerOffersCacheKey) return false;
+    if (onlyIfNotFetched && downloads != _partnerOffersDownloaded) {
+      return false;
+    }
     try {
       partnerOffers = (json.decode(cached) as List)
           .map((item) => PartnerOffer.fromJson(item as Map<String, dynamic>))
           .toList();
+      return true;
     } catch (error) {
       debugPrint('Error loading cached partner offers: $error');
+      return false;
     }
   }
 
@@ -1887,7 +1913,7 @@ class DataProvider with ChangeNotifier {
     if (key == null) return;
     final value =
         json.encode(partnerOffers.map((offer) => offer.toJson()).toList());
-    await (await SharedPreferences.getInstance()).setString(key, value);
+    await _partnerOfferCache.write(key, value);
   }
 
   Future<bool> fetchPartnerOffers({String? rating}) async {
@@ -1931,6 +1957,7 @@ class DataProvider with ChangeNotifier {
       } while (offset < total);
       if (!current()) return false;
       partnerOffers = fetched;
+      _partnerOffersDownloaded++;
       _partnerOffersRating = rating;
       if (rating == null) await _savePartnerOffersCache();
       return true;

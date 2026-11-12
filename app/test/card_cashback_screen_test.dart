@@ -96,6 +96,43 @@ void main() {
     );
   });
 
+  test('an offer opens on the current month while it runs', () {
+    final today = DateTime(2026, 11, 12);
+    final running = CashbackCategoryModel(
+      id: 9,
+      name: 'Квартал',
+      startDate: DateTime(2026, 10),
+      endDate: DateTime(2027, 1),
+      isSelected: true,
+      cashbackPercent: 5,
+      cardId: 1,
+    );
+    expect(offerMonth(running, today), DateTime(2026, 11));
+    expect(offerMonth(_category(5, 'Цветы', month: 12), today),
+        DateTime(2026, 12));
+  });
+
+  testWidgets('card screen opens on the month it was given', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(500, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final provider = _provider();
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: provider,
+      child: MaterialApp(
+        home: CardCashbackScreen(
+          cardId: 1,
+          initialMonth: DateTime(2026, 11, 20),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Цветы'), findsOneWidget);
+    expect(find.text('Аптеки'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    provider.dispose();
+  });
+
   testWidgets('card screen shows selections and marks the source category',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(500, 1400));

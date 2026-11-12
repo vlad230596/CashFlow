@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/card_model.dart';
 import '../models/cashback_category_model.dart';
 import '../providers/data_provider.dart';
+import '../services/card_cashback_overview.dart';
 import 'card_cashback_screen.dart';
 import 'widgets/offer_mcc_rules_section.dart';
 
@@ -347,6 +348,10 @@ class _CashbackCategoryDetailScreenState
             builder: (_) => CardCashbackScreen(
               cardId: widget.category.cardId,
               highlightCategoryId: widget.category.id,
+              initialMonth: offerMonth(
+                widget.category,
+                context.read<DataProvider>().cashbackEffectiveDate,
+              ),
               onShellDestinationSelected: widget.onShellDestinationSelected,
             ),
           ),

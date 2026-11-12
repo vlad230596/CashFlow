@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:cashflow/models/cashback_category_model.dart';
 import 'package:cashflow/providers/data_provider.dart';
+import 'package:cashflow/services/mcc_cache_store.dart';
+import 'package:cashflow/services/partner_offer_cache_store.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -414,8 +416,10 @@ void main() {
   test('loads partner offers and persists a personal preference', () async {
     SharedPreferences.setMockInitialValues({});
     String? preferenceBody;
+    final offerStorage = MemoryMccStorage();
     final provider = DataProvider(
       mccCacheStore: isolatedMccCache(),
+      partnerOfferCache: PartnerOfferCacheStore(storage: offerStorage),
       apiBaseUrl: 'https://cashflow.test',
       httpClient: MockClient((request) async {
         if (request.method == 'PUT') {
@@ -458,10 +462,13 @@ void main() {
 
     expect(await provider.fetchPartnerOffers(), isTrue);
     expect(provider.partnerOffers.single.name, 'Test shop');
+    const offersKey = 'data:v1:https%3A%2F%2Fcashflow.test:7:partnerOffers';
+    // The ~1 MB catalogue stays out of SharedPreferences (Windows rewrites
+    // the whole preferences file on every write).
+    expect(offerStorage.values[offersKey], isNotNull);
     expect(
-      (await SharedPreferences.getInstance())
-          .getString('data:v1:https%3A%2F%2Fcashflow.test:7:partnerOffers'),
-      isNotNull,
+      (await SharedPreferences.getInstance()).containsKey(offersKey),
+      isFalse,
     );
 
     await provider.updatePartnerOfferPreference(1, 'hidden');

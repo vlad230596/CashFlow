@@ -23,7 +23,8 @@ Main user flows:
 - State management: `provider` with a single `DataProvider` registered in `main.dart`.
 - HTTP client: `http`.
 - Local persistence: `shared_preferences` for small collections; IndexedDB (web)
-  and atomic application-support files (native) for MCC snapshots.
+  and atomic application-support files (native) for MCC snapshots and the
+  partner-offer cache.
 - UI: Material widgets, mostly direct `Scaffold`, `AppBar`, `ListView`, `GridView`, forms, dialogs.
 - Lints: `flutter_lints` via `analysis_options.yaml`.
 - Platforms present: Android, iOS, web, Windows, Linux, macOS.
@@ -70,10 +71,21 @@ Main user flows:
   unmapped — show nothing then. Mapping and the admin token live in
   `screens/settings/card_balances_settings_screen.dart`.
 - `lib/screens/monthly_cashback_screen.dart` handles monthly category selection and bulk category entry.
+  A card header in «По банкам» opens `CardCashbackScreen(initialMonth:)` for the plan's month.
+- `lib/screens/plan_confirmation_screen.dart` («Подтверждение в банках») has two explicit
+  stages per card: 1) open the owner's browser profile with the plan checklist
+  (`launchCashbackImport`), 2) «Проверить выбор» imports the downloaded JSON through
+  `screens/widgets/cashback_json_import.dart` (`importCashbackJsonFile(userId:)`; the
+  plain `importCashbackJson` picks the owner from `CashbackImportSession`) and shows
+  what the bank confirmed. A bank selection outside the plan is accepted, never
+  reported as an error: the server import adds it to the plan, the screen labels it
+  «Выбрано в банке», and «Принять выбор банка» drops planned categories the bank did
+  not confirm. The extension side-panel checklist uses the same neutral wording.
 - `lib/screens/partner_offers_screen.dart` shows the account-scoped partner offer catalogue;
   filtering, sorting and the category breakdown live in `lib/services/partner_offer_catalog.dart`.
 - `lib/screens/cards_screen.dart` («Карты и категории», opened from More) and
   `card_cashback_screen.dart` show what is selected per card (`services/card_cashback_overview.dart`).
+  Benefit offer details pass `offerMonth(category, today)` as `initialMonth`.
 - `lib/screens/subscriptions_screen.dart` manages renewals, payments, and archive state.
 - `lib/screens/more_screen.dart` contains refresh, import, date, administration, session, and logout actions.
 - `lib/screens/settings/` contains CRUD screens for banks, users, and cards.
@@ -112,6 +124,15 @@ A signed-in `loadLocalData()` deletes the old unscoped keys (`banks`, `users`, `
 `cashbackCategories`, `activeCashbackCategories`, `subscriptions`,
 `partnerOffers:<id>`). On Windows each preference write rewrites the whole
 `shared_preferences.json`, so keep large or dead entries out of it.
+- The partner-offer catalogue (~1.3 MB) is not in SharedPreferences:
+  `lib/services/partner_offer_cache_store.dart` keeps it under the same scoped key
+  (`data:v1:<url>:<user>:partnerOffers`) in application-support `partner-offers-v1/`
+  (native, `FileMccStorage` generations) or the IndexedDB database
+  `cashflow-partner-offers-v1` (web), via `createNamedStorage` in
+  `mcc_cache_storage.dart`. An old preference copy is moved on first read and
+  deleted only after the dedicated write succeeded. Startup reads it after the first
+  frame and login reads it in the background; a finished download wins over it.
+  Tests inject `PartnerOfferCacheStore(storage: MemoryMccStorage())`.
 - `MccRepository` returns cached MCC results immediately and revalidates in the background.
   Complete snapshots and dated individual-answer overlays are separate, scoped by API URL,
   account and date. A successful single-code request must never replace the complete base.

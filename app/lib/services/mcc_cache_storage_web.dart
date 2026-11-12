@@ -5,6 +5,9 @@ import 'mcc_cache_storage.dart';
 
 MccStorage createStorage() => IndexedDbMccStorage();
 
+MccStorage createNamedStorage(String name) =>
+    IndexedDbMccStorage(databaseName: 'cashflow-$name');
+
 /// IndexedDB commits a replacement atomically, including quota failures.
 class IndexedDbMccStorage implements MccStorage {
   IndexedDbMccStorage(

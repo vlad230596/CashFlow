@@ -9,13 +9,18 @@ import 'package:cashflow/services/app_session_type.dart';
 import 'package:cashflow/services/cashback_import_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'support/mcc_test_cache.dart';
 
 void main() {
-  testWidgets('compact overview opens snapshot sheet without changing plan',
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('compact overview shows both stages without a reproach',
       (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = const Size(390, 1800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -23,21 +28,23 @@ void main() {
     final provider = _provider(role: 'editor');
     await _pump(tester, provider);
 
-    expect(find.text('План — это ещё не активация'), findsOneWidget);
+    expect(find.text('Два шага: выбрать и проверить'), findsOneWidget);
     expect(find.text('1 из 2'), findsOneWidget);
     expect(find.text('Первый банк · 1111'), findsOneWidget);
-    expect(find.text('Есть расхождение'), findsOneWidget);
+    expect(find.text('Подтверждено частично'), findsOneWidget);
+    expect(find.text('Есть расхождение'), findsNothing);
     expect(find.text('Подтверждение'), findsOneWidget);
-    expect(find.text('План'), findsWidgets);
     expect(find.text('Выгода'), findsOneWidget);
 
     await tester.tap(find.text('Первый банк · 1111'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Импортировать снимок'), findsOneWidget);
-    expect(find.text('Выбрать JSON-файл'), findsOneWidget);
-    expect(find.text('Отмена'), findsOneWidget);
-    expect(find.text('Первый банк · 1111'), findsWidgets);
+    expect(find.text('Выбор по карте'), findsOneWidget);
+    expect(find.text('Шаг 1. Выбрать категории в банке'), findsOneWidget);
+    expect(find.text('Шаг 2. Проверить выбор'), findsOneWidget);
+    expect(find.text('Открыть браузер с планом'), findsOneWidget);
+    expect(find.text('Проверить выбор', skipOffstage: false), findsOneWidget);
+    expect(find.text('Ждёт проверки', skipOffstage: false), findsOneWidget);
     expect(
         provider.cashbackCategories.every((item) => item.isSelected), isTrue);
     expect(tester.takeException(), isNull);
@@ -45,7 +52,7 @@ void main() {
 
   testWidgets('compact completed card opens confirmation details',
       (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
+    tester.view.physicalSize = const Size(390, 1800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -62,11 +69,12 @@ void main() {
     await tester.tap(find.text('Первый банк · 1111'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Подтверждения'), findsOneWidget);
-    expect(find.text('Готово'), findsOneWidget);
-    expect(find.text('План — это ещё не активация'), findsNothing);
-    expect(find.text('Подтверждено банком'), findsNWidgets(2));
-    expect(find.text('Импортировать снимок'), findsOneWidget);
+    expect(find.text('Подтверждено'), findsOneWidget);
+    expect(find.text('Два шага: выбрать и проверить'), findsNothing);
+    expect(
+      find.text('Подтверждено банком', skipOffstage: false),
+      findsNWidgets(2),
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -82,10 +90,8 @@ void main() {
     expect(find.text('Первый банк · 1111'), findsNWidgets(2));
     expect(find.text('Сводка месяца'), findsOneWidget);
     expect(find.text('Источник подтверждения'), findsOneWidget);
-    expect(
-      find.text('Импортировать снимок', skipOffstage: false),
-      findsOneWidget,
-    );
+    expect(find.text('Ждёт подтверждения'), findsOneWidget);
+    expect(find.text('Проверить выбор', skipOffstage: false), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -100,13 +106,13 @@ void main() {
 
     await tester.tap(find.text('Первый банк · 1111'));
     await tester.pumpAndSettle();
-    expect(find.text('АЗС'), findsOneWidget);
+    expect(find.text('АЗС', skipOffstage: false), findsOneWidget);
 
     tester.view.physicalSize = const Size(1100, 900);
     await tester.pumpAndSettle();
 
     expect(find.text('Первый банк · 1111'), findsNWidgets(2));
-    expect(find.text('АЗС'), findsOneWidget);
+    expect(find.text('АЗС', skipOffstage: false), findsOneWidget);
     expect(find.text('Сводка месяца'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -122,12 +128,15 @@ void main() {
 
     await _pump(tester, _provider(role: 'editor'));
 
-    expect(find.text('План — это ещё не активация'), findsOneWidget);
-    expect(find.text('Первый банк · 1111'), findsOneWidget);
+    expect(find.text('Два шага: выбрать и проверить'), findsOneWidget);
+    final card = find.text('Первый банк · 1111');
+    await tester.scrollUntilVisible(card, 200);
+    await tester.tap(card);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('viewer sees explanation and cannot import', (tester) async {
+  testWidgets('viewer sees explanation and cannot check', (tester) async {
     tester.view.physicalSize = const Size(900, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -140,26 +149,74 @@ void main() {
       find.textContaining('нет права импортировать банковский снимок'),
       findsOneWidget,
     );
-    expect(find.text('Импортировать снимок'), findsNothing);
+    expect(find.text('Проверить выбор', skipOffstage: false), findsNothing);
   });
 
-  testWidgets('successful import reports result and marks missing proof',
+  testWidgets('stage 1 opens the owner profile with the plan checklist',
       (tester) async {
     tester.view.physicalSize = const Size(900, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    var importedForUser = -1;
+    CashbackImportProfile? launched;
+    String? plan;
     await _pump(
       tester,
       _provider(role: 'editor'),
+      launcher: (profile, {selectionPlan}) async {
+        launched = profile;
+        plan = selectionPlan;
+        return null;
+      },
+    );
+
+    final open = find.byKey(const ValueKey('confirmation-open-browser'));
+    await tester.ensureVisible(open);
+    await tester.pumpAndSettle();
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+
+    expect(launched?.id, 'user-1');
+    expect(plan, isNotNull);
+    expect(find.textContaining('Профиль 1 (с ВТБ) открыт'), findsOneWidget);
+  });
+
+  testWidgets(
+      'check imports for the card owner and accepts a bank choice '
+      'outside the plan', (tester) async {
+    tester.view.physicalSize = const Size(900, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final provider = _provider(role: 'editor');
+    var importedForUser = -1;
+    await _pump(
+      tester,
+      provider,
       filePicker: () async =>
           const CashbackImportFile(name: 'snapshot.json', contents: '{}'),
       importer: (provider, contents, userId) async {
         importedForUser = userId;
+        // What the server does: the bank chose «Такси» on the spot (added to
+        // the plan, confirmed); «Кафе» stays planned without confirmation.
+        provider.cashbackCategories = [
+          ...provider.cashbackCategories,
+          CashbackCategoryModel(
+            id: 4,
+            name: 'Такси',
+            startDate: DateTime(2026, 9),
+            endDate: DateTime(2026, 10),
+            isSelected: true,
+            isBankConfirmed: true,
+            cashbackPercent: 3,
+            cardId: 1,
+          ),
+        ];
+        provider.notifyCashbackCategoriesChanged();
         return const CashbackImportResult(
-          created: 0,
+          created: 1,
           updated: 2,
           importedBanks: 1,
           skippedBanks: 0,
@@ -167,17 +224,56 @@ void main() {
       },
     );
 
-    await _tapImport(tester);
+    await _tapCheck(tester);
     await tester.pumpAndSettle();
 
     expect(importedForUser, 1);
-    expect(find.text('Не найдено в снимке'), findsOneWidget);
-    expect(find.textContaining('Снимок импортирован:'), findsOneWidget);
+    expect(
+      find.textContaining('Анна: импортировано банков: 1'),
+      findsOneWidget,
+    );
+    expect(find.text('Результат проверки'), findsOneWidget);
+    expect(find.text('Выбрано в банке', skipOffstage: false), findsOneWidget);
+    expect(find.text('Из банка', skipOffstage: false), findsOneWidget);
+    expect(
+      find.text('Банк не подтвердил', skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(find.text('Есть расхождение', skipOffstage: false), findsNothing);
+    expect(find.text('Не найдено в снимке', skipOffstage: false), findsNothing);
+    expect(
+      find.text('Проверить ещё раз', skipOffstage: false),
+      findsOneWidget,
+    );
+
+    // Let the import snackbar go: it covers the bottom of the details.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    final adopt = find.byKey(const ValueKey('confirmation-adopt-bank'));
+    await tester.scrollUntilVisible(
+      adopt,
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const ValueKey('confirmation-details-1')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(adopt);
+    await tester.pumpAndSettle();
+
+    expect(
+      provider.cashbackCategories.firstWhere((item) => item.id == 2).isSelected,
+      isFalse,
+    );
+    expect(find.text('Кафе', skipOffstage: false), findsNothing);
+    expect(find.text('2 из 2', skipOffstage: false), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('import error remains visible with recovery action',
       (tester) async {
-    tester.view.physicalSize = const Size(900, 800);
+    tester.view.physicalSize = const Size(900, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -191,7 +287,7 @@ void main() {
           throw Exception('снимок требует авторизации'),
     );
 
-    await _tapImport(tester);
+    await _tapCheck(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('Снимок не импортирован'), findsOneWidget);
@@ -205,6 +301,7 @@ Future<void> _pump(
   DataProvider provider, {
   CashbackFilePicker? filePicker,
   CashbackDocumentImporter? importer,
+  CashbackBrowserLauncher? launcher,
 }) async {
   await tester.pumpWidget(
     ChangeNotifierProvider.value(
@@ -215,6 +312,7 @@ Future<void> _pump(
           period: CashbackPeriod.month(DateTime(2026, 9)),
           filePicker: filePicker,
           documentImporter: importer,
+          browserLauncher: launcher,
           sessionType: AppSessionType.windows,
         ),
       ),
@@ -223,8 +321,8 @@ Future<void> _pump(
   await tester.pump();
 }
 
-Future<void> _tapImport(WidgetTester tester) async {
-  final button = find.text('Импортировать снимок', skipOffstage: false);
+Future<void> _tapCheck(WidgetTester tester) async {
+  final button = find.byKey(const ValueKey('confirmation-check'));
   await tester.ensureVisible(button);
   await tester.pumpAndSettle();
   await tester.tap(button);
@@ -235,6 +333,8 @@ DataProvider _provider({required String role}) {
   final start = DateTime(2026, 9);
   final provider = DataProvider(
     mccCacheStore: isolatedMccCache(),
+    apiBaseUrl: 'https://cashflow.test',
+    httpClient: MockClient((_) async => http.Response('{}', 200)),
   );
   provider
     ..currentAuthUser = AuthIdentity(id: 8, username: 'test', role: role)
