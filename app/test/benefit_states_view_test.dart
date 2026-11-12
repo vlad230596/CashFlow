@@ -185,6 +185,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('many uncovered categories scroll instead of overflowing',
+      (tester) async {
+    await _setViewport(tester, const Size(1100, 800));
+    await tester.pumpWidget(_app(
+      items: [_canonicalItem],
+      canonicalCategories: [
+        ..._catalogue,
+        for (var i = 0; i < 40; i++)
+          CanonicalCategoryModel(
+            key: 'extra$i',
+            title: 'Топливо $i',
+            groupKey: 'auto',
+            groupTitle: 'Авто',
+            aliases: const [],
+            defaultPriority: 50,
+          ),
+      ],
+    ));
+
+    await tester.enterText(find.byKey(const Key('benefit-search')), 'топливо');
+    await tester.pump();
+
+    expect(find.byKey(const Key('benefit-need-no-cards-Топливо 0')),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('expanded layout keeps master and detail visible',
       (tester) async {
     await _setViewport(tester, const Size(1100, 800));

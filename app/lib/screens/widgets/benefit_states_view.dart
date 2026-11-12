@@ -575,21 +575,32 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
   Widget _withUncovered(List<_NeedGroup> groups, Widget list) {
     final uncovered = groups.where((group) => group.items.isEmpty).toList();
     if (uncovered.isEmpty) return list;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final group in uncovered)
-                _ExpandedNeedGroup(group: group, onSelected: _selectItem),
-            ],
+    // A short query can name dozens of categories: cap and scroll this block
+    // so the offers below always keep most of the height.
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: constraints.maxHeight.isFinite
+                  ? constraints.maxHeight * 0.4
+                  : double.infinity,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final group in uncovered)
+                    _ExpandedNeedGroup(group: group, onSelected: _selectItem),
+                ],
+              ),
+            ),
           ),
-        ),
-        Expanded(child: list),
-      ],
+          Expanded(child: list),
+        ],
+      ),
     );
   }
 
