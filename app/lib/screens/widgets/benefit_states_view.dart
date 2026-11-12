@@ -1,11 +1,13 @@
 import '../../utils/cashflow_formatters.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../models/canonical_category_model.dart';
 import '../../models/card_balance_model.dart';
 import '../../models/cashback_category_model.dart';
 import '../../models/mcc_lookup_model.dart';
 import '../../providers/data_provider.dart';
+import '../../services/card_cashback_overview.dart';
 import '../../utils/cashback_needs.dart';
 import '../../utils/category_info.dart';
 import '../../utils/identity_icons.dart';
@@ -2428,6 +2430,10 @@ class _DetailCard extends StatelessWidget {
           builder: (_) => CardCashbackScreen(
             cardId: item.category.cardId,
             highlightCategoryId: item.category.id,
+            initialMonth: offerMonth(
+              item.category,
+              context.read<DataProvider>().cashbackEffectiveDate,
+            ),
             onShellDestinationSelected: onShellDestinationSelected,
           ),
         ),

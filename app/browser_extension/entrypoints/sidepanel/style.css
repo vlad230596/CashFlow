@@ -28,7 +28,7 @@ button.success { grid-column: 1 / -1; background: #14804a; }
 .plan-bank li > small { font-size: 10px; }
 .plan-done { color: #08733d; background: #dcfce7; }
 .plan-select { color: #92400e; background: #fef3c7; }
-.plan-remove { color: #b42318; background: #fee2e2; }
+.plan-extra { color: #1d4f91; background: #e8f0fc; }
 .plan-missing { color: #7c2d12; background: #ffedd5; }
 .plan-pending { color: #475467; background: #e4e7ec; }
 .banks { display: grid; gap: 10px; }

@@ -34,10 +34,16 @@ class CardCashbackScreen extends StatefulWidget {
     super.key,
     required this.cardId,
     this.highlightCategoryId,
+    this.initialMonth,
     this.onShellDestinationSelected,
   });
 
   final int cardId;
+
+  /// The month the caller is looking at (the plan's month, or the month of
+  /// the offer the user came from). Shown first, even when it is past or the
+  /// card has nothing in it yet; any day of the month will do.
+  final DateTime? initialMonth;
 
   /// The category the user came from; it is marked in the list.
   final int? highlightCategoryId;
@@ -63,8 +69,15 @@ class _CardCashbackScreenState extends State<CardCashbackScreen> {
         ? provider.cashbackCategories
         : provider.activeCashbackCategories;
     final today = provider.cashbackEffectiveDate;
-    final months = cardCashbackMonths(categories, widget.cardId, today);
-    final month = months.contains(_month) ? _month! : months.first;
+    final initial = widget.initialMonth == null
+        ? null
+        : DateTime(widget.initialMonth!.year, widget.initialMonth!.month);
+    final months = {
+      ...cardCashbackMonths(categories, widget.cardId, today),
+      if (initial != null) initial,
+    }.toList()
+      ..sort();
+    final month = months.contains(_month) ? _month! : initial ?? months.first;
     final overview = cardCashbackOverview(
       categories,
       widget.cardId,

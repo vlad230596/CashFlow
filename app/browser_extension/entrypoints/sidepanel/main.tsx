@@ -505,7 +505,7 @@ function App() {
         const bankDesired = selectionPlan.banks
           .filter((item) => item.bankId === planBank.bankId)
           .flatMap((item) => item.desiredCategories);
-        const removals = ready ? actual.filter((category) => category.type === 'standard' && category.selected &&
+        const chosenInBank = ready ? actual.filter((category) => category.type === 'standard' && category.selected &&
           !bankDesired.some((item) => categoryMatches(category, item))) : [];
         return <div className="plan-bank" key={`${planBank.bankId}-${planBank.cardId}`}>
           <strong>{planBank.cardLabel}</strong>
@@ -520,10 +520,11 @@ function App() {
                 <small>{state === 'pending' ? 'ожидает подтверждения банка' : state === 'done' ? 'подтверждено банком' : state === 'select' ? 'нужно выбрать' : 'не найдено на странице'}</small>
               </li>;
             })}
-            {removals.map((category, index) => <li className="plan-remove" key={`remove-${category.name}-${index}`}>
-              <span>−</span><b>{category.percentLabel} {category.name}</b><small>нужно снять</small>
+            {/* Chosen in the bank outside the plan: accepted, CashFlow adds it to the plan on import. */}
+            {chosenInBank.map((category, index) => <li className="plan-extra" key={`extra-${category.name}-${index}`}>
+              <span>•</span><b>{category.percentLabel} {category.name}</b><small>выбрано в банке — войдёт в план</small>
             </li>)}
-            {ready && !desired.length && !removals.length && <li className="plan-done"><span>✓</span><b>Ничего выбирать не нужно</b></li>}
+            {ready && !desired.length && !chosenInBank.length && <li className="plan-done"><span>✓</span><b>Ничего выбирать не нужно</b></li>}
             {!ready && !desired.length && <li className="plan-pending"><span>…</span><b>Ожидаем страницу банка</b></li>}
           </ul>
         </div>;

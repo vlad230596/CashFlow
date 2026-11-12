@@ -36,6 +36,44 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('a card header in «По банкам» opens its categories this month',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final start = DateTime(DateTime.now().year, DateTime.now().month);
+    final provider = DataProvider(mccCacheStore: isolatedMccCache())
+      ..banks = [BankModel(id: 1, name: 'Банк', description: '')]
+      ..users = [UserModel(id: 1, name: 'Анна')]
+      ..cards = [CardModel(id: 1, bankId: 1, userId: 1, lastFourDigits: '4321')]
+      ..cashbackCategories = [
+        CashbackCategoryModel(
+          id: 1,
+          name: 'Аптеки',
+          startDate: start,
+          endDate: DateTime(start.year, start.month + 1),
+          isSelected: true,
+          isBankConfirmed: true,
+          cashbackPercent: 5,
+          cardId: 1,
+        ),
+      ];
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: provider,
+      child: const MaterialApp(home: Scaffold(body: MonthlyCashbackScreen())),
+    ));
+    await tester.pump();
+    await tester.tap(find.text('По банкам'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('plan-bank-card-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Карта •4321'), findsOneWidget);
+    expect(find.text('Действует · 1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('mobile plan follows the manual needs-first layout',
       (tester) async {
     tester.view.physicalSize = const Size(360, 800);

@@ -81,3 +81,12 @@ List<DateTime> cardCashbackMonths(
   }
   return months.toList()..sort();
 }
+
+/// The month of [category] to show for it on [today]: the current month while
+/// the offer runs, otherwise its first month.
+DateTime offerMonth(CashbackCategoryModel category, DateTime today) {
+  final current = DateTime(today.year, today.month);
+  final start = DateTime(category.startDate.year, category.startDate.month);
+  final period = CashbackPeriod.month(current);
+  return period.overlaps(category) && start.isBefore(current) ? current : start;
+}

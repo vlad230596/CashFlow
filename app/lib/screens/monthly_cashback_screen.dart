@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 export '../utils/cashback_needs.dart';
 
+import 'card_cashback_screen.dart';
 import 'plan_confirmation_screen.dart';
 
 import '../models/card_model.dart';
@@ -2302,6 +2303,19 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
     );
   }
 
+  void _openCardCategories(BuildContext context, int cardId) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => CardCashbackScreen(
+          cardId: cardId,
+          initialMonth: _startDate,
+          onShellDestinationSelected: widget.onShellDestinationSelected,
+        ),
+      ),
+    );
+  }
+
   Widget _buildBankCard(
     BuildContext context,
     DataProvider dataProvider,
@@ -2329,37 +2343,64 @@ class _MonthlyCashbackScreenState extends State<MonthlyCashbackScreen> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
             child: Row(
               children: [
-                // Same identity marks as «Карты и категории».
-                BankIconBadge(
-                  iconKey: cardContext.bankIconKey,
-                  bankName: cardContext.bankName,
-                  size: 28,
-                ),
-                const SizedBox(width: 6),
-                cardContext.ownerIconKey != null
-                    ? UserIconBadge(
-                        iconKey: cardContext.ownerIconKey,
-                        userName: cardContext.ownerName,
-                        size: 24,
-                      )
-                    : PersonMarkerBadge(
-                        marker: personMarker(
-                          card.userId,
-                          dataProvider.users.map((user) => user.id),
-                        ),
-                        userName: cardContext.ownerName,
-                        size: 24,
-                      ),
-                const SizedBox(width: 8),
+                // The card itself leads to what is selected on it this month.
                 Expanded(
-                  child: Text(
-                    cardContext.benefitLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  child: Tooltip(
+                    message: 'Категории карты за месяц',
+                    child: InkWell(
+                      key: ValueKey('plan-bank-card-$cardId'),
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => _openCardCategories(
+                        context,
+                        cardId,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            // Same identity marks as «Карты и категории».
+                            BankIconBadge(
+                              iconKey: cardContext.bankIconKey,
+                              bankName: cardContext.bankName,
+                              size: 28,
+                            ),
+                            const SizedBox(width: 6),
+                            cardContext.ownerIconKey != null
+                                ? UserIconBadge(
+                                    iconKey: cardContext.ownerIconKey,
+                                    userName: cardContext.ownerName,
+                                    size: 24,
+                                  )
+                                : PersonMarkerBadge(
+                                    marker: personMarker(
+                                      card.userId,
+                                      dataProvider.users.map((user) => user.id),
+                                    ),
+                                    userName: cardContext.ownerName,
+                                    size: 24,
+                                  ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                cardContext.benefitLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.chevron_right, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 SizedBox(
