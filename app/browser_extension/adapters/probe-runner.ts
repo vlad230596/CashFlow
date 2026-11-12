@@ -13,7 +13,13 @@ import type { BankId, CashbackCategory, PageProbe, ProbeCapture, ProbeMode } fro
  * `captureCategories` instead polls the passive extractor until the result has
  * stayed identical for a quiet period (and the DOM stopped changing), merges
  * every read so rows that were rendered only briefly are not dropped, and
- * performs at most a few bounded navigation/"show more" steps.
+ * performs at most a few bounded "show more" and navigation steps.
+ *
+ * Automatic (passive) probes run every few seconds while the user may be
+ * choosing categories in the same tab. They therefore only read and expand
+ * in-page lists: navigation (`advance`) happens only after a user click
+ * (thorough mode), and never on a page the adapter reports as a selection
+ * page, where a navigation or reload would discard a half-made choice.
  */
 
 export type ProbeRequest = { type: 'cashflow:probe-page'; mode?: ProbeMode };
@@ -23,11 +29,22 @@ export type ProbeSource = {
   /** Passive read of the current page. Must not click or navigate. */
   read(): CashbackCategory[] | Promise<CashbackCategory[]>;
   /**
-   * One step towards the complete category list (navigation click or a
-   * "show more" control). Receives everything collected so far and returns
-   * true when it acted on the page.
+   * One navigation step towards the category list (opening another route,
+   * dialog or program card). Runs only in thorough mode and never while
+   * `isSelectionPage()` is true. Receives everything collected so far and
+   * returns true when it acted on the page.
    */
   advance?(collected: CashbackCategory[]): boolean;
+  /**
+   * In-page "show more" step that neither navigates nor changes any choice.
+   * Allowed in both modes, but not on a selection page.
+   */
+  expand?(collected: CashbackCategory[]): boolean;
+  /**
+   * True on a page where the user picks categories (checkboxes, a selection
+   * form). Collection then only reads: no navigation, clicks or detail sheets.
+   */
+  isSelectionPage?(): boolean;
   /** Detail enrichment (tooltips, sheets) once the list is stable. */
   enrich?(categories: CashbackCategory[], mode: ProbeMode): Promise<CashbackCategory[]>;
   /** Final adjustments to the probe (for example API-provided limits). */
@@ -130,6 +147,13 @@ export async function captureCategories(
   let lastAdvanceAt = Number.NEGATIVE_INFINITY;
   let advances = 0;
   let reads = 0;
+  let selectionPage = false;
+  const selectionPageNow = () => {
+    let value = false;
+    try { value = Boolean(source.isSelectionPage?.()); } catch { value = false; }
+    if (value) selectionPage = true;
+    return value;
+  };
   const stopObserving = environment.observe(() => { lastMutationAt = environment.now(); });
 
   const readOnce = async () => {
@@ -158,11 +182,14 @@ export async function captureCategories(
     }
     for (;;) {
       const now = environment.now();
-      if (
-        source.advance && advances < timing.maxAdvances &&
-        now - lastAdvanceAt >= timing.advanceEveryMs &&
-        source.advance([...collected.values()])
-      ) {
+      const mayAct = advances < timing.maxAdvances &&
+        now - lastAdvanceAt >= timing.advanceEveryMs && !selectionPageNow();
+      // Navigation only after a user click; in-page expansion in both modes.
+      const acted = mayAct && (
+        (mode === 'thorough' && source.advance?.([...collected.values()]) === true) ||
+        source.expand?.([...collected.values()]) === true
+      );
+      if (acted) {
         advances += 1;
         lastAdvanceAt = now;
         lastChangeAt = now;
@@ -194,6 +221,7 @@ export async function captureCategories(
       waitedMs: Math.round(environment.now() - startedAt),
       reads,
       advances,
+      ...(selectionPage ? { selectionPage: true } : {}),
     },
   };
 }
@@ -206,7 +234,8 @@ export async function runProbe(
 ): Promise<PageProbe> {
   const { categories, capture } = await captureCategories(source, mode, environment, timing);
   let enriched = categories;
-  if (categories.length && source.enrich) {
+  // Detail sheets and tooltips are clicked open; leave a selection page alone.
+  if (categories.length && source.enrich && !capture.selectionPage) {
     try {
       enriched = await source.enrich(categories, mode);
     } catch {

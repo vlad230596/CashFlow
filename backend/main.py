@@ -5013,10 +5013,13 @@ def import_cashback():
                     bank_id,
                     imported.get('description'),
                 )
-                (
-                    category.max_cashback_amount,
-                    category.min_purchase_amount,
-                ) = _extract_cashback_amounts(imported)
+                max_amount, min_amount = _extract_cashback_amounts(imported)
+                # A snapshot taken without the bank's detail sheet (for example
+                # Ozon's selection list) must not erase a cap read earlier.
+                if max_amount is not None:
+                    category.max_cashback_amount = max_amount
+                if min_amount is not None:
+                    category.min_purchase_amount = min_amount
                 category.is_selection_locked = selection_locked
                 if category.is_selected and category_type == 'standard':
                     selected_standard_count += 1

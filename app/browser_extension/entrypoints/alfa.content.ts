@@ -5,6 +5,7 @@ import {
   openAlfaCategoryProgram,
 } from '../adapters/alfa/cashback';
 import { registerProbeListener } from '../adapters/probe-runner';
+import { currentPageIsSelection } from '../adapters/selection-page';
 
 export default defineContentScript({
   matches: ['https://web.alfabank.ru/*', 'https://private.auth.alfabank.ru/*'],
@@ -17,6 +18,7 @@ export default defineContentScript({
       read: () => hasAlfaCategoryList() ? extractAlfaCashbackCategories() : [],
       advance: (collected) => !collected.length && openAlfaCategoryProgram(),
       enrich: (categories) => enrichAlfaDescriptions(categories),
+      isSelectionPage: () => currentPageIsSelection('alfa'),
       scrollLazyContent: true,
     });
   },

@@ -44,6 +44,8 @@ export type ProbeCapture = {
   waitedMs: number;
   reads: number;
   advances: number;
+  /** The tab showed a category-selection page, so the probe only read it. */
+  selectionPage?: boolean;
 };
 
 export type PageProbe = {

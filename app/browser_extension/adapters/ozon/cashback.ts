@@ -1,5 +1,6 @@
 import type { CashbackCategory } from '../types';
 import { showsCurrentCashbackMonth } from '../monthly-confirmation';
+import { extractCashbackAmounts } from '../cashback-amounts';
 
 export type OzonCashbackCategory = CashbackCategory;
 
@@ -10,6 +11,56 @@ type ParsedOzonCategoryTitle = Pick<
 
 function normalizeText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, ' ').trim() ?? '';
+}
+
+/**
+ * Visible text lines of an element, read from text nodes. `innerText` is
+ * empty in Chromium background tabs, which collection now opens for Ozon.
+ */
+export function ozonTextLines(element: Element | null | undefined): string[] {
+  if (!element) return [];
+  const lines: string[] = [];
+  let parent: Element | null = null;
+  const doc = element.ownerDocument ?? document;
+  const walker = doc.createTreeWalker(element, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const host = node.parentElement;
+    if (host?.closest('script, style, template, [hidden], [aria-hidden="true"]')) continue;
+    const text = normalizeText(node.nodeValue);
+    if (!text) continue;
+    // Adjacent text nodes of one element form one line.
+    if (host === parent && lines.length) lines[lines.length - 1] = normalizeText(`${lines.at(-1)} ${text}`);
+    else lines.push(text);
+    parent = host;
+  }
+  return lines;
+}
+
+/**
+ * Card or sheet text without the title and service labels, e.g.
+ * «Школы, вузы и прочее» and «Кешбэк до 1 500 ₽».
+ */
+function detailLines(lines: string[], title: ParsedOzonCategoryTitle): string[] {
+  return [...new Set(lines.filter((line) => {
+    const parsed = parseOzonCategoryTitle(line);
+    if (parsed) return false;
+    return line !== title.name && !/^(?:Закрыть|Понятно|Подробнее|Выбрать|Выбрано)$/i.test(line);
+  }))];
+}
+
+function withDetails(
+  category: OzonCashbackCategory,
+  lines: string[],
+): OzonCashbackCategory {
+  const text = lines.join('\n');
+  if (!text) return category;
+  const amounts = extractCashbackAmounts(text);
+  return {
+    ...category,
+    description: text,
+    maxCashbackAmount: amounts.maxCashbackAmount ?? category.maxCashbackAmount ?? null,
+    minPurchaseAmount: amounts.minPurchaseAmount ?? category.minPurchaseAmount ?? null,
+  };
 }
 
 export function parseOzonCategoryTitle(rawTitle: string): ParsedOzonCategoryTitle | null {
@@ -82,22 +133,18 @@ function extractOzonFavoriteCategories(root: ParentNode): OzonCashbackCategory[]
     const image = item.querySelector<HTMLImageElement>('img');
     const input = item.querySelector<HTMLInputElement>('input[type="checkbox"], input[type="radio"]');
     const selected = saved || (input?.checked ?? item.getAttribute('aria-checked') === 'true');
-    const description = [...item.querySelectorAll<HTMLElement>('div, span, p')]
-      .filter((element) => element.children.length === 0)
-      .map((element) => normalizeText(element.textContent))
-      .find((text) => text && parseOzonCategoryTitle(text) == null) ?? null;
-    const category: OzonCashbackCategory = {
+    const category: OzonCashbackCategory = withDetails({
       type: 'standard',
       ...parsed,
       subtitle: null,
-      description,
+      description: null,
       iconUrl: image?.currentSrc || image?.src || null,
       iconBackgroundColor: null,
       selected,
       confirmed: saved,
       group: saved ? heading : 'Доступные категории',
       expiresInLabel: null,
-    };
+    }, detailLines(ozonTextLines(item), parsed));
     categories.set(`${category.name}\u0000${category.percentLabel}`, category);
   }
   return [...categories.values()];
@@ -129,7 +176,9 @@ export function extractOzonCashbackCategories(
     if (!parsed) continue;
 
     const image = item.querySelector<HTMLImageElement>('img');
-    categories.push({
+    const lines = detailLines(ozonTextLines(item), parsed)
+      .filter((line) => line !== expiresInLabel);
+    categories.push(withDetails({
       type: 'standard',
       ...parsed,
       subtitle: expiresInLabel,
@@ -140,35 +189,43 @@ export function extractOzonCashbackCategories(
       confirmed,
       group,
       expiresInLabel,
-    });
+    }, lines));
   }
 
   return categories;
 }
 
-function detailTextForCategory(name: string): string | null {
-  const sheets = [...document.querySelectorAll<HTMLElement>('[class*="bottom-sheet-main"]')];
-  const sheet = sheets.reverse().find((candidate) => {
-    const firstLine = candidate.innerText
-      .split(/\n+/)
-      .map(normalizeText)
-      .find(Boolean);
-    return firstLine === name;
-  });
-  if (!sheet) return null;
+const SHEET_SELECTOR = '[class*="bottom-sheet-main"], [role="dialog"], [aria-modal="true"]';
 
-  const lines = sheet.innerText
-    .split(/\n+/)
-    .map(normalizeText)
-    .filter((line) => line && line !== name && line !== 'Закрыть');
-  return lines.length ? lines.join('\n') : null;
+type CategoryTitle = Pick<OzonCashbackCategory, 'name' | 'percentLabel'>;
+
+/** A sheet title is either «Образование» or «5% Образование». */
+function isTitleOf(line: string, category: CategoryTitle): boolean {
+  if (line === category.name) return true;
+  const parsed = parseOzonCategoryTitle(line);
+  return parsed?.name === category.name &&
+    (category.percentLabel == null || parsed.percentLabel === category.percentLabel);
 }
 
-function waitForDetail(name: string, timeoutMs = 1200): Promise<string | null> {
+function findDetailSheet(category: CategoryTitle): HTMLElement | null {
+  const sheets = [...document.querySelectorAll<HTMLElement>(SHEET_SELECTOR)].reverse();
+  // A close button or an icon caption may precede the title.
+  return sheets.find((sheet) => ozonTextLines(sheet).slice(0, 3).some((line) => isTitleOf(line, category))) ?? null;
+}
+
+function detailTextForCategory(category: CategoryTitle): string | null {
+  const sheet = findDetailSheet(category);
+  if (!sheet) return null;
+  const lines = ozonTextLines(sheet)
+    .filter((line) => !isTitleOf(line, category) && !/^(?:Закрыть|Понятно)$/i.test(line));
+  return lines.length ? [...new Set(lines)].join('\n') : null;
+}
+
+function waitForDetail(category: CategoryTitle, timeoutMs = 1500): Promise<string | null> {
   const startedAt = Date.now();
   return new Promise((resolve) => {
     const check = () => {
-      const description = detailTextForCategory(name);
+      const description = detailTextForCategory(category);
       if (description || Date.now() - startedAt >= timeoutMs) {
         resolve(description);
         return;
@@ -179,47 +236,59 @@ function waitForDetail(name: string, timeoutMs = 1200): Promise<string | null> {
   });
 }
 
+function closeDetailSheet(category: CategoryTitle): void {
+  const sheet = findDetailSheet(category);
+  const close = [...(sheet?.querySelectorAll<HTMLElement>('button, [role="button"]') ?? [])].find((button) =>
+    /^(?:Закрыть|Понятно)$/i.test(ozonTextLines(button).join(' ')) ||
+    /закрыть/i.test(button.getAttribute('aria-label') ?? ''));
+  close?.click();
+}
+
+function applyDetail(category: OzonCashbackCategory, description: string): void {
+  // The sheet is the complete text of the card; it replaces the card summary.
+  const amounts = extractCashbackAmounts(description);
+  category.description = description;
+  category.maxCashbackAmount = amounts.maxCashbackAmount ?? category.maxCashbackAmount ?? null;
+  category.minPurchaseAmount = amounts.minPurchaseAmount ?? category.minPurchaseAmount ?? null;
+}
+
 /**
- * Fills descriptions from the carousel's detail sheets. Each sheet is opened
- * at most once per page: `cache` keeps the text for later probes.
+ * Fills descriptions and caps («Кешбэк до 1 500 ₽») from the carousel's
+ * detail sheets. Each sheet is opened at most once per page: `cache` keeps
+ * the text for later probes.
  */
 export async function enrichOzonDescriptions(
   categories: OzonCashbackCategory[],
   cache: Map<string, string> = new Map(),
 ): Promise<OzonCashbackCategory[]> {
   const result = categories.map((category) => ({ ...category }));
+  // The selection list has no detail sheets and must not be clicked.
   if (document.querySelector('[data-testid="favorite-category-list"]')) return result;
   const items = [...document.querySelectorAll<HTMLElement>(
     '[data-testid="categories-container"] [data-testid="carousel-item"]',
   )];
   for (const category of result) {
-    const cached = cache.get(category.name) ?? detailTextForCategory(category.name);
+    const cacheKey = `${category.percentLabel ?? ''}\u0000${category.name}`;
+    const cached = cache.get(cacheKey) ?? detailTextForCategory(category);
     if (cached) {
-      cache.set(category.name, cached);
-      category.description = cached;
+      cache.set(cacheKey, cached);
+      applyDetail(category, cached);
       continue;
     }
     // Match the carousel item by its own title rather than by position.
-    const item = items.find((candidate) => [...candidate.querySelectorAll<HTMLElement>('div, span')]
-      .some((element) => {
-        const parsed = parseOzonCategoryTitle(element.textContent ?? '');
-        return parsed?.name === category.name && parsed.percentLabel === category.percentLabel;
-      }));
-    const infoButton = item?.querySelector<HTMLElement>('[role="button"]');
+    const item = items.find((candidate) => ozonTextLines(candidate).some((line) => {
+      const parsed = parseOzonCategoryTitle(line);
+      return parsed?.name === category.name && parsed.percentLabel === category.percentLabel;
+    }));
+    const infoButton = item?.querySelector<HTMLElement>('[role="button"], button') ?? item;
     if (!infoButton) continue;
     infoButton.click();
-    const description = await waitForDetail(category.name);
+    const description = await waitForDetail(category);
     if (description) {
-      cache.set(category.name, description);
-      category.description = description;
+      cache.set(cacheKey, description);
+      applyDetail(category, description);
     }
-    const sheet = [...document.querySelectorAll<HTMLElement>('[class*="bottom-sheet-main"]')]
-      .reverse()
-      .find((candidate) => normalizeText(candidate.innerText).startsWith(category.name));
-    const closeButton = [...(sheet?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
-      (button) => normalizeText(button.innerText) === 'Закрыть',
-    );
-    closeButton?.click();
+    closeDetailSheet(category);
   }
   return result;
 }

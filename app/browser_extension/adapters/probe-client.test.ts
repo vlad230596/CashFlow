@@ -118,3 +118,93 @@ describe('matchesPattern', () => {
     expect(matchesPattern(pattern, url)).toBe(expected);
   });
 });
+
+describe('Ozon collection across pages', () => {
+  const ozonCategory = (name: string, extra: Partial<PageProbe['categories'][number]> = {}) => ({
+    type: 'standard' as const, name, percent: 5, percentLabel: '5%', subtitle: null, description: null,
+    iconUrl: null, iconBackgroundColor: null, selected: false, group: null, expiresInLabel: null, ...extra,
+  });
+  const ozonProbe = (url: string, categories: PageProbe['categories']): PageProbe => ({
+    bankId: 'ozon', title: 'Ozon', url, readyState: 'complete', authenticationStatus: 'authenticated',
+    selection: { isLocked: null, selectedCount: 0, visibleCount: categories.length, maxSelectable: null, totalOptions: null, groups: [] },
+    categories, capture: { mode: 'thorough', stable: true, waitedMs: 50, reads: 2, advances: 0 },
+  });
+  const pages: Record<string, PageProbe> = {
+    'https://finance.ozon.ru/lk/cashback': ozonProbe('https://finance.ozon.ru/lk/cashback', [
+      ozonCategory('Тестовое обучение', { selected: true, confirmed: true, maxCashbackAmount: 1500, description: 'Кешбэк до 1 500 ₽' }),
+    ]),
+    'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true': ozonProbe(
+      'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true',
+      [ozonCategory('Тестовое обучение'), ozonCategory('Тестовые книги')],
+    ),
+  };
+
+  function stubOzon(initialTabs: Array<{ id: number; url: string }>) {
+    const tabs = [...initialTabs];
+    let nextId = 100;
+    const create = vi.fn(async ({ url }: { url: string; active: boolean }) => {
+      const tab = { id: nextId++, url, status: 'complete' };
+      tabs.push(tab);
+      return tab;
+    });
+    const remove = vi.fn(async (ids: number[]) => {
+      for (const id of ids) tabs.splice(tabs.findIndex((tab) => tab.id === id), 1);
+    });
+    stubBrowser(async (tabId) => {
+      const tab = tabs.find((candidate) => candidate.id === tabId)!;
+      return pages[tab.url] ?? ozonProbe(tab.url, []);
+    }, {
+      query: vi.fn(async () => tabs.map((tab) => ({ ...tab }))),
+      get: vi.fn(async (tabId: number) => tabs.find((tab) => tab.id === tabId)),
+      create,
+      remove,
+    });
+    return { tabs, create, remove };
+  }
+
+  const fastPages = { loadTimeoutMs: 200, pollMs: 5 };
+
+  it('opens the missing category pages in background tabs after a click, merges them and closes them', async () => {
+    // The owner's own tab shows an unrelated Ozon page.
+    const { tabs, create, remove } = stubOzon([{ id: 1, url: 'https://finance.ozon.ru/lk/main' }]);
+
+    const outcome = await probeBank('ozon', 'thorough', fastPages);
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls.every(([options]) => options.active === false)).toBe(true);
+    expect(remove).toHaveBeenCalledWith([100, 101]);
+    expect(tabs.map((tab) => tab.url)).toEqual(['https://finance.ozon.ru/lk/main']);
+    expect(outcome.status).toBe('ready');
+    const categories = outcome.probe!.categories;
+    expect(categories.map((category) => category.name).sort()).toEqual(['Тестовое обучение', 'Тестовые книги']);
+    // The saved month (with its cap) wins over the selection list's copy.
+    expect(categories.find((category) => category.name === 'Тестовое обучение'))
+      .toMatchObject({ selected: true, confirmed: true, maxCashbackAmount: 1500 });
+  });
+
+  it('does not open a page the owner already has open', async () => {
+    const { create } = stubOzon([
+      { id: 1, url: 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true' },
+    ]);
+    await probeBank('ozon', 'thorough', fastPages);
+    expect(create.mock.calls.map(([options]) => options.url)).toEqual(['https://finance.ozon.ru/lk/cashback']);
+  });
+
+  it('never opens tabs during automatic collection', async () => {
+    const { create } = stubOzon([{ id: 1, url: 'https://finance.ozon.ru/lk/main' }]);
+    const outcome = await probeBank('ozon', 'passive', fastPages);
+    expect(create).not.toHaveBeenCalled();
+    expect(outcome.status).toBe('waiting');
+    expect(outcome.message).toMatch(/Собрать все/);
+  });
+});
+
+describe('selection page message', () => {
+  it('explains that a selection page is only read', async () => {
+    const empty = { ...probe(0, 'https://online.sberbank.ru/app/loyalty/main/categories/select'), authenticationStatus: 'authenticated' as const };
+    stubBrowser(async () => ({ ...empty, capture: { ...empty.capture!, selectionPage: true } }));
+    const outcome = await probeBank('sber', 'passive');
+    expect(outcome.status).toBe('waiting');
+    expect(outcome.message).toMatch(/страница выбора категорий/);
+  });
+});

@@ -1,4 +1,5 @@
-import { findBank } from '../banks/registry';
+import { findBank, type BankDefinition } from '../banks/registry';
+import { mergeBankProbes } from './category-merge';
 import type { BankId, PageProbe, ProbeMode } from './types';
 import type { ProbeResponse } from './probe-runner';
 
@@ -12,6 +13,51 @@ export type BankProbeOutcome =
   | { status: 'auth' | 'waiting' | 'error'; probe: null; message: string };
 
 type Tab = { id?: number; url?: string; title?: string; status?: string };
+
+/** Shown while the tab is a category-selection page that collection only reads. */
+export const SELECTION_PAGE_MESSAGE =
+  'Открыта страница выбора категорий — расширение её только читает и не перезагружает. ' +
+  'Сохраните выбор в банке и нажмите «Собрать все»';
+
+export type BackgroundPageOptions = {
+  /** Upper bound for a background tab to finish loading. */
+  loadTimeoutMs: number;
+  pollMs: number;
+};
+
+export const BACKGROUND_PAGE_OPTIONS: BackgroundPageOptions = { loadTimeoutMs: 20_000, pollMs: 300 };
+
+/**
+ * Opens, in background tabs, the bank's collection pages that no open tab
+ * shows. Only a clicked (thorough) collection does this; automatic probes
+ * never open, navigate or reload tabs. Returns the ids of the opened tabs.
+ */
+export async function openMissingCollectPages(
+  bank: BankDefinition,
+  tabs: Tab[],
+  options: BackgroundPageOptions = BACKGROUND_PAGE_OPTIONS,
+): Promise<number[]> {
+  const missing = (bank.collectPages ?? [])
+    .filter((page) => !tabs.some((tab) => tab.url?.includes(page.match)));
+  const opened: number[] = [];
+  for (const page of missing) {
+    try {
+      const tab = await browser.tabs.create({ url: page.url, active: false }) as Tab;
+      if (tab.id != null) opened.push(tab.id);
+    } catch {
+      // A page that cannot be opened is simply not read.
+    }
+  }
+  const deadline = Date.now() + options.loadTimeoutMs;
+  for (const id of opened) {
+    while (Date.now() < deadline) {
+      const current = await browser.tabs.get(id).catch(() => null) as Tab | null;
+      if (!current || current.status === 'complete') break;
+      await sleep(options.pollMs);
+    }
+  }
+  return opened;
+}
 
 export type ProbeClientOptions = {
   /** Upper bound for one tab's answer. */
@@ -146,14 +192,44 @@ function bestProbe(probes: PageProbe[], preferredUrlParts: string[]): PageProbe 
   })[0];
 }
 
-export async function probeBank(bankId: BankId, mode: ProbeMode): Promise<BankProbeOutcome> {
+export async function probeBank(
+  bankId: BankId,
+  mode: ProbeMode,
+  backgroundOptions: BackgroundPageOptions = BACKGROUND_PAGE_OPTIONS,
+): Promise<BankProbeOutcome> {
   const bank = findBank(bankId);
-  const tabs = (await browser.tabs.query({ url: bank.tabPatterns })) as Tab[];
-  if (!tabs.length) return { status: 'waiting', probe: null, message: 'Вкладка банка не открыта' };
+  let tabs = (await browser.tabs.query({ url: bank.tabPatterns })) as Tab[];
+  const opened = mode === 'thorough' ? await openMissingCollectPages(bank, tabs, backgroundOptions) : [];
+  try {
+    if (opened.length) tabs = (await browser.tabs.query({ url: bank.tabPatterns })) as Tab[];
+    return await probeBankTabs(bank, tabs, mode);
+  } finally {
+    if (opened.length) await browser.tabs.remove(opened).catch(() => undefined);
+  }
+}
+
+async function probeBankTabs(bank: BankDefinition, tabs: Tab[], mode: ProbeMode): Promise<BankProbeOutcome> {
+  const bankId = bank.id;
+  if (!tabs.length) {
+    return {
+      status: 'waiting',
+      probe: null,
+      message: bank.collectPages
+        ? 'Вкладка банка не открыта — «Собрать все» откроет страницы категорий в фоне'
+        : 'Вкладка банка не открыта',
+    };
+  }
 
   const results = await Promise.all(tabs.filter((tab) => tab.id != null).map((tab) => probeTab(tab, bankId, mode)));
   const probes = results.flatMap((result) => result.kind === 'probe' ? [result.probe] : []);
-  const response = bestProbe(probes, bank.preferredUrlParts);
+  // Banks whose categories span several pages are merged; otherwise the most
+  // complete tab wins (other tabs may show a login or an unrelated page).
+  const pageProbes = bank.collectPages
+    ? probes.filter((probe) => bank.collectPages!.some((page) => probe.url.includes(page.match)) && probe.categories.length)
+    : [];
+  const response = pageProbes.length > 1
+    ? mergeBankProbes(pageProbes, bank.preferredUrlParts)
+    : bestProbe(probes, bank.preferredUrlParts);
 
   if (!response) {
     if (tabs.some(isAuthenticationTab)) return { status: 'auth', probe: null, message: 'Требуется авторизация' };
@@ -174,7 +250,16 @@ export async function probeBank(bankId: BankId, mode: ProbeMode): Promise<BankPr
     return { status: 'auth', probe: null, message: 'Требуется авторизация' };
   }
   if (response.categories.length === 0) {
-    return { status: 'waiting', probe: null, message: 'Ожидаю страницу категорий' };
+    const selectionPage = probes.some((probe) => probe.capture?.selectionPage);
+    return {
+      status: 'waiting',
+      probe: null,
+      message: selectionPage
+        ? SELECTION_PAGE_MESSAGE
+        : bank.collectPages && mode === 'passive'
+          ? 'Ожидаю страницу категорий — «Собрать все» откроет нужные страницы в фоне'
+          : 'Ожидаю страницу категорий',
+    };
   }
   return {
     status: 'ready',

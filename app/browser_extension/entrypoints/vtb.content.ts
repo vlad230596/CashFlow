@@ -1,5 +1,6 @@
 import { extractVtbCashbackCategories } from '../adapters/vtb/cashback';
 import { registerProbeListener } from '../adapters/probe-runner';
+import { currentPageIsSelection } from '../adapters/selection-page';
 
 export default defineContentScript({
   matches: ['https://online.sbpvtb.ru/*'],
@@ -25,6 +26,7 @@ export default defineContentScript({
         control?.click();
         return Boolean(control);
       },
+      isSelectionPage: () => currentPageIsSelection('vtb'),
       scrollLazyContent: true,
     });
   },

@@ -1,5 +1,6 @@
 import { moscowCalendarDate } from './business-date';
 import { categoryKey } from './probe-runner';
+import { combineCategory } from './category-merge';
 import type { BankProbeOutcome } from './probe-client';
 import type { BankId, CashbackCategory, CashbackImportBankResult, CashbackImportDocument, CollectionStatus, PageProbe } from './types';
 
@@ -39,7 +40,11 @@ function timeLabel(iso: string | null): string {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
-/** Union of category lists; `next` wins for categories present in both. */
+/**
+ * Union of category lists. For categories present in both, `next` decides the
+ * selection state, while details it lacks (a cap or a description read from a
+ * detail sheet earlier) are kept from `previous`.
+ */
 export function mergeCategories(previous: CashbackCategory[], next: CashbackCategory[]): {
   categories: CashbackCategory[];
   retained: number;
@@ -49,7 +54,11 @@ export function mergeCategories(previous: CashbackCategory[], next: CashbackCate
   let retained = 0;
   for (const category of previous) {
     const key = categoryKey(category);
-    if (merged.has(key)) continue;
+    const current = merged.get(key);
+    if (current) {
+      merged.set(key, combineCategory(current, category));
+      continue;
+    }
     merged.set(key, category);
     retained += 1;
   }

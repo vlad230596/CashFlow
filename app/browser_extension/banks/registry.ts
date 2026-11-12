@@ -6,6 +6,12 @@ export type BankDefinition = {
   startUrl: string;
   tabPatterns: string[];
   preferredUrlParts: string[];
+  /**
+   * Pages that together hold the bank's categories. A clicked collection
+   * opens the missing ones in background tabs, reads them and closes them
+   * again, so the user's own tab is never navigated. Results are merged.
+   */
+  collectPages?: Array<{ url: string; match: string }>;
 };
 
 export const BANKS: BankDefinition[] = [
@@ -45,6 +51,12 @@ export const BANKS: BankDefinition[] = [
     startUrl: 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true',
     tabPatterns: ['https://finance.ozon.ru/*'],
     preferredUrlParts: ['/lk/favorite-categories', '/lk/cashback', '/lk/bonus'],
+    // The saved month (with each category's cap in its detail sheet) and the
+    // choice for the month are two different routes.
+    collectPages: [
+      { url: 'https://finance.ozon.ru/lk/cashback', match: '/lk/cashback' },
+      { url: 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true', match: '/lk/favorite-categories' },
+    ],
   },
   {
     id: 'vtb',

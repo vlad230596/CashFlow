@@ -1,6 +1,7 @@
 import { extractSberCashbackCategories } from '../adapters/sber/cashback';
 import { findSberCategoriesControl, findSberLoyaltyControl } from '../adapters/sber/navigation';
 import { registerProbeListener } from '../adapters/probe-runner';
+import { currentPageIsSelection } from '../adapters/selection-page';
 
 export default defineContentScript({
   matches: ['https://online.sberbank.ru/*'],
@@ -21,6 +22,7 @@ export default defineContentScript({
         control?.click();
         return Boolean(control);
       },
+      isSelectionPage: () => currentPageIsSelection('sber'),
       scrollLazyContent: true,
     });
   },

@@ -8,7 +8,8 @@ export default defineContentScript({
     registerProbeListener({
       bankId: 'yandex',
       read: () => extractYandexCashbackCategories(),
-      advance: () => expandYandexCategories(),
+      // «Ещё N категорий» only expands the list in place.
+      expand: () => expandYandexCategories(),
       scrollLazyContent: true,
     });
   },
