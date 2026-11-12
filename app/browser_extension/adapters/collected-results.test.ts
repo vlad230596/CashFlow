@@ -3,6 +3,7 @@ import {
   applyOutcome,
   buildImportDocument,
   exportGaps,
+  mergeCategories,
   restoreViews,
   serializeImportDocument,
   serializeViews,
@@ -122,5 +123,21 @@ describe('hand-off to the CashFlow app', () => {
     expect(restoreViews({ schemaVersion: 2 }, ['sber'], new Date())).toEqual({});
     const early = serializeViews({ sber: applyOutcome(undefined, ready(probe('sber', full)), 'СберБанк', at('09:00')) }, at('09:00'));
     expect(restoreViews(early, ['sber'], new Date('2026-11-12T09:30:00+03:00'))).toEqual({});
+  });
+});
+
+describe('details kept across probes', () => {
+  it('does not erase a cap read earlier when a later probe lacks it', () => {
+    const base = {
+      type: 'standard' as const, name: 'Тестовое обучение', percent: 5, percentLabel: '5%', subtitle: null,
+      iconUrl: null, iconBackgroundColor: null, selected: true, confirmed: true, group: null, expiresInLabel: null,
+    };
+    const { categories } = mergeCategories(
+      [{ ...base, description: 'Кешбэк до 1 500 ₽', maxCashbackAmount: 1500 }],
+      [{ ...base, description: null, maxCashbackAmount: null, selected: false, confirmed: false }],
+    );
+    expect(categories).toEqual([expect.objectContaining({
+      maxCashbackAmount: 1500, description: 'Кешбэк до 1 500 ₽', selected: false, confirmed: false,
+    })]);
   });
 });

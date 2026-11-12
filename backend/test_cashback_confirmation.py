@@ -66,3 +66,65 @@ def test_selection_requires_bank_confirmation(client):
     monthly = next(item for item in categories if item['name'] == 'Monthly')
     assert monthly['is_selected'] is True
     assert monthly['is_bank_confirmed'] is False
+
+
+def test_ozon_import_keeps_the_category_cap(client):
+    """Regression: the cap shown on an Ozon category card must reach the app.
+
+    The extension sends it as `maxCashbackAmount` and in the description; a
+    later snapshot from the selection list without the detail sheet must not
+    erase it. Values are synthetic.
+    """
+    headers = {'Authorization': f'Bearer {login(client)}'}
+
+    def post(path, data):
+        response = client.post('/api/' + path, json=data, headers=headers)
+        assert response.status_code in (200, 201), response.get_json()
+        return response.get_json()
+
+    bank = post('banks', {'name': 'Ozon Банк'})
+    user = post('users', {'name': 'Owner'})
+    post('cards', {
+        'payment_system': 'Mir', 'card_type': 'physical',
+        'last_four_digits': '4321', 'bank_id': bank['id'], 'user_id': user['id'],
+    })
+    now = datetime.now()
+
+    def import_categories(categories):
+        return post('cashback/import', {'user_id': user['id'], 'document': {
+            'schemaVersion': 1, 'generatedAt': now.isoformat(),
+            'banks': [{
+                'bankId': 'ozon', 'collectionStatus': 'ready',
+                'authenticationStatus': 'authenticated',
+                'selection': {'selectedCount': 2, 'maxSelectable': 5},
+                'categories': categories,
+            }],
+        }})
+
+    def caps():
+        return {
+            item['name']: item['max_cashback_amount']
+            for item in client.get('/api/cashback', headers=headers).get_json()
+        }
+
+    common = {'percent': 5, 'percentLabel': '5%', 'selected': True, 'confirmed': True}
+    result = import_categories([
+        {**common, 'name': 'Тестовое обучение', 'maxCashbackAmount': 1500,
+         'description': 'Тестовые школы и курсы\nКешбэк до 1 500 ₽'},
+        # Only the text carries the cap: the server parses it as well.
+        {**common, 'name': 'Тестовая химчистка',
+         'description': 'Тестовые химчистки\nКешбэк до 1 000 ₽'},
+    ])
+    assert result['imported_banks'][0]['categories'] == 2
+    assert caps() == {'Тестовое обучение': 1500.0, 'Тестовая химчистка': 1000.0}
+    education = next(
+        item for item in client.get('/api/cashback', headers=headers).get_json()
+        if item['name'] == 'Тестовое обучение'
+    )
+    assert education['description'] == 'Тестовые школы и курсы'
+
+    import_categories([
+        {**common, 'name': 'Тестовое обучение', 'description': None},
+        {**common, 'name': 'Тестовая химчистка', 'maxCashbackAmount': 800},
+    ])
+    assert caps() == {'Тестовое обучение': 1500.0, 'Тестовая химчистка': 800.0}

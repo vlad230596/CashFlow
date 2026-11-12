@@ -118,7 +118,7 @@ describe('late and partial rendering', () => {
     const probe = await runProbe({
       bankId: 'yandex',
       read: () => extractYandexCashbackCategories(),
-      advance: () => expandYandexCategories(),
+      expand: () => expandYandexCategories(),
     }, 'passive', undefined, FAST);
 
     expect(names(probe.categories)).toEqual(['3% Тестовые аптеки', '4% Тестовые книги', '5% Тестовые кафе', '7% Тестовое такси']);

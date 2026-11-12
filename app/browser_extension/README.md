@@ -11,6 +11,28 @@ The multi-bank user flow, JSON contract, current integration status, and known
 limitations are captured in
 [docs/multi-bank-import-mvp.md](docs/multi-bank-import-mvp.md).
 
+## Collection never disturbs a bank tab
+
+Automatic collection (**Автосбор**, every 5 s) only reads open bank tabs and may
+expand an in-page "show more" list. It never navigates, reloads or clicks
+through to another page. Navigation steps (for example Sber's «СберСпасибо» →
+«Мои категории», VTB's category form, Alfa's program card) run only after a
+**Собрать все** click.
+
+A category-selection page is never navigated or clicked, not even after a
+click: T-Bank `/high-cashback/offer/…`, Sber `/loyalty/main/categories/select`,
+VTB `/bonus/categories`, Alfa's checkbox list and Ozon
+`/lk/favorite-categories*`. Such a page is read as it is; T-Bank's offer page is
+read from the bank's bonuses API, not from the unsaved checkboxes. Adapters
+declare this through `ProbeSource.isSelectionPage` (`adapters/selection-page.ts`).
+
+Ozon keeps its categories on two routes: the saved month with each category's
+cap in its detail sheet (`/lk/cashback`) and the month's choice
+(`/lk/favorite-categories-v3?type=current`). After **Собрать все** the panel opens
+whichever of them no tab shows in a background tab, reads it, closes it and
+merges both results. A later read without the detail sheet keeps a cap read
+earlier. Owner's own Ozon tab is not navigated.
+
 The side panel also has a **Собрать расширенные предложения** button. It reads
 partner and promotional offers from the authenticated bank tabs and adds them as
 `banks[].extendedOffers` to the existing schema-version-1 JSON export. Each offer
