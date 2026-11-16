@@ -47,7 +47,7 @@ def _offer(card, name, percent, period=NOVEMBER, *, selected=True, confirmed=Tru
 
 
 @pytest.fixture()
-def family(client_and_headers):
+def family(client_and_headers):  # noqa: F811
     """Three VTB cards with November and December offers under published rules."""
     client, headers, banks = client_and_headers
     upload_and_publish(client, headers, snapshot(banks['vtb']))
@@ -84,7 +84,7 @@ def _create(client, headers, **overrides):
     return client.post('/api/payments', headers=headers, json=payload)
 
 
-def test_payment_without_mcc_has_no_suggestion(client_and_headers, today):
+def test_payment_without_mcc_has_no_suggestion(client_and_headers, today):  # noqa: F811
     client, headers, _ = client_and_headers
     payload = _create(client, headers).get_json()
     assert payload['mcc_code'] is None
@@ -92,7 +92,7 @@ def test_payment_without_mcc_has_no_suggestion(client_and_headers, today):
 
 
 @pytest.mark.parametrize('value', ['123', '12345', 'abcd', 5814, True])
-def test_invalid_mcc_is_rejected(client_and_headers, today, value):
+def test_invalid_mcc_is_rejected(client_and_headers, today, value):  # noqa: F811
     client, headers, _ = client_and_headers
     response = _create(client, headers, mcc_code=value)
     assert response.status_code == 400
@@ -164,7 +164,7 @@ def test_excluded_code_has_no_bonus_and_unknown_rules_say_so(family, today):
     }
 
 
-def test_no_rules_status(client_and_headers, today):
+def test_no_rules_status(client_and_headers, today):  # noqa: F811
     client, headers, _ = client_and_headers
     payload = _create(client, headers, mcc_code='5814').get_json()
     assert payload['card_suggestion']['status'] == 'no_rules'
@@ -237,7 +237,10 @@ def test_migration_adds_and_drops_the_column():
         operations = Operations(MigrationContext.configure(connection))
         with Operations.context(operations.migration_context):
             module.upgrade()
-        columns = {item['name']: item for item in sa.inspect(connection).get_columns('planned_payment')}
+        columns = {
+            item['name']: item
+            for item in sa.inspect(connection).get_columns('planned_payment')
+        }
         assert columns['mcc_code']['nullable'] is True
         assert connection.execute(
             sa.text('SELECT mcc_code FROM planned_payment')
