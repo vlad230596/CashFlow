@@ -2,7 +2,13 @@
 
 Schema changes are managed by Alembic. Runtime startup never creates or alters tables.
 
-Current repository head: `0014_zenmoney_balances` (2026-11-11). It adds the ZenMoney
+Current repository head: `0015_payment_mcc` (2026-11-17). It adds the nullable
+`planned_payment.mcc_code` (four digits, validated by the API; no foreign key, so a
+code missing from the reference catalogue can still be stored). Downgrade drops the
+column. Payment answers derive `card_suggestion` from it at request time; nothing
+else is stored.
+
+Previous head `0014_zenmoney_balances` (2026-11-11) adds the ZenMoney
 balance integration: the single-row `zenmoney_integration` (Fernet-encrypted token,
 refresh lease, last attempt/success/error), `zenmoney_account` (latest balance, credit
 limit, currency and `fetched_at` per account; no transactions) and `card_zenmoney_link`

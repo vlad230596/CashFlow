@@ -11,6 +11,7 @@ import '../../services/card_cashback_overview.dart';
 import '../../utils/cashback_needs.dart';
 import '../../utils/category_info.dart';
 import '../../utils/identity_icons.dart';
+import '../../utils/mcc_search.dart';
 import '../card_cashback_screen.dart';
 import '../cashback_category_detail_screen.dart';
 import 'card_balance_label.dart';
@@ -256,18 +257,12 @@ class _BenefitStatesViewState extends State<BenefitStatesView> {
 
   /// Reference codes for the query: a code prefix, or words of the title
   /// once at least three letters are typed.
-  List<BenefitMccSearchResult> get _filteredMccResults {
-    final query = _searchController.text.trim().toLowerCase();
-    if (query.isEmpty) return const [];
-    final digits = RegExp(r'^\d{1,4}$').hasMatch(query);
-    if (!digits && query.length < 3) return const [];
-    return widget.mccResults
-        .where((item) => digits
-            ? item.code.startsWith(query)
-            : item.name.toLowerCase().contains(query))
-        .take(8)
-        .toList();
-  }
+  List<BenefitMccSearchResult> get _filteredMccResults => searchMccCodes(
+        widget.mccResults,
+        _searchController.text,
+        code: (item) => item.code,
+        title: (item) => item.name,
+      );
 
   /// The MCC whose payment options are shown: a tapped row, or a typed
   /// four-digit code that does not name any card or category.

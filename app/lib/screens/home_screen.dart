@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -96,6 +98,10 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
       _selectDestination(_paymentsIndex);
+      if (target.kind == ReminderKind.payment &&
+          target.action == ReminderAction.done) {
+        unawaited(_completeFromReminder(provider, target));
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final hub = _paymentsKey.currentState;
         if (hub == null) return;
@@ -112,6 +118,44 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       });
     });
+  }
+
+  /// «Сделано» from a payment reminder: mark paid, then report with undo.
+  Future<void> _completeFromReminder(
+    DataProvider provider,
+    ReminderTarget target,
+  ) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    void show(String text, {SnackBarAction? action}) =>
+        messenger?.showSnackBar(SnackBar(content: Text(text), action: action));
+    try {
+      final result = await provider.completePaymentFromReminder(target);
+      if (!mounted) return;
+      final name = result.payment?.name;
+      switch (result.outcome) {
+        case PaymentReminderOutcome.marked:
+          final recordId = result.recordId;
+          show(
+            'Платёж «$name» отмечен оплаченным',
+            action: recordId == null
+                ? null
+                : SnackBarAction(
+                    label: 'Отменить',
+                    onPressed: () => unawaited(provider
+                        .undoPlannedPaymentRecord(target.entityId, recordId)
+                        .then<void>((_) {}, onError: (Object error) {
+                      show('Не удалось отменить оплату: $error');
+                    })),
+                  ),
+          );
+        case PaymentReminderOutcome.alreadyHandled:
+          show('Этот срок «$name» уже отмечен или изменён — проверьте платёж');
+        case PaymentReminderOutcome.notFound:
+          show('Платёж не найден — возможно, он удалён');
+      }
+    } catch (error) {
+      if (mounted) show('Не удалось отметить оплату: $error');
+    }
   }
 
   @override

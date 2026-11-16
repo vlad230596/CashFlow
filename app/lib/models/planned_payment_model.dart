@@ -71,6 +71,115 @@ class PlannedPaymentRecord {
       };
 }
 
+/// Four ASCII digits: the only accepted MCC form.
+final mccCodePattern = RegExp(r'^\d{4}$');
+
+/// One card choice for a payment MCC, computed by the server.
+class PaymentCardOption {
+  const PaymentCardOption({
+    required this.offerId,
+    required this.cardId,
+    required this.categoryName,
+    required this.cashbackPercent,
+    this.bankId,
+    this.bankName,
+    this.lastFourDigits,
+    this.categoryType = 'standard',
+  });
+
+  final int offerId;
+  final int cardId;
+  final int? bankId;
+  final String? bankName;
+  final String? lastFourDigits;
+  final String categoryName;
+  final String categoryType;
+  final double cashbackPercent;
+
+  bool get isStackableBonus => categoryType == 'stackable_bonus';
+
+  factory PaymentCardOption.fromJson(Map<String, dynamic> json) =>
+      PaymentCardOption(
+        offerId: json['offer_id'] as int,
+        cardId: json['card_id'] as int,
+        bankId: json['bank_id'] as int?,
+        bankName: json['bank_name'] as String?,
+        lastFourDigits: json['last_four_digits'] as String?,
+        categoryName: json['category_name'] as String,
+        categoryType: json['category_type'] as String? ?? 'standard',
+        cashbackPercent: (json['cashback_percent'] as num).toDouble(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'offer_id': offerId,
+        'card_id': cardId,
+        'bank_id': bankId,
+        'bank_name': bankName,
+        'last_four_digits': lastFourDigits,
+        'category_name': categoryName,
+        'category_type': categoryType,
+        'cashback_percent': cashbackPercent,
+      };
+}
+
+enum PaymentCardSuggestionStatus { best, noBonus, noRules }
+
+/// Which active card earns most for a payment's MCC on its due date (today
+/// when overdue). The server resolves it with the same MCC rules and offer
+/// ranking as the Benefit screen; the copy cached with the payment is shown
+/// offline together with its [asOf] day.
+class PaymentCardSuggestion {
+  const PaymentCardSuggestion({
+    required this.mccCode,
+    required this.asOf,
+    required this.status,
+    this.best,
+    this.alternatives = const [],
+  });
+
+  final String mccCode;
+  final DateTime asOf;
+  final PaymentCardSuggestionStatus status;
+  final PaymentCardOption? best;
+  final List<PaymentCardOption> alternatives;
+
+  static const _statusNames = {
+    PaymentCardSuggestionStatus.best: 'best',
+    PaymentCardSuggestionStatus.noBonus: 'no_bonus',
+    PaymentCardSuggestionStatus.noRules: 'no_rules',
+  };
+
+  factory PaymentCardSuggestion.fromJson(Map<String, dynamic> json) {
+    final best = json['best'] as Map<String, dynamic>?;
+    final status = _statusNames.entries
+            .where((entry) => entry.value == json['status'])
+            .firstOrNull
+            ?.key ??
+        PaymentCardSuggestionStatus.noRules;
+    return PaymentCardSuggestion(
+      mccCode: json['mcc_code'] as String,
+      asOf: _parseCivilDate(json['as_of'] as String),
+      // A "best" answer without an option is treated as nothing to suggest.
+      status: status == PaymentCardSuggestionStatus.best && best == null
+          ? PaymentCardSuggestionStatus.noBonus
+          : status,
+      best: best == null ? null : PaymentCardOption.fromJson(best),
+      alternatives: (json['alternatives'] as List? ?? const [])
+          .map((item) =>
+              PaymentCardOption.fromJson(item as Map<String, dynamic>))
+          .toList(growable: false),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'mcc_code': mccCode,
+        'as_of': _apiDate(asOf),
+        'status': _statusNames[status],
+        'best': best?.toJson(),
+        'alternatives': alternatives.map((item) => item.toJson()).toList(),
+      };
+}
+
 class PlannedPaymentModel {
   const PlannedPaymentModel({
     this.id,
@@ -80,6 +189,8 @@ class PlannedPaymentModel {
     required this.currency,
     this.cardId,
     this.note,
+    this.mccCode,
+    this.cardSuggestion,
     this.interval,
     DateTime? anchorDate,
     required this.nextDueDate,
@@ -101,6 +212,12 @@ class PlannedPaymentModel {
   final String currency;
   final int? cardId;
   final String? note;
+
+  /// Merchant category code the payment is charged with (four digits).
+  final String? mccCode;
+
+  /// Server answer for [mccCode]; null without a code or once closed.
+  final PaymentCardSuggestion? cardSuggestion;
 
   /// Null for one-off payments.
   final BillingInterval? interval;
@@ -150,6 +267,11 @@ class PlannedPaymentModel {
       currency: json['currency'] as String? ?? 'RUB',
       cardId: json['card_id'] as int?,
       note: json['note'] as String?,
+      mccCode: json['mcc_code'] as String?,
+      cardSuggestion: json['card_suggestion'] is Map<String, dynamic>
+          ? PaymentCardSuggestion.fromJson(
+              json['card_suggestion'] as Map<String, dynamic>)
+          : null,
       interval:
           intervalJson == null ? null : BillingInterval.fromJson(intervalJson),
       anchorDate: json['anchor_date'] == null
@@ -184,6 +306,7 @@ class PlannedPaymentModel {
         'currency': currency,
         'card_id': cardId,
         'note': note,
+        'mcc_code': mccCode,
         'interval': interval?.toJson(),
         'next_due_date': _apiDate(nextDueDate),
         if (isRecurring) 'anchor_date': _apiDate(anchorDate),
@@ -194,6 +317,7 @@ class PlannedPaymentModel {
         if (id != null) 'id': id,
         ...toMutationJson(),
         'anchor_date': _apiDate(anchorDate),
+        'card_suggestion': cardSuggestion?.toJson(),
         'is_completed': isCompleted,
         'completed_at': completedAt?.toIso8601String(),
         'is_archived': isArchived,
@@ -206,6 +330,7 @@ class PlannedPaymentModel {
 
   PlannedPaymentModel copyWith({
     List<PlannedPaymentRecord>? records,
+    int? cardId,
   }) =>
       PlannedPaymentModel(
         id: id,
@@ -213,8 +338,10 @@ class PlannedPaymentModel {
         kind: kind,
         expectedAmount: expectedAmount,
         currency: currency,
-        cardId: cardId,
+        cardId: cardId ?? this.cardId,
         note: note,
+        mccCode: mccCode,
+        cardSuggestion: cardSuggestion,
         interval: interval,
         anchorDate: anchorDate,
         nextDueDate: nextDueDate,

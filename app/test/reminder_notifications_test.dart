@@ -94,7 +94,7 @@ void main() {
     expect(reminder.fireAt, DateTime(2026, 11, 24, 10));
     expect(reminder.daysBefore, 1);
     expect(reminder.id, ReminderKind.payment.notificationId(7, 0));
-    expect(reminder.payload, 'payment:7');
+    expect(reminder.payload, 'payment:7@2026-11-25');
     expect(reminder.title, 'Пора оплатить: Детский сад');
     expect(reminder.body, contains('до 25.11.2026'));
     expect(reminder.body, contains('завтра'));

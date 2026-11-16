@@ -600,6 +600,8 @@ class PlannedPayment(db.Model):
         db.ForeignKey('bank_card.id', ondelete='SET NULL'),
     )
     note = db.Column(db.Text)
+    # Merchant category code the payment is charged with; drives the card hint.
+    mcc_code = db.Column(db.String(4))
     interval_count = db.Column(db.Integer)
     interval_unit = db.Column(db.String(8))
     anchor_date = db.Column(db.Date, nullable=False)
@@ -2157,6 +2159,14 @@ def _planned_payment_note(value):
     return value or None
 
 
+def _planned_payment_mcc(value):
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str) or not MCC_PATTERN.fullmatch(value.strip()):
+        raise ValueError('mcc_code must contain exactly four digits or be null')
+    return value.strip()
+
+
 def _planned_payment_card(card_id, field_name='card_id'):
     if card_id is None:
         return None
@@ -2227,6 +2237,23 @@ def _planned_payment_records(payment):
     )
 
 
+def _planned_payment_card_suggestion(payment):
+    """Best card for an open payment with an MCC on its due date (today if overdue).
+
+    Memoized per request: a list of payments sharing a code and date resolves once.
+    """
+    if payment.mcc_code is None or payment.archived_at is not None:
+        return None
+    if payment.completed_at is not None:
+        return None
+    day = max(payment.next_due_date, _business_today())
+    key = (payment.mcc_code, day)
+    cache = g.setdefault('_payment_card_suggestions', {}) if has_request_context() else {}
+    if key not in cache:
+        cache[key] = _mcc_card_suggestion(payment.mcc_code, day)
+    return cache[key]
+
+
 def _planned_payment_to_dict(payment, *, include_history=False):
     last_record = _planned_payment_records(payment).first()
     result = {
@@ -2237,6 +2264,8 @@ def _planned_payment_to_dict(payment, *, include_history=False):
         'currency': payment.currency,
         'card_id': payment.card_id,
         'note': payment.note,
+        'mcc_code': payment.mcc_code,
+        'card_suggestion': _planned_payment_card_suggestion(payment),
         'interval': (
             None if payment.kind == 'one_off' else {
                 'count': payment.interval_count,
@@ -2316,6 +2345,7 @@ def planned_payments():
         currency = _subscription_currency(payload.get('currency', 'RUB'))
         card_id = _planned_payment_card(payload.get('card_id'))
         note = _planned_payment_note(payload.get('note'))
+        mcc_code = _planned_payment_mcc(payload.get('mcc_code'))
         count, unit = _planned_payment_interval(kind, payload.get('interval'))
         next_due = _subscription_date(payload.get('next_due_date'), 'next_due_date')
         explicit_anchor = payload.get('anchor_date') is not None
@@ -2341,6 +2371,7 @@ def planned_payments():
         currency=currency,
         card_id=card_id,
         note=note,
+        mcc_code=mcc_code,
         interval_count=count,
         interval_unit=unit,
         anchor_date=anchor,
@@ -2445,6 +2476,8 @@ def planned_payment_detail(payment_id):
             payment.card_id = _planned_payment_card(payload['card_id'])
         if 'note' in payload:
             payment.note = _planned_payment_note(payload['note'])
+        if 'mcc_code' in payload:
+            payment.mcc_code = _planned_payment_mcc(payload['mcc_code'])
         if 'reminder_days' in payload:
             payment.reminder_days_json = json.dumps(
                 _planned_payment_reminders(payload['reminder_days'])
@@ -4312,6 +4345,83 @@ def _active_offers_by_bank(as_of):
     return result
 
 
+def _mcc_bank_rows(code, as_of):
+    """Per bank with rules valid at ``as_of``: (bank, evaluation, earning offer ids,
+    the bank's offers in that period). The single resolution behind bank-rules and the
+    payment card suggestion."""
+    offers = _active_offers_by_bank(as_of)
+    rows = []
+    for bank, payload in _published_payloads(as_of):
+        bank_offers = offers.get(bank.id, [])
+        evaluation = _evaluate_mcc_in_revision(payload, code)
+        earning_ids = _offers_earning_mcc(bank_offers, payload, evaluation, code)
+        rows.append((bank, evaluation, earning_ids, bank_offers))
+    return rows
+
+
+PAYMENT_CARD_SUGGESTION_ALTERNATIVES = 2
+
+
+def _mcc_card_suggestion(code, day):
+    """Which active card earns the most for ``code`` on the civil ``day``.
+
+    Offers come from the same resolution as /api/mcc/{code}/bank-rules and are ranked
+    like the Benefit screen's «Повышенный кешбэк»: selected and bank-confirmed offers,
+    highest percent first; offers on inactive cards are skipped. Status is ``best``,
+    ``no_bonus`` (rules exist, nothing earns more than the base rate) or ``no_rules``.
+    """
+    # Noon keeps the moment inside the Moscow day for offer and rule periods.
+    as_of = datetime(day.year, day.month, day.day, 12, tzinfo=MOSCOW).astimezone(timezone.utc)
+    rows = _mcc_bank_rows(code, as_of)
+    candidates = []
+    for bank, _, earning_ids, bank_offers in rows:
+        earning = set(earning_ids)
+        for offer in bank_offers:
+            card = offer.card
+            if (
+                offer.id in earning
+                and offer.is_selected
+                and offer.is_bank_confirmed
+                and card is not None
+                and card.is_active is not False
+            ):
+                candidates.append((offer, card, bank))
+    candidates.sort(key=lambda item: (-item[0].cashback_percent, item[1].id, item[0].id))
+
+    def option(offer, card, bank):
+        return {
+            'offer_id': offer.id,
+            'card_id': card.id,
+            'bank_id': bank.id,
+            'bank_name': bank.name,
+            'last_four_digits': card.last_four_digits,
+            'category_name': offer.name,
+            'category_type': offer.category_type,
+            'cashback_percent': offer.cashback_percent,
+        }
+
+    options = []
+    seen_cards = set()
+    for offer, card, bank in candidates:
+        if card.id in seen_cards:
+            continue
+        seen_cards.add(card.id)
+        options.append(option(offer, card, bank))
+    if options:
+        status = 'best'
+    elif rows:
+        status = 'no_bonus'
+    else:
+        status = 'no_rules'
+    return {
+        'mcc_code': code,
+        'as_of': day.isoformat(),
+        'status': status,
+        'best': options[0] if options else None,
+        'alternatives': options[1:1 + PAYMENT_CARD_SUGGESTION_ALTERNATIVES],
+    }
+
+
 @app.get('/api/mcc/<string:code>/bank-rules')
 def get_mcc_bank_rules(code):
     if not MCC_PATTERN.fullmatch(code):
@@ -4328,15 +4438,10 @@ def get_mcc_bank_rules(code):
         .order_by(CanonicalCategory.sort_order)
         .all()
     )
-    offers = _active_offers_by_bank(as_of)
-    banks = []
-    for bank, payload in _published_payloads(as_of):
-        evaluation = _evaluate_mcc_in_revision(payload, code)
-        banks.append({
-            'bank': bank.to_dict(),
-            **evaluation,
-            'offer_ids': _offers_earning_mcc(offers.get(bank.id, []), payload, evaluation, code),
-        })
+    banks = [
+        {'bank': bank.to_dict(), **evaluation, 'offer_ids': earning_ids}
+        for bank, evaluation, earning_ids, _ in _mcc_bank_rows(code, as_of)
+    ]
     return jsonify({
         'mcc': mcc.to_dict() if mcc is not None else {'code': code},
         'as_of': _iso_datetime(as_of),

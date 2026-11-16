@@ -62,6 +62,19 @@ class AuthIdentity {
       };
 }
 
+enum PaymentReminderOutcome { marked, alreadyHandled, notFound }
+
+/// Result of «Сделано» pressed on a payment reminder.
+class PaymentReminderDone {
+  const PaymentReminderDone(this.outcome, {this.payment, this.recordId});
+
+  final PaymentReminderOutcome outcome;
+  final PlannedPaymentModel? payment;
+
+  /// The new record, for «Отменить».
+  final int? recordId;
+}
+
 class DataProvider with ChangeNotifier {
   DataProvider({
     String? apiBaseUrl,
@@ -1607,6 +1620,43 @@ class DataProvider with ChangeNotifier {
     final updated = await _paymentsApi.undoRecord(id, recordId);
     await _storePlannedPayment(updated);
     return updated;
+  }
+
+  /// «Сделано» on a payment reminder: marks the reminded occurrence paid today
+  /// with the expected amount, exactly like «Отметить оплаченным» with the
+  /// dialog defaults. A notification about an occurrence that is no longer
+  /// the open one (already paid, archived, moved) changes nothing.
+  Future<PaymentReminderDone> completePaymentFromReminder(
+    ReminderTarget target,
+  ) async {
+    final id = target.entityId;
+    var payment = plannedPayments.where((item) => item.id == id).firstOrNull;
+    if (payment == null) {
+      try {
+        payment = await fetchPlannedPayment(id);
+      } catch (_) {
+        return const PaymentReminderDone(PaymentReminderOutcome.notFound);
+      }
+    }
+    final due = target.dueDate;
+    if (!payment.isOpen ||
+        (due != null &&
+            calendarDayKey(due) != calendarDayKey(payment.nextDueDate))) {
+      return PaymentReminderDone(
+        PaymentReminderOutcome.alreadyHandled,
+        payment: payment,
+      );
+    }
+    final updated = await markPlannedPaymentPaid(
+      id,
+      paidAt: businessToday,
+      amount: payment.expectedAmount,
+    );
+    return PaymentReminderDone(
+      PaymentReminderOutcome.marked,
+      payment: updated,
+      recordId: updated.lastRecord?.id,
+    );
   }
 
   Future<PlannedPaymentModel> archivePlannedPayment(int id) async {

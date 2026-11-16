@@ -3,13 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/card_model.dart';
+import '../models/mcc_lookup_model.dart';
 import '../models/planned_payment_model.dart';
 import '../models/subscription_model.dart';
 import '../providers/data_provider.dart';
 import '../services/card_context.dart';
 import '../services/payment_schedule.dart';
 import '../utils/cashflow_formatters.dart';
+import '../utils/mcc_search.dart';
 import 'widgets/keyboard_first_back.dart';
+import 'widgets/payment_card_suggestion_view.dart';
 import 'widgets/reminder_days_field.dart';
 
 /// Recurring («Регулярные») or one-off («Разовые») payments with due dates.
@@ -621,12 +624,24 @@ class _PlannedPaymentDetailsState extends State<PlannedPaymentDetails> {
                       icon: Icons.notifications_outlined,
                       text: ReminderDaysField.summary(payment.reminderDays),
                     ),
+                    if (payment.mccCode != null)
+                      _FactRow(
+                        icon: Icons.storefront_outlined,
+                        text: _mccLabel(provider, payment.mccCode!),
+                      ),
                     if (payment.note != null && payment.note!.isNotEmpty)
                       _FactRow(icon: Icons.notes_outlined, text: payment.note!),
                   ],
                 ),
               ),
             ),
+            if (payment.isOpen && payment.cardSuggestion != null) ...[
+              const SizedBox(height: 12),
+              PaymentCardSuggestionView(
+                suggestion: payment.cardSuggestion!,
+                cardLabel: (option) => _optionLabel(provider, option),
+              ),
+            ],
             const SizedBox(height: 16),
             if (payment.isOpen)
               FilledButton.icon(
@@ -886,6 +901,8 @@ class _PlannedPaymentEditScreenState extends State<PlannedPaymentEditScreen> {
   late final TextEditingController _amount;
   late final TextEditingController _currency;
   late final TextEditingController _note;
+  late final TextEditingController _mcc;
+  final _mccFocus = FocusNode();
   int? _cardId;
   var _interval = const BillingInterval(
     count: 1,
@@ -909,6 +926,7 @@ class _PlannedPaymentEditScreenState extends State<PlannedPaymentEditScreen> {
         text: item == null ? '' : item.expectedAmount.toStringAsFixed(2));
     _currency = TextEditingController(text: item?.currency ?? 'RUB');
     _note = TextEditingController(text: item?.note ?? '');
+    _mcc = TextEditingController(text: item?.mccCode ?? '');
     _cardId = item?.cardId;
     _interval = item?.interval ?? _interval;
     _dueDate = item?.nextDueDate ?? today.add(const Duration(days: 7));
@@ -927,6 +945,8 @@ class _PlannedPaymentEditScreenState extends State<PlannedPaymentEditScreen> {
     _amount.dispose();
     _currency.dispose();
     _note.dispose();
+    _mcc.dispose();
+    _mccFocus.dispose();
     super.dispose();
   }
 
@@ -1036,6 +1056,12 @@ class _PlannedPaymentEditScreenState extends State<PlannedPaymentEditScreen> {
                         ),
                     ],
                     onChanged: (value) => setState(() => _cardId = value),
+                  ),
+                  const SizedBox(height: 16),
+                  PaymentMccField(
+                    controller: _mcc,
+                    focusNode: _mccFocus,
+                    catalogue: provider.mccCatalog,
                   ),
                   if (_recurring) ...[
                     const SizedBox(height: 20),
@@ -1244,6 +1270,7 @@ class _PlannedPaymentEditScreenState extends State<PlannedPaymentEditScreen> {
     setState(() => _saving = true);
     final previous = widget.existing;
     final note = _note.text.trim();
+    final mcc = _mcc.text.trim();
     final item = PlannedPaymentModel(
       id: previous?.id,
       name: _name.text.trim(),
@@ -1252,6 +1279,7 @@ class _PlannedPaymentEditScreenState extends State<PlannedPaymentEditScreen> {
       currency: _currency.text.trim().toUpperCase(),
       cardId: _cardId,
       note: note.isEmpty ? null : note,
+      mccCode: mcc.isEmpty ? null : mcc,
       interval: _recurring ? _interval : null,
       anchorDate: _effectiveAnchor,
       nextDueDate: _dueDate,
@@ -1259,13 +1287,22 @@ class _PlannedPaymentEditScreenState extends State<PlannedPaymentEditScreen> {
     );
     final provider = context.read<DataProvider>();
     try {
+      final PlannedPaymentModel saved;
       if (previous == null) {
-        await provider.createPlannedPayment(item);
+        saved = await provider.createPlannedPayment(item);
         if (item.reminderDays.isNotEmpty) {
           await provider.requestPaymentNotificationPermission();
         }
       } else {
-        await provider.updatePlannedPayment(item);
+        saved = await provider.updatePlannedPayment(item);
+      }
+      // Right after a code is added or changed, say which card to pay with.
+      final mccChanged = saved.mccCode != null &&
+          (previous == null || previous.mccCode != saved.mccCode);
+      if (mounted && mccChanged && saved.cardSuggestion != null) {
+        // Saved already: stop the progress indicator behind the dialog.
+        setState(() => _saving = false);
+        await showPaymentCardSuggestionDialog(context, saved);
       }
       if (mounted) Navigator.pop(context);
     } catch (error) {
@@ -1473,3 +1510,173 @@ String _money(double amount, String currency) {
 }
 
 String _date(DateTime value) => CashFlowFormatters.calendarDate(value);
+
+String _mccLabel(DataProvider provider, String code) {
+  final title = provider.mccCatalog
+      .where((item) => item.code == code)
+      .firstOrNull
+      ?.title
+      ?.trim();
+  return title == null || title.isEmpty ? 'MCC $code' : 'MCC $code · $title';
+}
+
+/// A suggested card by local card data, or the server's bank and digits when
+/// the card is not cached on this device.
+String _optionLabel(DataProvider provider, PaymentCardOption option) {
+  if (provider.cards.any((card) => card.id == option.cardId)) {
+    return _cardLabel(provider, option.cardId);
+  }
+  final digits = option.lastFourDigits?.trim();
+  return [
+    option.bankName ?? 'Карта',
+    if (digits != null && digits.isNotEmpty) '•$digits',
+  ].join(' ');
+}
+
+/// Null for an empty field or four digits; the field also accepts a title
+/// query while searching, which must resolve to a code before saving.
+String? validatePaymentMcc(String? value) {
+  final text = value?.trim() ?? '';
+  if (text.isEmpty || mccCodePattern.hasMatch(text)) return null;
+  return 'MCC — это 4 цифры, например 4900';
+}
+
+/// Optional MCC with search over the reference catalogue (by code prefix or
+/// title, the same matching as the Benefit search).
+class PaymentMccField extends StatelessWidget {
+  const PaymentMccField({
+    super.key,
+    required this.controller,
+    required this.focusNode,
+    required this.catalogue,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final List<MccCodeModel> catalogue;
+
+  String? _helper(String text) {
+    final code = text.trim();
+    if (!mccCodePattern.hasMatch(code)) {
+      return 'По коду подскажем, какой картой платить выгоднее';
+    }
+    if (catalogue.isEmpty) return null;
+    final title =
+        catalogue.where((item) => item.code == code).firstOrNull?.title;
+    return title ?? 'Кода нет в справочнике MCC';
+  }
+
+  @override
+  Widget build(BuildContext context) => RawAutocomplete<MccCodeModel>(
+        textEditingController: controller,
+        focusNode: focusNode,
+        displayStringForOption: (option) => option.code,
+        optionsBuilder: (value) {
+          final query = value.text.trim();
+          // A complete known code needs no list.
+          if (mccCodePattern.hasMatch(query) &&
+              catalogue.any((item) => item.code == query)) {
+            return const <MccCodeModel>[];
+          }
+          return searchMccCodes(
+            catalogue,
+            query,
+            code: (item) => item.code,
+            title: (item) => item.title ?? '',
+          );
+        },
+        fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
+            ValueListenableBuilder<TextEditingValue>(
+          valueListenable: controller,
+          builder: (context, value, _) => TextFormField(
+            key: const ValueKey('payment-mcc'),
+            controller: controller,
+            focusNode: focusNode,
+            maxLength: 60,
+            decoration: InputDecoration(
+              labelText: 'MCC-код (необязательно)',
+              hintText: '4900 или «коммунальные»',
+              helperText: _helper(value.text),
+              helperMaxLines: 2,
+              counterText: '',
+            ),
+            validator: validatePaymentMcc,
+            onFieldSubmitted: (_) => onSubmitted(),
+          ),
+        ),
+        optionsViewBuilder: (context, onSelected, options) => Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 260, maxWidth: 560),
+              child: ListView(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                children: [
+                  for (final option in options)
+                    ListTile(
+                      key: ValueKey('payment-mcc-option-${option.code}'),
+                      dense: true,
+                      leading: Text(
+                        option.code,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      title: Text(option.title ?? 'MCC ${option.code}'),
+                      onTap: () => onSelected(option),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+}
+
+/// Shows the best card for a just-saved payment MCC; offers to make it the
+/// payment's card when it differs.
+Future<void> showPaymentCardSuggestionDialog(
+  BuildContext context,
+  PlannedPaymentModel payment,
+) async {
+  final suggestion = payment.cardSuggestion;
+  if (suggestion == null) return;
+  final provider = context.read<DataProvider>();
+  final best = suggestion.best;
+  final canAssign =
+      best != null && payment.id != null && payment.cardId != best.cardId;
+  final assign = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Чем оплатить'),
+      content: SingleChildScrollView(
+        child: PaymentCardSuggestionView(
+          suggestion: suggestion,
+          cardLabel: (option) => _optionLabel(provider, option),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: Text(canAssign ? 'Не сейчас' : 'Понятно'),
+        ),
+        if (canAssign)
+          FilledButton(
+            key: const ValueKey('payment-card-suggestion-assign'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Платить этой картой'),
+          ),
+      ],
+    ),
+  );
+  if (assign != true || best == null) return;
+  try {
+    await provider.updatePlannedPayment(payment.copyWith(cardId: best.cardId));
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Не удалось выбрать карту: $error')),
+    );
+  }
+}

@@ -53,6 +53,14 @@ Main user flows:
   subscription). `reminder_sources.dart` maps entities to specs. Add a new kind
   there instead of a new service. Blocks: 1 subscriptions, 2 payments,
   3 promo codes (`"promo:<id>"`; a tap opens «Промокоды и баллы» over «Ещё»).
+  Payment reminders have buttons (`ReminderKind.actions`) and a due-dated payload
+  `"payment:<id>@YYYY-MM-DD"`. «Напомнить позже» re-posts the shown text after
+  `reminderSnoozeDelay` (1 h) into the last slot (`ReminderKind.snoozeSlot`) from the
+  background isolate (`onReminderNotificationBackgroundResponse`); synchronization
+  keeps that copy while the same due date is still open. «Сделано» opens the app and
+  `DataProvider.completePaymentFromReminder` marks that occurrence paid (stale
+  notifications change nothing). Android needs the plugin's `ActionBroadcastReceiver`
+  in the manifest.
 - `lib/screens/promos_screen.dart` holds the promo list, details and editor
   (`PromoEditScreen(initialText:)` is the entry point for a future share intent).
   `lib/models/promo_model.dart` derives active/expired/used/archived from the
@@ -195,6 +203,11 @@ Known endpoints:
   payments advance to the next anchored date), `DELETE /api/payments/{id}/records/{record_id}`
   (undo the latest record only)
 - `GET /api/payments/upcoming?until=` (unpaid due dates incl. overdue, for forecasts)
+- Payments accept an optional `mcc_code` (four digits or null). Every open payment
+  with a code answers with `card_suggestion` (`status` best/no_bonus/no_rules, `as_of`
+  = due date or today when overdue, `best` and up to two `alternatives` with card,
+  category and percent), resolved server-side with the bank-rules logic. Render it only
+  through `screens/widgets/payment_card_suggestion_view.dart`.
 - `GET /api/promos?status=active|used|expired|archived|all`, `POST /api/promos`
   (optional `client_id` makes retries idempotent: 200 with the existing item),
   `GET|PUT|DELETE /api/promos/{id}`, `POST /api/promos/{id}/use|unuse|archive|restore`
