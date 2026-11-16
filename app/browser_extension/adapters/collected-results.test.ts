@@ -3,6 +3,7 @@ import {
   applyOutcome,
   buildImportDocument,
   exportGaps,
+  incompleteBanks,
   mergeCategories,
   restoreViews,
   serializeImportDocument,
@@ -139,5 +140,30 @@ describe('details kept across probes', () => {
     expect(categories).toEqual([expect.objectContaining({
       maxCashbackAmount: 1500, description: 'Кешбэк до 1 500 ₽', selected: false, confirmed: false,
     })]);
+  });
+});
+
+describe('problems of a clicked collection', () => {
+  const issue = 'Кешбэк месяца: страница не ответила (Страница не ответила за 45 с)';
+
+  it('keeps the report through automatic probes until the next click', () => {
+    let view = applyOutcome(undefined, { ...ready(probe('ozon', full)), issues: [issue] }, 'Ozon Банк', at('10:00'));
+    expect(view).toMatchObject({ status: 'ready', issues: [issue], issuesAt: at('10:00').toISOString() });
+    // Automatic probes do not open the bank's other pages and carry no report.
+    view = applyOutcome(view, missing('waiting', 'Ожидаю страницу категорий'), 'Ozon Банк', at('10:01'));
+    view = applyOutcome(view, ready(probe('ozon', full)), 'Ozon Банк', at('10:02'));
+    expect(view.issues).toEqual([issue]);
+    expect(incompleteBanks(['ozon', 'sber'], { ozon: view }, () => 'Ozon Банк')).toEqual(['Ozon Банк']);
+    // A clean click clears it.
+    view = applyOutcome(view, { ...ready(probe('ozon', full)), issues: [] }, 'Ozon Банк', at('10:03'));
+    expect(view.issues).toEqual([]);
+    expect(incompleteBanks(['ozon'], { ozon: view }, () => 'Ozon Банк')).toEqual([]);
+  });
+
+  it('shows why a bank has no categories at all', () => {
+    const view = applyOutcome(undefined, { ...missing('error', '«Собрать все» не нашёл категорий'), issues: [issue] }, 'Ozon Банк', at('10:00'));
+    expect(view).toMatchObject({ status: 'error', result: null, issues: [issue] });
+    // Without categories the bank is an export gap, not an «incomplete» one.
+    expect(incompleteBanks(['ozon'], { ozon: view }, () => 'Ozon Банк')).toEqual([]);
   });
 });

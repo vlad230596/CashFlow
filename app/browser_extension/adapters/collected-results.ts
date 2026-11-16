@@ -24,6 +24,13 @@ export type BankView = {
   liveStatus?: CollectionStatus;
   /** Categories kept from earlier probes that the latest probe did not show. */
   retainedCount?: number;
+  /**
+   * Problems found by the latest «Собрать все» (a page that timed out, showed
+   * no list or lost the detail sheets), one Russian line per page.
+   */
+  issues?: string[];
+  /** When those problems were found (ISO). */
+  issuesAt?: string;
 };
 
 export const emptyBankView = (): BankView => ({ status: 'waiting', result: null, message: null });
@@ -106,9 +113,14 @@ export function applyOutcome(
   bankName: string,
   now: Date,
 ): BankView {
+  // A clicked collection reports its problems; automatic probes, which never
+  // open the bank's other pages, keep that report until the next click.
+  const report: Pick<BankView, 'issues' | 'issuesAt'> = outcome.issues
+    ? { issues: outcome.issues, issuesAt: now.toISOString() }
+    : { issues: previous?.issues, issuesAt: previous?.issuesAt };
   if (outcome.status === 'ready') {
     const { result, retained } = mergeResult(previous?.result ?? null, outcome.probe, bankName, now);
-    return { status: 'ready', liveStatus: 'ready', result, message: outcome.message, retainedCount: retained };
+    return { status: 'ready', liveStatus: 'ready', result, message: outcome.message, retainedCount: retained, ...report };
   }
   if (previous?.result) {
     const kept = previous.result.collectedAt;
@@ -117,9 +129,21 @@ export function applyOutcome(
       status: 'ready',
       liveStatus: outcome.status,
       message: `Сохранён сбор${kept ? ` от ${timeLabel(kept)}` : ''}. Сейчас: ${outcome.message}`,
+      ...report,
     };
   }
-  return { status: outcome.status, liveStatus: outcome.status, result: null, message: outcome.message };
+  return { status: outcome.status, liveStatus: outcome.status, result: null, message: outcome.message, ...report };
+}
+
+/** Banks whose latest clicked collection was incomplete, for the export message. */
+export function incompleteBanks(
+  bankIds: BankId[],
+  views: Partial<Record<BankId, BankView>>,
+  bankName: (id: BankId) => string,
+): string[] {
+  return bankIds
+    .filter((id) => views[id]?.result?.categories.length && views[id]?.issues?.length)
+    .map(bankName);
 }
 
 export const COLLECTED_STORAGE_KEY = 'cashflowCollectedCategories';

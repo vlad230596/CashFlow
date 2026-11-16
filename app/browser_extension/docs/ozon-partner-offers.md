@@ -1,5 +1,9 @@
 # Партнёрский кэшбэк Ozon Банка
 
+Здесь описаны только партнёрские акции. Месячные категории Ozon, их две страницы и
+причины неполного сбора, которые показывает боковая панель, — в
+[bank-cashback-parsing.md](bank-cashback-parsing.md#ozon-банк).
+
 Исследовательский сборщик: `app/scripts/collect_ozon_partner_offers.mjs`. Он подключается к авторизованной вкладке Ozon Банка через Chrome DevTools Protocol (порт `9223`) и открывает каталог `https://finance.ozon.ru/lk/promotions?filter=all`. Запуск из `app`:
 
 ```powershell

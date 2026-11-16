@@ -1,4 +1,4 @@
-import { findBank, type BankDefinition } from '../banks/registry';
+import { findBank, type BankDefinition, type CollectPage } from '../banks/registry';
 import { mergeBankProbes } from './category-merge';
 import type { BankId, PageProbe, ProbeMode } from './types';
 import type { ProbeResponse } from './probe-runner';
@@ -8,9 +8,14 @@ import type { ProbeResponse } from './probe-runner';
  * SPA/full navigations and missing content scripts, and never hangs.
  */
 
+/**
+ * `issues` is set only by a clicked (thorough) collection: one Russian line
+ * per page that gave no or incomplete categories, with the reason. An empty
+ * array means that collection found nothing to report.
+ */
 export type BankProbeOutcome =
-  | { status: 'ready'; probe: PageProbe; message: string | null }
-  | { status: 'auth' | 'waiting' | 'error'; probe: null; message: string };
+  | { status: 'ready'; probe: PageProbe; message: string | null; issues?: string[] }
+  | { status: 'auth' | 'waiting' | 'error'; probe: null; message: string; issues?: string[] };
 
 type Tab = { id?: number; url?: string; title?: string; status?: string };
 
@@ -27,32 +32,53 @@ export type BackgroundPageOptions = {
 
 export const BACKGROUND_PAGE_OPTIONS: BackgroundPageOptions = { loadTimeoutMs: 20_000, pollMs: 300 };
 
+/** A collection page the panel opened in a background tab. */
+export type OpenedPage = {
+  page: CollectPage;
+  /** Null when the tab could not be created. */
+  id: number | null;
+  /** Where the tab ended up, e.g. a sign-in page instead of the category list. */
+  url: string | null;
+  loaded: boolean;
+};
+
 /**
  * Opens, in background tabs, the bank's collection pages that no open tab
  * shows. Only a clicked (thorough) collection does this; automatic probes
- * never open, navigate or reload tabs. Returns the ids of the opened tabs.
+ * never open, navigate or reload tabs.
  */
 export async function openMissingCollectPages(
   bank: BankDefinition,
   tabs: Tab[],
   options: BackgroundPageOptions = BACKGROUND_PAGE_OPTIONS,
-): Promise<number[]> {
+): Promise<OpenedPage[]> {
   const missing = (bank.collectPages ?? [])
     .filter((page) => !tabs.some((tab) => tab.url?.includes(page.match)));
-  const opened: number[] = [];
+  const opened: OpenedPage[] = [];
   for (const page of missing) {
     try {
       const tab = await browser.tabs.create({ url: page.url, active: false }) as Tab;
-      if (tab.id != null) opened.push(tab.id);
+      opened.push({ page, id: tab.id ?? null, url: tab.url ?? null, loaded: false });
     } catch {
-      // A page that cannot be opened is simply not read.
+      // A page that cannot be opened is reported, not read.
+      opened.push({ page, id: null, url: null, loaded: false });
     }
   }
   const deadline = Date.now() + options.loadTimeoutMs;
-  for (const id of opened) {
-    while (Date.now() < deadline) {
-      const current = await browser.tabs.get(id).catch(() => null) as Tab | null;
-      if (!current || current.status === 'complete') break;
+  for (const entry of opened) {
+    if (entry.id == null) continue;
+    for (;;) {
+      const current = await browser.tabs.get(entry.id).catch(() => null) as Tab | null;
+      if (!current) {
+        entry.url = null;
+        break;
+      }
+      entry.url = current.url ?? entry.url;
+      if (current.status === 'complete') {
+        entry.loaded = true;
+        break;
+      }
+      if (Date.now() >= deadline) break;
       await sleep(options.pollMs);
     }
   }
@@ -69,7 +95,9 @@ export type ProbeClientOptions = {
 
 export const PROBE_CLIENT_OPTIONS: Record<ProbeMode, ProbeClientOptions> = {
   passive: { timeoutMs: 12_000, retries: 1, retryDelayMs: 600 },
-  thorough: { timeoutMs: 25_000, retries: 4, retryDelayMs: 900 },
+  // Background tabs (Ozon) run timers at most once a second, so a capture,
+  // a scroll walk and several detail sheets there can take well over 25 s.
+  thorough: { timeoutMs: 45_000, retries: 4, retryDelayMs: 900 },
 };
 
 export const isLoginUrl = (url: string) =>
@@ -200,27 +228,139 @@ export async function probeBank(
   const bank = findBank(bankId);
   let tabs = (await browser.tabs.query({ url: bank.tabPatterns })) as Tab[];
   const opened = mode === 'thorough' ? await openMissingCollectPages(bank, tabs, backgroundOptions) : [];
+  const openedIds = opened.flatMap((entry) => entry.id != null ? [entry.id] : []);
   try {
-    if (opened.length) tabs = (await browser.tabs.query({ url: bank.tabPatterns })) as Tab[];
-    return await probeBankTabs(bank, tabs, mode);
+    if (openedIds.length) tabs = (await browser.tabs.query({ url: bank.tabPatterns })) as Tab[];
+    return await probeBankTabs(bank, tabs, mode, opened, backgroundOptions);
   } finally {
-    if (opened.length) await browser.tabs.remove(opened).catch(() => undefined);
+    if (openedIds.length) await browser.tabs.remove(openedIds).catch(() => undefined);
   }
 }
 
-async function probeBankTabs(bank: BankDefinition, tabs: Tab[], mode: ProbeMode): Promise<BankProbeOutcome> {
+function shortUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+function tabLabel(bank: BankDefinition, url: string): string {
+  const page = bank.collectPages?.find((candidate) => url.includes(candidate.match));
+  if (page) return page.label;
+  try {
+    return new URL(url).pathname || url;
+  } catch {
+    return url || 'вкладка';
+  }
+}
+
+export type TabResult = { tab: Tab; result: TabProbeResult };
+
+function resultIssue(label: string, { tab, result }: TabResult): string | null {
+  if (result.kind === 'failed') {
+    return `${label}: ${result.noReceiver
+      ? 'расширение не подключилось к вкладке — обновите её'
+      : `страница не ответила${result.error ? ` (${result.error})` : ''}`}`;
+  }
+  const { probe } = result;
+  const notes = probe.notes ?? [];
+  if (!probe.categories.length) {
+    if (probe.authenticationStatus === 'authentication_required' || isAuthenticationTab(tab)) {
+      return `${label}: требуется вход`;
+    }
+    return `${label}: категорий нет${notes.length ? ` — ${notes.join('; ')}` : ''}`;
+  }
+  if (notes.length) return `${label}: ${notes.join('; ')}`;
+  if (probe.capture?.stable === false) return `${label}: список ещё догружался и может быть неполным`;
+  return null;
+}
+
+function categoryCount({ result }: TabResult): number {
+  return result.kind === 'probe' ? result.probe.categories.length : -1;
+}
+
+/**
+ * Per-page problems of a clicked collection. For banks whose categories span
+ * several pages (Ozon) every page is accounted for, so a page that timed out,
+ * redirected to sign-in or showed no list is no longer hidden behind the
+ * other page's categories.
+ */
+export function collectionIssues(
+  bank: BankDefinition,
+  tabResults: TabResult[],
+  opened: OpenedPage[],
+  response: PageProbe | undefined,
+  backgroundOptions: BackgroundPageOptions = BACKGROUND_PAGE_OPTIONS,
+): string[] {
+  const issues: string[] = [];
+  const urlOf = ({ tab, result }: TabResult) => result.kind === 'probe' ? result.probe.url : tab.url ?? '';
+  const add = (issue: string | null) => {
+    if (issue && !issues.includes(issue)) issues.push(issue);
+  };
+  if (bank.collectPages) {
+    for (const page of bank.collectPages) {
+      const matching = tabResults
+        .filter((entry) => urlOf(entry).includes(page.match))
+        .sort((left, right) => categoryCount(right) - categoryCount(left));
+      if (matching.length) {
+        add(resultIssue(page.label, matching[0]!));
+        continue;
+      }
+      const entry = opened.find((candidate) => candidate.page === page);
+      if (!entry) add(`${page.label}: страница не открыта`);
+      else if (entry.id == null) add(`${page.label}: не удалось открыть страницу в фоновой вкладке`);
+      else if (entry.url && !entry.url.includes(page.match)) {
+        add(`${page.label}: фоновая вкладка открыла ${shortUrl(entry.url)} вместо страницы категорий` +
+          (isLoginUrl(entry.url) ? ' — требуется вход в банк' : ''));
+      } else if (!entry.loaded) {
+        add(`${page.label}: страница не загрузилась за ${Math.round(backgroundOptions.loadTimeoutMs / 1000)} с`);
+      } else {
+        add(`${page.label}: вкладка закрылась или не ответила`);
+      }
+    }
+    return issues;
+  }
+  if (response?.categories.length) {
+    const chosen = tabResults.find(({ result }) => result.kind === 'probe' && result.probe === response);
+    if (chosen) add(resultIssue(tabLabel(bank, response.url), chosen));
+    return issues;
+  }
+  for (const entry of tabResults) add(resultIssue(tabLabel(bank, urlOf(entry)), entry));
+  return issues;
+}
+
+export const NO_CATEGORIES_MESSAGE = '«Собрать все» не нашёл категорий — причины ниже';
+
+async function probeBankTabs(
+  bank: BankDefinition,
+  tabs: Tab[],
+  mode: ProbeMode,
+  opened: OpenedPage[] = [],
+  backgroundOptions: BackgroundPageOptions = BACKGROUND_PAGE_OPTIONS,
+): Promise<BankProbeOutcome> {
   const bankId = bank.id;
+  const thorough = mode === 'thorough';
+  const withIssues = <T extends BankProbeOutcome>(outcome: T, tabResults: TabResult[], response?: PageProbe): T =>
+    thorough ? { ...outcome, issues: collectionIssues(bank, tabResults, opened, response, backgroundOptions) } : outcome;
+
   if (!tabs.length) {
-    return {
+    if (opened.some((entry) => entry.url && isLoginUrl(entry.url))) {
+      return withIssues({ status: 'auth', probe: null, message: 'Требуется авторизация' }, []);
+    }
+    return withIssues({
       status: 'waiting',
       probe: null,
       message: bank.collectPages
         ? 'Вкладка банка не открыта — «Собрать все» откроет страницы категорий в фоне'
         : 'Вкладка банка не открыта',
-    };
+    }, []);
   }
 
-  const results = await Promise.all(tabs.filter((tab) => tab.id != null).map((tab) => probeTab(tab, bankId, mode)));
+  const withId = tabs.filter((tab) => tab.id != null);
+  const results = await Promise.all(withId.map((tab) => probeTab(tab, bankId, mode)));
+  const tabResults = withId.map((tab, index) => ({ tab, result: results[index]! }));
   const probes = results.flatMap((result) => result.kind === 'probe' ? [result.probe] : []);
   // Banks whose categories span several pages are merged; otherwise the most
   // complete tab wins (other tabs may show a login or an unrelated page).
@@ -232,40 +372,47 @@ async function probeBankTabs(bank: BankDefinition, tabs: Tab[], mode: ProbeMode)
     : bestProbe(probes, bank.preferredUrlParts);
 
   if (!response) {
-    if (tabs.some(isAuthenticationTab)) return { status: 'auth', probe: null, message: 'Требуется авторизация' };
+    if (tabs.some(isAuthenticationTab)) {
+      return withIssues({ status: 'auth', probe: null, message: 'Требуется авторизация' }, tabResults);
+    }
     const failure = results.find((result) => result.kind === 'failed');
     const reason = failure?.kind === 'failed' ? failure.error : '';
-    return {
+    return withIssues({
       status: 'error',
       probe: null,
       message: failure?.kind === 'failed' && failure.noReceiver
         ? 'Расширение не подключилось к вкладке — обновите её'
         : `Страница банка не ответила${reason ? `: ${reason}` : ''}`,
-    };
+    }, tabResults);
   }
   if (
     response.authenticationStatus === 'authentication_required' ||
     (response.categories.length === 0 && tabs.some(isAuthenticationTab))
   ) {
-    return { status: 'auth', probe: null, message: 'Требуется авторизация' };
+    return withIssues({ status: 'auth', probe: null, message: 'Требуется авторизация' }, tabResults);
   }
   if (response.categories.length === 0) {
     const selectionPage = probes.some((probe) => probe.capture?.selectionPage);
+    // A multi-page bank (Ozon) read every page after the click; its empty
+    // selection page is one of the reasons, not the explanation.
+    if (selectionPage && !(thorough && bank.collectPages)) {
+      return withIssues({ status: 'waiting', probe: null, message: SELECTION_PAGE_MESSAGE }, tabResults);
+    }
+    // After a click an empty result is a failure with reasons, not a silent wait.
+    if (thorough) return withIssues({ status: 'error', probe: null, message: NO_CATEGORIES_MESSAGE }, tabResults);
     return {
       status: 'waiting',
       probe: null,
-      message: selectionPage
-        ? SELECTION_PAGE_MESSAGE
-        : bank.collectPages && mode === 'passive'
-          ? 'Ожидаю страницу категорий — «Собрать все» откроет нужные страницы в фоне'
-          : 'Ожидаю страницу категорий',
+      message: bank.collectPages
+        ? 'Ожидаю страницу категорий — «Собрать все» откроет нужные страницы в фоне'
+        : 'Ожидаю страницу категорий',
     };
   }
-  return {
+  return withIssues({
     status: 'ready',
     probe: response,
     message: response.capture && !response.capture.stable
       ? 'Страница ещё догружалась — список может быть неполным, нажмите «Собрать все» ещё раз'
       : null,
-  };
+  }, tabResults, response);
 }

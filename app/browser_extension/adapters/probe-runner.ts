@@ -49,6 +49,12 @@ export type ProbeSource = {
   enrich?(categories: CashbackCategory[], mode: ProbeMode): Promise<CashbackCategory[]>;
   /** Final adjustments to the probe (for example API-provided limits). */
   finish?(probe: PageProbe): PageProbe;
+  /**
+   * Explains, in Russian, why this page gave no or incomplete categories
+   * (list container missing, cards not recognised, detail sheets unread).
+   * Passive: must not click or navigate. Shown in the side panel.
+   */
+  diagnose?(probe: PageProbe): string[];
   /** Thorough probes walk the page's scroll range to render lazy rows. */
   scrollLazyContent?: boolean;
 };
@@ -243,8 +249,18 @@ export async function runProbe(
       enriched = categories;
     }
   }
-  const probe = { ...buildPageProbe(source.bankId, enriched), capture };
-  return source.finish ? source.finish(probe) : probe;
+  const built = { ...buildPageProbe(source.bankId, enriched), capture };
+  const probe = source.finish ? source.finish(built) : built;
+  let notes: string[] = [];
+  try {
+    notes = source.diagnose?.(probe) ?? [];
+  } catch (error) {
+    notes = [`диагностика страницы не удалась: ${String(error)}`];
+  }
+  if (!probe.categories.length && !notes.length) {
+    notes = [`на странице не найдено ни одной категории за ${Math.round(capture.waitedMs / 1000)} с`];
+  }
+  return notes.length ? { ...probe, notes } : probe;
 }
 
 /**

@@ -41,6 +41,13 @@ button.success { grid-column: 1 / -1; background: #14804a; }
 .status { padding: 3px 7px; border-radius: 999px; color: #526174; background: #edf1f6; font-size: 10px; white-space: nowrap; }
 .bank-auth .status { color: #a20e0e; background: #fee2e2; }
 .bank-ready .status { color: #08733d; background: #dcfce7; }
+.bank-partial { border-color: #fcd34d; border-left-color: #d97706; background: #fffbeb; }
+.bank-partial .status, .bank-error .status { color: #92400e; background: #fef3c7; }
+.collection-issues { margin: 9px 0 0; padding: 7px 9px; border-radius: 8px; color: #92400e; background: #fef3c7; font-size: 12px; }
+.bank-error .collection-issues { color: #b42318; background: #fef3f2; }
+.collection-issues ul { margin: 4px 0 0; padding-left: 16px; }
+.collection-issues li { margin-top: 2px; line-height: 1.35; overflow-wrap: anywhere; }
+.header-warning { color: #b45309; font-weight: 600; }
 .link-button { padding: 5px 8px; color: #2563eb; background: transparent; }
 .message, .summary { margin: 9px 0 0; color: #667085; font-size: 12px; }
 details { margin-top: 9px; }

@@ -33,6 +33,20 @@ whichever of them no tab shows in a background tab, reads it, closes it and
 merges both results. A later read without the detail sheet keeps a cap read
 earlier. Owner's own Ozon tab is not navigated.
 
+## Incomplete collection is shown, not hidden
+
+After **Собрать все** every bank reports, per page, why it gave no or
+incomplete categories (`BankProbeOutcome.issues`, built by `collectionIssues`
+in `adapters/probe-client.ts`). Content scripts explain what their page showed
+through `ProbeSource.diagnose` (`PageProbe.notes`); a page without categories
+and without its own diagnosis gets a generic note. For a bank with
+`collectPages` (Ozon) each page is accounted for: a timeout, a background tab
+that landed on sign-in or another route, a missing list, unread detail sheets
+or a summary of another month. The bank card then turns amber with
+«Собрано не всё» (or «Ошибка» with «Почему нет категорий» when nothing was
+found) and lists the reasons; the header and the JSON-saved message name such
+banks. Automatic probes keep the report until the next click.
+
 The side panel also has a **Собрать расширенные предложения** button. It reads
 partner and promotional offers from the authenticated bank tabs and adds them as
 `banks[].extendedOffers` to the existing schema-version-1 JSON export. Each offer

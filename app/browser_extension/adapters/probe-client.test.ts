@@ -139,11 +139,18 @@ describe('Ozon collection across pages', () => {
     ),
   };
 
-  function stubOzon(initialTabs: Array<{ id: number; url: string }>) {
+  type OzonBehaviour = {
+    redirect?: Record<string, string>;
+    fail?: string[];
+    pages?: Record<string, PageProbe>;
+  };
+
+  function stubOzon(initialTabs: Array<{ id: number; url: string }>, behaviour: OzonBehaviour = {}) {
     const tabs = [...initialTabs];
     let nextId = 100;
     const create = vi.fn(async ({ url }: { url: string; active: boolean }) => {
-      const tab = { id: nextId++, url, status: 'complete' };
+      // A background tab may land elsewhere, e.g. on a sign-in page.
+      const tab = { id: nextId++, url: behaviour.redirect?.[url] ?? url, status: 'complete' };
       tabs.push(tab);
       return tab;
     });
@@ -152,7 +159,8 @@ describe('Ozon collection across pages', () => {
     });
     stubBrowser(async (tabId) => {
       const tab = tabs.find((candidate) => candidate.id === tabId)!;
-      return pages[tab.url] ?? ozonProbe(tab.url, []);
+      if (behaviour.fail?.includes(tab.url)) throw new Error('Страница не ответила за 45 с');
+      return behaviour.pages?.[tab.url] ?? pages[tab.url] ?? ozonProbe(tab.url, []);
     }, {
       query: vi.fn(async () => tabs.map((tab) => ({ ...tab }))),
       get: vi.fn(async (tabId: number) => tabs.find((tab) => tab.id === tabId)),
@@ -188,6 +196,56 @@ describe('Ozon collection across pages', () => {
     ]);
     await probeBank('ozon', 'thorough', fastPages);
     expect(create.mock.calls.map(([options]) => options.url)).toEqual(['https://finance.ozon.ru/lk/cashback']);
+  });
+
+  const cashbackUrl = 'https://finance.ozon.ru/lk/cashback';
+  const favoriteUrl = 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true';
+
+  it('reports nothing when both pages gave categories', async () => {
+    stubOzon([{ id: 1, url: 'https://finance.ozon.ru/lk/main' }]);
+    const outcome = await probeBank('ozon', 'thorough', fastPages);
+    expect(outcome).toMatchObject({ status: 'ready', issues: [] });
+  });
+
+  it('does not hide a page that timed out behind the other page\'s categories', async () => {
+    stubOzon([{ id: 1, url: 'https://finance.ozon.ru/lk/main' }], { fail: [cashbackUrl] });
+    const outcome = await probeBank('ozon', 'thorough', fastPages);
+    expect(outcome.status).toBe('ready');
+    expect(outcome.probe?.categories).toHaveLength(2);
+    expect(outcome.issues).toEqual(['Кешбэк месяца: страница не ответила (Страница не ответила за 45 с)']);
+  });
+
+  it('reports a background tab that landed on a sign-in page', async () => {
+    stubOzon([{ id: 1, url: 'https://finance.ozon.ru/lk/main' }], {
+      redirect: { [cashbackUrl]: 'https://id.ozon.ru/ozonid/login?return=lk' },
+    });
+    const outcome = await probeBank('ozon', 'thorough', fastPages);
+    expect(outcome.status).toBe('ready');
+    expect(outcome.issues).toEqual([
+      'Кешбэк месяца: фоновая вкладка открыла id.ozon.ru/ozonid/login вместо страницы категорий — требуется вход в банк',
+    ]);
+  });
+
+  it('turns an empty clicked collection into an error with each page\'s reason', async () => {
+    const noList = { ...ozonProbe(cashbackUrl, []), notes: ['блок «Категории в …» не найден (нет categories-container)'] };
+    stubOzon([{ id: 1, url: 'https://finance.ozon.ru/lk/main' }], {
+      pages: { [cashbackUrl]: noList },
+      fail: [favoriteUrl],
+    });
+    const outcome = await probeBank('ozon', 'thorough', fastPages);
+    expect(outcome.status).toBe('error');
+    expect(outcome.message).toMatch(/не нашёл категорий/);
+    expect(outcome.issues).toEqual([
+      'Кешбэк месяца: категорий нет — блок «Категории в …» не найден (нет categories-container)',
+      'Выбор категорий: страница не ответила (Страница не ответила за 45 с)',
+    ]);
+  });
+
+  it('passes on the page\'s own notes, e.g. unread detail sheets', async () => {
+    const withNotes = { ...pages[cashbackUrl]!, notes: ['не прочитаны условия и лимит: 5% Тестовое обучение'] };
+    stubOzon([{ id: 1, url: 'https://finance.ozon.ru/lk/main' }], { pages: { [cashbackUrl]: withNotes } });
+    const outcome = await probeBank('ozon', 'thorough', fastPages);
+    expect(outcome.issues).toEqual(['Кешбэк месяца: не прочитаны условия и лимит: 5% Тестовое обучение']);
   });
 
   it('never opens tabs during automatic collection', async () => {

@@ -1,5 +1,13 @@
 import type { BankId } from '../adapters/types';
 
+export type CollectPage = {
+  url: string;
+  /** URL fragment that identifies the page in any tab. */
+  match: string;
+  /** Russian name shown in the side panel next to the page's problems. */
+  label: string;
+};
+
 export type BankDefinition = {
   id: BankId;
   name: string;
@@ -11,7 +19,7 @@ export type BankDefinition = {
    * opens the missing ones in background tabs, reads them and closes them
    * again, so the user's own tab is never navigated. Results are merged.
    */
-  collectPages?: Array<{ url: string; match: string }>;
+  collectPages?: CollectPage[];
 };
 
 export const BANKS: BankDefinition[] = [
@@ -54,8 +62,12 @@ export const BANKS: BankDefinition[] = [
     // The saved month (with each category's cap in its detail sheet) and the
     // choice for the month are two different routes.
     collectPages: [
-      { url: 'https://finance.ozon.ru/lk/cashback', match: '/lk/cashback' },
-      { url: 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true', match: '/lk/favorite-categories' },
+      { url: 'https://finance.ozon.ru/lk/cashback', match: '/lk/cashback', label: 'Кешбэк месяца' },
+      {
+        url: 'https://finance.ozon.ru/lk/favorite-categories-v3?type=current&fromHome=true',
+        match: '/lk/favorite-categories',
+        label: 'Выбор категорий',
+      },
     ],
   },
   {

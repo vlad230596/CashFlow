@@ -1,5 +1,6 @@
-import { enrichOzonDescriptions, extractOzonCashbackCategories } from '../adapters/ozon/cashback';
+import { diagnoseOzonPage, enrichOzonDescriptions, extractOzonCashbackCategories } from '../adapters/ozon/cashback';
 import { registerProbeListener } from '../adapters/probe-runner';
+import { currentPageIsSelection } from '../adapters/selection-page';
 
 export default defineContentScript({
   matches: ['https://finance.ozon.ru/*'],
@@ -18,6 +19,9 @@ export default defineContentScript({
         return Boolean(button);
       },
       enrich: (categories) => enrichOzonDescriptions(categories, descriptions),
+      // The month's choice list is only read: no banner click, no sheets.
+      isSelectionPage: () => currentPageIsSelection('ozon'),
+      diagnose: (probe) => diagnoseOzonPage(probe.categories),
       scrollLazyContent: true,
     });
   },

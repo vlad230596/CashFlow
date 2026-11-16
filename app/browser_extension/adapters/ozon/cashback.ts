@@ -88,7 +88,7 @@ export function isOzonSavedCategorySummary(
   pathname: string,
   hasSelectionControls: boolean,
 ): boolean {
-  return pathname === '/lk/cashback' &&
+  return pathname.replace(/\/+$/, '') === '/lk/cashback' &&
     /^Категории в\s+/i.test(heading ?? '') &&
     showsCurrentCashbackMonth(heading ?? '') && !hasSelectionControls;
 }
@@ -193,6 +193,72 @@ export function extractOzonCashbackCategories(
   }
 
   return categories;
+}
+
+const FAVORITE_ROUTE = '/lk/favorite-categories';
+const CASHBACK_ROUTE = '/lk/cashback';
+
+/**
+ * Why an Ozon page gave no or incomplete categories, in the side panel's
+ * words. Only reads the DOM. `categories` is the final (enriched) result of
+ * this page.
+ */
+export function diagnoseOzonPage(
+  categories: Pick<OzonCashbackCategory, 'name' | 'percentLabel' | 'description' | 'confirmed'>[],
+  root: ParentNode = document,
+  pathname: string = typeof location === 'undefined' ? '' : location.pathname,
+): string[] {
+  const path = pathname.replace(/\/+$/, '');
+  const titleCount = (scope: ParentNode) => [...scope.querySelectorAll<HTMLElement>('div, span, p, h1, h2, h3')]
+    .filter((element) => element.children.length === 0 && parseOzonCategoryTitle(element.textContent ?? '') != null)
+    .length;
+
+  if (path.startsWith(FAVORITE_ROUTE)) {
+    const list = root.querySelector('[data-testid="favorite-category-list"]');
+    if (!list) {
+      return ['список выбора категорий не найден (нет favorite-category-list) — страница не догрузилась ' +
+        'или Ozon изменил вёрстку'];
+    }
+    if (!categories.length) {
+      return [titleCount(list)
+        ? 'карточки списка выбора найдены, но не разобраны'
+        : 'список выбора пуст или карточки не в формате «N% Название»'];
+    }
+    return [];
+  }
+
+  if (path === CASHBACK_ROUTE) {
+    const container = root.querySelector<HTMLElement>('[data-testid="categories-container"]');
+    if (!container) {
+      return ['блок «Категории в …» не найден (нет categories-container) — страница не догрузилась, ' +
+        'категории на месяц ещё не выбраны или Ozon изменил вёрстку'];
+    }
+    const notes: string[] = [];
+    const items = container.querySelectorAll('[data-testid="carousel-item"]').length;
+    if (!categories.length) {
+      notes.push(!items
+        ? 'блок категорий есть, но карточек в нём нет (нет carousel-item)'
+        : `карточек ${items}, но ни одна не в формате «N% Название»`);
+      return notes;
+    }
+    const heading = findCategoryGroup(container);
+    if (heading && !showsCurrentCashbackMonth(heading)) {
+      notes.push(`блок показывает «${heading}», а не текущий месяц — категории не отмечены как подтверждённые`);
+    }
+    if (items > categories.length) {
+      notes.push(`разобрано ${categories.length} из ${items} карточек`);
+    }
+    const withoutDetails = categories.filter((category) => !category.description);
+    if (withoutDetails.length) {
+      notes.push(`не прочитаны условия и лимит: ${withoutDetails.map((category) =>
+        `${category.percentLabel ?? ''} ${category.name}`.trim()).join(', ')}`);
+    }
+    return notes;
+  }
+
+  return categories.length ? [] : [
+    `открыта страница ${path || '/'}; категории Ozon находятся на ${CASHBACK_ROUTE} и ${FAVORITE_ROUTE}-v3`,
+  ];
 }
 
 const SHEET_SELECTOR = '[class*="bottom-sheet-main"], [role="dialog"], [aria-modal="true"]';

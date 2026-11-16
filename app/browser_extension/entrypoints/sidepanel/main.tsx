@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { strToU8, zipSync } from 'fflate';
 import type { BankId, CashbackCategory, CashbackImportBankResult, CashbackImportDocument, CashbackSelectionPlanCategory, CashbackSelectionPlanDocument, ProbeMode } from '../../adapters/types';
 import { isAuthenticationTab, probeBank, type BankProbeOutcome } from '../../adapters/probe-client';
-import { applyOutcome, buildImportDocument, COLLECTED_STORAGE_KEY, emptyBankView, exportGaps, restoreViews, serializeImportDocument, serializeViews, type BankView } from '../../adapters/collected-results';
+import { applyOutcome, buildImportDocument, COLLECTED_STORAGE_KEY, emptyBankView, exportGaps, incompleteBanks, restoreViews, serializeImportDocument, serializeViews, type BankView } from '../../adapters/collected-results';
 import { DEFAULT_BANK_IDS, findBank } from '../../banks/registry';
 import { collectExtendedBank } from '../../adapters/extended/collect';
 import { extendedFreshness, type ExtendedFreshness } from '../../adapters/extended/freshness';
@@ -356,9 +356,12 @@ function App() {
   ), [bankIds, views, extended, freshness]);
 
   const readyCount = output.banks.filter((bank) => bank.collectionStatus === 'ready').length;
+  const incomplete = incompleteBanks(bankIds, views, (id) => findBank(id).name);
 
   const outputRef = useRef(output);
   outputRef.current = output;
+  const incompleteRef = useRef(incomplete);
+  incompleteRef.current = incomplete;
 
   async function downloadJson() {
     setExportMessage(null);
@@ -380,7 +383,8 @@ function App() {
       const gaps = exportGaps(document.banks);
       const exportedCount = document.banks.length - gaps.length;
       setExportMessage(`JSON сохранён: категории ${exportedCount} из ${document.banks.length} банков` +
-        (gaps.length ? `. Без категорий (будут пропущены при импорте): ${gaps.join(', ')}` : ''));
+        (gaps.length ? `. Без категорий (будут пропущены при импорте): ${gaps.join(', ')}` : '') +
+        (incompleteRef.current.length ? `. Собрано не всё: ${incompleteRef.current.join(', ')}` : ''));
     } catch (error) {
       setExportMessage(`JSON не сохранён: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -473,7 +477,7 @@ function App() {
 
   return <main>
     <header>
-      <div><h1>CashFlow Importer</h1><p>{readyCount} из {bankIds.length} банков готовы</p></div>
+      <div><h1>CashFlow Importer</h1><p>{readyCount} из {bankIds.length} банков готовы{incomplete.length > 0 && <span className="header-warning"> · собрано не всё: {incomplete.join(', ')}</span>}</p></div>
       <label className="auto-toggle"><input type="checkbox" checked={autoCollect} onChange={(event) => setAutoCollect(event.target.checked)} />Автосбор</label>
     </header>
     <div className="actions">
@@ -536,11 +540,18 @@ function App() {
       const result = view.result;
       const fresh = freshness[id];
       const extra = fresh.state === 'fresh' ? extended[id] : undefined;
-      return <article key={id} className={`bank bank-${view.status}`}>
+      const issues = view.issues ?? [];
+      const partial = view.status === 'ready' && issues.length > 0;
+      return <article key={id} className={`bank bank-${partial ? 'partial' : view.status}`}>
         <div className="bank-heading"><div><h2>{bank.name}</h2><span className="status">
-          {view.status === 'ready' && 'Готово'}{view.status === 'auth' && 'Нужен вход'}{view.status === 'collecting' && 'Сбор…'}{view.status === 'waiting' && 'Ожидание'}{view.status === 'error' && 'Ошибка'}
+          {view.status === 'ready' && (partial ? 'Собрано не всё' : 'Готово')}{view.status === 'auth' && 'Нужен вход'}{view.status === 'collecting' && 'Сбор…'}{view.status === 'waiting' && 'Ожидание'}{view.status === 'error' && 'Ошибка'}
         </span></div><button type="button" className="link-button" onClick={() => void openBank(id)}>Открыть</button></div>
         {view.message && <p className="message">{view.message}</p>}
+        {issues.length > 0 && <div className="collection-issues" role="status">
+          <strong>{view.result?.categories.length ? 'Не всё собрано' : 'Почему нет категорий'}
+            {view.issuesAt && ` («Собрать все» в ${new Date(view.issuesAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })})`}</strong>
+          <ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+        </div>}
         {!!view.retainedCount && <p className="message">Ещё {view.retainedCount} из прошлых проверок сохранены — последняя проверка их не показала («Собрать заново» сбросит)</p>}
         <ExtendedStatus freshness={fresh} thisSession={extendedUpdatedNow.has(id)} />
         {extra && fresh.state === 'fresh' && <details><summary>Расширенные предложения ({fresh.offers.length})</summary>

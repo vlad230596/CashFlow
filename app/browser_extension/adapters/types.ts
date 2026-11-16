@@ -57,6 +57,11 @@ export type PageProbe = {
   selection: CashbackSelection;
   categories: CashbackCategory[];
   capture?: ProbeCapture;
+  /**
+   * Why the page gave no or incomplete categories (Russian, for the side
+   * panel): missing list container, unrecognised cards, unread detail sheets.
+   */
+  notes?: string[];
 };
 
 export type CollectionStatus = 'waiting' | 'collecting' | 'ready' | 'auth' | 'error';
