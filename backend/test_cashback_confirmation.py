@@ -128,3 +128,50 @@ def test_ozon_import_keeps_the_category_cap(client):
         {**common, 'name': 'Тестовая химчистка', 'maxCashbackAmount': 800},
     ])
     assert caps() == {'Тестовое обучение': 1500.0, 'Тестовая химчистка': 800.0}
+
+
+def test_alfa_import_folds_latin_lookalikes_into_one_offer(client):
+    """Regression: Alfa renders «Kниги» with a Latin K; an older stored copy is healed.
+
+    The cleaned name matches the bank's MCC rules; the legacy row is renamed instead of
+    being duplicated. Values are synthetic.
+    """
+    headers = {'Authorization': f'Bearer {login(client)}'}
+
+    def post(path, data):
+        response = client.post('/api/' + path, json=data, headers=headers)
+        assert response.status_code in (200, 201), response.get_json()
+        return response.get_json()
+
+    bank = post('banks', {'name': 'Альфа'})
+    user = post('users', {'name': 'Owner'})
+    card = post('cards', {
+        'payment_system': 'Mir', 'card_type': 'physical',
+        'last_four_digits': '2468', 'bank_id': bank['id'], 'user_id': user['id'],
+    })
+    now = datetime.now()
+    start = datetime(now.year, now.month, 1)
+    with app.app_context():
+        db.session.add(CashbackCategory(
+            name='Kниги', start_date=start, end_date=start + timedelta(days=28),
+            cashback_percent=5, card_id=card['id'],
+        ))
+        db.session.commit()
+
+    result = post('cashback/import', {'user_id': user['id'], 'document': {
+        'schemaVersion': 1, 'generatedAt': now.isoformat(),
+        'banks': [{
+            'bankId': 'alfa', 'collectionStatus': 'ready',
+            'authenticationStatus': 'authenticated',
+            'selection': {'selectedCount': 1, 'maxSelectable': 3},
+            'categories': [
+                {'name': 'Kниги', 'percent': 5, 'selected': True},
+                {'name': 'Ювелирные издeлия', 'percent': 5, 'selected': False},
+                {'name': 'Фастфуд (Alfa Pay)', 'percent': 7, 'selected': False},
+            ],
+        }],
+    }})
+
+    assert result['imported_banks'][0]['categories'] == 3
+    names = sorted(item['name'] for item in client.get('/api/cashback', headers=headers).get_json())
+    assert names == ['Книги', 'Фастфуд (Alfa Pay)', 'Ювелирные изделия']

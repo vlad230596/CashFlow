@@ -14,8 +14,7 @@
  },
  "validity": {
   "from": "2026-10-01",
-  "to": "2026-11-01",
-  "confidence": "exact"
+  "confidence": "inferred"
  },
  "completeness": "exact_mcc",
  "globalExcludedMcc": [],
@@ -1411,6 +1410,23 @@
     }
    ],
    "completeness": "exact_mcc"
+  },
+  {
+   "sourceKey": "za-vse-pokupki",
+   "name": "За все покупки",
+   "description": "Любые покупки, кроме исключений. Нет кэшбэка за Яндекс Еду, Деливери и Яндекс Лавку",
+   "includedMcc": [],
+   "excludedMcc": [],
+   "conditions": [
+    {
+     "kind": "note",
+     "operator": null,
+     "value": null,
+     "originalText": "Любые покупки, кроме исключений. Нет кэшбэка за Яндекс Еду, Деливери и Яндекс Лавку"
+    }
+   ],
+   "completeness": "text_only",
+   "kind": "all_purchases"
   },
   {
    "sourceKey": "partner-keshbek-dlya-svoikh",

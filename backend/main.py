@@ -33,6 +33,7 @@ from business_time import iso_datetime as _iso_datetime
 from business_time import utc_now as _utc_now
 from canonical_categories import (
     compute_canonical_links,
+    fold_latin_lookalikes,
     normalize_category_name,
     resolve_canonical_by_name,
 )
@@ -4917,6 +4918,29 @@ def _clean_category_description(bank_id, description):
     return cleaned or None
 
 
+def _find_imported_category(card_id, name, start_date, category_type):
+    """The stored offer an imported category updates.
+
+    An older import may have kept Alfa's Latin lookalike letters ("Kниги"); such a row is
+    renamed to the cleaned name instead of being duplicated next to it.
+    """
+    candidates = CashbackCategory.query.filter_by(
+        card_id=card_id,
+        start_date=start_date,
+        category_type=category_type,
+    ).order_by(CashbackCategory.id).all()
+    exact = next((item for item in candidates if item.name == name), None)
+    if exact is not None:
+        return exact
+    legacy = next(
+        (item for item in candidates if fold_latin_lookalikes(item.name) == name),
+        None,
+    )
+    if legacy is not None:
+        legacy.name = name
+    return legacy
+
+
 @app.route('/api/cashback/import', methods=['POST'])
 def import_cashback():
     payload = request.get_json(silent=True) or {}
@@ -4973,7 +4997,7 @@ def import_cashback():
             ):
                 existing.is_bank_confirmed = False
             for imported in categories:
-                name = str(imported.get('name') or '').strip()
+                name = fold_latin_lookalikes(str(imported.get('name') or '').strip())
                 percent = imported.get('percent')
                 if not name or not isinstance(percent, (int, float)):
                     continue
@@ -4983,12 +5007,7 @@ def import_cashback():
                     generated_at,
                     imported.get('expiresInLabel'),
                 )
-                category = CashbackCategory.query.filter_by(
-                    card_id=card.id,
-                    name=name,
-                    start_date=start_date,
-                    category_type=category_type,
-                ).first()
+                category = _find_imported_category(card.id, name, start_date, category_type)
                 if category is None:
                     category = CashbackCategory(
                         card_id=card.id,

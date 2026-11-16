@@ -21,8 +21,10 @@ COLLECTED_AT = '2026-10-05T00:00:00+03:00'
 PROGRAMS = {
     'ozon': {'programKey': 'ozon-cashback', 'source': 'pdf',
              'validity': {'from': '2026-10-01', 'confidence': 'unknown'}},
+    # The document is October's, but Alfa's category MCC lists carry over from month to month.
+    # A closed window left every later Alfa offer without rules until a newer document arrives.
     'alfa': {'programKey': 'alfa-vygodno', 'source': 'pdf',
-             'validity': {'from': '2026-10-01', 'to': '2026-11-01', 'confidence': 'exact'}},
+             'validity': {'from': '2026-10-01', 'confidence': 'inferred'}},
     'vtb': {'programKey': 'vtb-multibonus', 'source': 'pdf',
             'validity': {'from': '2026-09-01', 'confidence': 'inferred'}},
     'tbank': {'programKey': 'tbank-black', 'source': 'pdf',
@@ -34,7 +36,7 @@ PROGRAMS = {
              'validity': {'from': '2026-10-01', 'confidence': 'unknown'}},
 }
 
-ALL_PURCHASES = {'Все остальные покупки', 'Все покупки', 'На всё', 'На все покупки'}
+ALL_PURCHASES = {'Все остальные покупки', 'Все покупки', 'За все покупки', 'На всё', 'На все покупки'}
 PAYMENT_METHODS = {
     'Яндекс Сплит', 'Оплата по СБП со Счёта в Яндексе',
     'Оплата через SberPay QR со Счёта в Яндексе', 'Оплата токеном Яндекс Пэй по NFC (Android)',

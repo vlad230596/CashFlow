@@ -157,9 +157,33 @@ NAME_RULES = [
 _COMPILED_NAME_RULES = [(re.compile(pattern), keys) for pattern, keys in NAME_RULES]
 
 
+# Alfa-Bank renders some category titles with Latin lookalikes inside Russian words ("Kниги",
+# "Цвeты", "Кафе и pестораны"), so the collected name is not equal to the one in its rules.
+_LATIN_LOOKALIKES = str.maketrans('AaBCcEeHKkMOoPpTXxYy', 'АаВСсЕеНКкМОоРрТХхУу')
+_LETTER_RUN = re.compile(r'[A-Za-zА-Яа-яЁё]+')
+_CYRILLIC = re.compile(r'[А-Яа-яЁё]')
+# Alfa names a monthly stackable bonus after its category: «Аптеки в ноябре».
+_MONTHLY_SUFFIX = re.compile(
+    r' в (?:январе|феврале|марте|апреле|мае|июне|июле|августе|сентябре|октябре|ноябре|декабре)$'
+)
+
+
+def fold_latin_lookalikes(value):
+    """Replace Latin lookalike letters inside words that also contain Cyrillic letters.
+
+    Purely Latin words such as "Alfa Pay" or "Ozon" are left untouched.
+    """
+    def fold(match):
+        word = match.group(0)
+        return word.translate(_LATIN_LOOKALIKES) if _CYRILLIC.search(word) else word
+
+    return _LETTER_RUN.sub(fold, str(value or ''))
+
+
 def normalize_category_name(value):
-    text = str(value or '').lower().replace('ё', 'е')
-    return re.sub(r'[^a-zа-я0-9]+', ' ', text).strip()
+    text = fold_latin_lookalikes(value).lower().replace('ё', 'е')
+    text = re.sub(r'[^a-zа-я0-9]+', ' ', text).strip()
+    return _MONTHLY_SUFFIX.sub('', text)
 
 
 def resolve_canonical_by_name(name):

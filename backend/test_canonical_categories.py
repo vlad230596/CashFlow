@@ -5,6 +5,7 @@ import pytest
 from canonical_categories import (
     compute_canonical_links,
     load_bundled_canonical_categories,
+    normalize_category_name,
     resolve_canonical_by_name,
     upsert_canonical_categories,
 )
@@ -358,6 +359,62 @@ def test_bundled_bank_rules_import_is_idempotent(client_and_headers):
     statuses = {row['bank']['name']: row['status'] for row in rail['banks']}
     assert statuses[BANK_IMPORT_NAMES['yandex']] == 'excluded'
     assert statuses[BANK_IMPORT_NAMES['tbank']] == 'category'
+
+
+@pytest.mark.parametrize(('name', 'expected'), [
+    # Alfa-Bank titles collected with Latin lookalikes inside Russian words.
+    ('Kниги', 'книги'),
+    ('Цвeты', 'цветы'),
+    ('Кафе и pестораны', 'кафе и рестораны'),
+    ('Ювелирные издeлия', 'ювелирные изделия'),
+    ('Bcё', 'все'),
+    # Monthly stackable bonuses are named after their category.
+    ('Kниги в ноябре', 'книги'),
+    ('Активный отдых в октябре', 'активный отдых'),
+    # Genuinely Latin words stay Latin.
+    ('Фастфуд(Alfa Pay)', 'фастфуд alfa pay'),
+    ('Lamoda', 'lamoda'),
+])
+def test_category_names_fold_latin_lookalikes(name, expected):
+    assert normalize_category_name(name) == expected
+
+
+def test_bundled_alfa_rules_cover_november_offers(client_and_headers):
+    """Regression: the October document closed on 2026-11-01, so November had no rules."""
+    client, headers, banks = client_and_headers
+    result = app.test_cli_runner().invoke(args=['import-bank-mcc-rules'])
+    assert result.exit_code == 0, result.output
+    owner = CardUser(name='Синтетический владелец')
+    db.session.add(owner)
+    db.session.flush()
+    card = BankCard(payment_system='Мир', card_type='virtual', last_four_digits='0000',
+                    bank_id=banks['alfa'], user_id=owner.id)
+    db.session.add(card)
+    db.session.flush()
+    start, end = datetime(2026, 11, 1), datetime(2026, 12, 1)
+    expected = {
+        'Kниги': 'Книги',
+        'Ювелирные издeлия': 'Ювелирные изделия',
+        'Oбразование': 'Образование',
+        'Аптеки в ноябре': 'Аптеки',
+        'Красота': 'Красота',
+        'За все покупки': 'За все покупки',
+    }
+    offers = {}
+    for name in expected:
+        offer = CashbackCategory(name=name, start_date=start, end_date=end,
+                                 cashback_percent=5, card_id=card.id)
+        db.session.add(offer)
+        db.session.flush()
+        offers[name] = offer.id
+    db.session.commit()
+
+    for name, rule_name in expected.items():
+        response = client.get(
+            f'/api/cashback/{offers[name]}/mcc-rules?as_of=2026-11-17', headers=headers,
+        )
+        assert response.status_code == 200, (name, response.get_json())
+        assert response.get_json()['category']['name'] == rule_name
 
 
 def test_import_skips_banks_that_are_not_configured(client_and_headers):

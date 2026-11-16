@@ -33,6 +33,16 @@ Alembic migration `0010_canonical_categories` loads it into `canonical_category`
   `vtb`, `tbank`, `yandex`, `sber`) resolved through `BANK_IMPORT_NAMES`, so the same files work in
   every environment.
 
+The Alfa-Bank document is October's («Категории в октябре»), but its category MCC lists carry
+over from month to month, so its snapshot is open-ended with `confidence: inferred` until a newer
+document is transcribed. The first import used a closed window (2026-10-01 to 2026-11-01), which
+left every November Alfa offer without rules; re-import publishes the open revision with the same
+start and supersedes the closed one. Alfa's «За все покупки» is an `all_purchases` category.
+
+Offers are tied to bank categories by `normalize_category_name`: case, «ё», punctuation, Latin
+lookalike letters inside Russian words («Kниги») and a monthly suffix («Аптеки в ноябре») are
+ignored.
+
 Import into a database with `flask --app main import-bank-mcc-rules` (all bundled files, published,
 idempotent; `--draft` keeps drafts, `--create-missing-banks` is for empty local databases), or
 upload one file per bank through «Ещё → Настройки MCC → Новый импорт» and publish after review.

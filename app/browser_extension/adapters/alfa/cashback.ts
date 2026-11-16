@@ -1,4 +1,5 @@
 import type { CashbackCategory } from '../types';
+import { foldLatinLookalikes } from '../category-name';
 import { showsCurrentCashbackMonth } from '../monthly-confirmation';
 
 export type AlfaCashbackCategory = CashbackCategory;
@@ -6,8 +7,10 @@ export type AlfaCashbackCategory = CashbackCategory;
 const confirmedItemSelector = '[data-test-id="category-cashback-confirmed-item"]';
 const savedItemSelector = `[data-test-id="chosen-category-item"], ${confirmedItemSelector}`;
 
+// Alfa mixes Latin lookalikes into Russian titles («Kниги»); fold them on read
+// so names match the bank's MCC rules and month subtitles are still recognised.
 function normalizeText(value: string | null | undefined): string {
-  return value?.replace(/\s+/g, ' ').trim() ?? '';
+  return foldLatinLookalikes(value?.replace(/\s+/g, ' ').trim() ?? '');
 }
 
 export function isAlfaMonthlySubtitle(value: string): boolean {
